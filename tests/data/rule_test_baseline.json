@@ -8018,15 +8018,7 @@
   "skipped": 0
  },
  "ml-IN": {
-  "failed_ids": [
-   "rule10[1]",
-   "rule17[1]",
-   "rule19[1]",
-   "rule20[1]",
-   "rule21[1]",
-   "rule22[1]",
-   "rule5[1]"
-  ],
+  "failed_ids": [],
   "skipped": 0
  },
  "nl": {

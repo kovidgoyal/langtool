@@ -402,8 +402,11 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Malayalam (code in langtool.lang.ml); its
+    # MorfologikMalayalamSpellerRule (after GenericUnpairedBracketsRule) is
+    # not ported (spell checking)
     'ml': dict(
-        name='Malayalam', countries=['IN'], variants=[V('ml-IN')],
+        name='Malayalam', countries=['IN'], variants=[V('ml-IN')], sentence_tokenizer='srx',
         tagger=dict(dict='ml/malayalam.dict', lowercase_with_uppercase=True),
         word_tokenizer='MalayalamWordTokenizer',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
