@@ -372,15 +372,24 @@ LANGUAGES = {
                R('IrishFGBEqReplaceRule'), R('EnglishHomophoneRule'), R('DhaNoBeirtRule'),
                R('DativePluralStandardReplaceRule'), R('IrishSpecificCaseRule')],
     ),
+    # org.languagetool.language.Galician (code in langtool.lang.gl); its
+    # HunspellRule (after GenericUnpairedBracketsRule) is not ported (spell
+    # checking)
     'gl': dict(
-        name='Galician', countries=['ES'], variants=[V('gl-ES')],
+        name='Galician', countries=['ES'], variants=[V('gl-ES')], sentence_tokenizer='srx',
         tagger=dict(dict='gl/galician.dict', lowercase_with_uppercase=True, impl='GalicianTagger'),
         synthesizer=dict(dict='gl/galician_synth.dict', tags='gl/galician_tags.txt'),
         word_tokenizer='GalicianWordTokenizer',
         disambiguator=[mw('gl/multiwords.txt'), xml()],
-        rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),
+        rules=[R('CommaWhitespaceRule',
+                 examples=('Tomamos café<marker> ,</marker> queixo, bolachas e uvas.',
+                           'Tomamos café<marker>,</marker> queixo, bolachas e uvas.')),
+               R('DoublePunctuationRule'),
                brackets(['[', '(', '{', '“', '«', '»', '‘', '"', "'"], [']', ')', '}', '”', '»', '«', '’', '"', "'"]),
-               R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule'), R('LongSentenceRule', max_words=50),
+               R('UppercaseSentenceStartRule',
+                 examples=('Esta casa é vella. <marker>foi</marker> construida en 1950.',
+                           'Esta casa é vella. <marker>Foi</marker> construida en 1950.')),
+               R('MultipleWhitespaceRule'), R('LongSentenceRule', max_words=50),
                R('LongParagraphRule'), R('SentenceWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'),
                R('WhiteSpaceAtBeginOfParagraph'), R('EmptyLineRule'), R('ParagraphRepeatBeginningRule'),
                R('PunctuationMarkAtParagraphEnd'), R('SimpleReplaceRule'), R('CastWordsRule'),

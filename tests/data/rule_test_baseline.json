@@ -6839,29 +6839,8 @@
   "skipped": 2
  },
  "gl-ES": {
-  "failed_ids": [
-   "AMBO_TRA_ENTRAMBO_PO_TODO_LOS[1]",
-   "AVOID_DECIMAL_APOSTROPHE[1]",
-   "CURRENCY[1]",
-   "CURRENCY[2]",
-   "CURRENCY[3]",
-   "ENUMERATION_AND_DASHES[1]",
-   "GENERAL_NUMBER_FORMAT[2]",
-   "GL_SMART_QUOTES[2]",
-   "HIPHEN_SPACE_RULES[1]",
-   "HIPHEN_SPACE_RULES[2]",
-   "PERCENT_WITHOUT_SPACE[1]",
-   "PERCENT_WITH_SPACE[2]",
-   "REPEATED_WORDS_3X[2]",
-   "TIME_FORMAT[1]",
-   "TIME_FORMAT[2]",
-   "TIME_FORMAT[3]",
-   "TIME_FORMAT[4]",
-   "YEAR_NUMBER_FORMAT[1]",
-   "YEAR_NUMBER_FORMAT[2]",
-   "YEAR_NUMBER_FORMAT[3]"
-  ],
-  "skipped": 1
+  "failed_ids": [],
+  "skipped": 0
  },
  "is-IS": {
   "failed_ids": [],
