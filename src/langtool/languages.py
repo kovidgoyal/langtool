@@ -488,13 +488,18 @@ LANGUAGES = {
                R('RussianWordCoherencyRule'), R('RussianWordRepeatRule'), R('RussianWordRootRepeatRule'),
                R('RussianVerbConjugationRule'), R('RussianDashRule'), R('RussianSpecificCaseRule')],
     ),
+    # org.languagetool.language.Slovak (code in langtool.lang.sk); its
+    # MorfologikSlovakSpellerRule (after CompoundRule) is not ported (spell
+    # checking)
     'sk': dict(
         name='Slovak', countries=['SK'], variants=[V('sk-SK')], extra_rule_files=['grammar-typography.xml'],
+        sentence_tokenizer='srx',
         tagger=dict(dict='sk/slovak.dict', lowercase_with_uppercase=True),
         synthesizer=dict(dict='sk/slovak_synth.dict', tags='sk/slovak_tags.txt'),
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),
                brackets(['[', '(', '{', '„', '»', '«', '"'], [']', ')', '}', '“', '«', '»', '"']),
-               R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule'), R('CompoundRule')],
+               R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule'),
+               R('CompoundRule')],
     ),
     # org.languagetool.language.Slovenian (code in langtool.lang.sl); its
     # MorfologikSlovenianSpellerRule (after GenericUnpairedBracketsRule) is
