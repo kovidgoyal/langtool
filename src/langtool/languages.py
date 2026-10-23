@@ -173,8 +173,11 @@ LANGUAGES = {
                R('ParagraphRepeatBeginningRule'), R('PunctuationMarkAtParagraphEnd2'), R('SimpleReplaceRule'),
                R('BelarusianSpecificCaseRule')],
     ),
+    # org.languagetool.language.Breton (code in langtool.lang.br); its
+    # MorfologikBretonSpellerRule (after DoublePunctuationRule) is not ported
+    # (spell checking)
     'br': dict(
-        name='Breton', countries=['FR'], variants=[V('br-FR')],
+        name='Breton', countries=['FR'], variants=[V('br-FR')], sentence_tokenizer='srx',
         tagger=dict(dict='br/breton.dict', lowercase_with_uppercase=True, impl='BretonTagger'),
         word_tokenizer='BretonWordTokenizer',
         disambiguator=[xml()],
