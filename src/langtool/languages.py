@@ -270,17 +270,27 @@ LANGUAGES = {
                        ('xml_of', 'de', True)],
         rules=[R('SimpleGermanLongSentenceRule')],
     ),
+    # org.languagetool.language.Greek (code in langtool.lang.el); its
+    # MorfologikGreekSpellerRule (after LongSentenceRule) is not ported
+    # (spell checking)
     'el': dict(
-        name='Greek', countries=['GR'], variants=[V('el-GR')],
+        name='Greek', countries=['GR'], variants=[V('el-GR')], sentence_tokenizer='srx',
         tagger=dict(dict='el/greek.dict', lowercase_with_uppercase=True, impl='GreekTagger'),
         synthesizer=dict(dict='el/greek_synth.dict', tags='el/greek_tags.txt'),
         word_tokenizer='GreekWordTokenizer',
         disambiguator=[xml()],
-        rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),
+        rules=[R('CommaWhitespaceRule',
+                 examples=('Το κόμμα χωρίζει προτάσεις<marker> ,</marker> όρους προτάσεων και φράσεις.',
+                           'Το κόμμα χωρίζει προτάσεις<marker>,</marker> όρους προτάσεων και φράσεις.')),
+               R('DoublePunctuationRule'),
                brackets(['[', '(', '{', '“', '"', '«'], [']', ')', '}', '”', '"', '»'], 'EL_UNPAIRED_BRACKETS'),
-               R('LongSentenceRule', max_words=50), R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule'),
-               R('GreekWordRepeatBeginningRule'), R('WordRepeatRule'), R('ReplaceHomonymsRule'),
-               R('GreekSpecificCaseRule'), R('NumeralStressRule'), R('GreekRedundancyRule')],
+               R('LongSentenceRule', max_words=50),
+               R('UppercaseSentenceStartRule',
+                 examples=('Η τελεία είναι σημείο στίξης. <marker>δείχνει</marker> το τέλος μίας πρότασης.',
+                           'Η τελεία είναι σημείο στίξης. <marker>Δείχνει</marker> το τέλος μίας πρότασης.')),
+               R('MultipleWhitespaceRule'), R('GreekWordRepeatBeginningRule'), R('WordRepeatRule'),
+               R('ReplaceHomonymsRule'), R('GreekSpecificCaseRule'), R('NumeralStressRule'),
+               R('GreekRedundancyRule')],
     ),
     'en': dict(
         name='English', countries=[], default_variant='en-US',

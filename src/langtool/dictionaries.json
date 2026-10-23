@@ -215,6 +215,23 @@
     "sha256": "87964131ec60455a71304b9b8c9ae96dbf62ac232f2185c2d3dd8b94cdccf17f",
     "size": 592541,
     "url": "https://repo1.maven.org/maven2/org/languagetool/language-el/6.8/language-el-6.8.jar"
+   },
+   {
+    "files": [
+     {
+      "name": "el/analysis.info",
+      "path": "org/ioperm/morphology/el/analysis.info",
+      "size": 114
+     },
+     {
+      "name": "el/analysis.dict",
+      "path": "org/ioperm/morphology/el/analysis.dict",
+      "size": 2929
+     }
+    ],
+    "sha256": "caa36b7e96fd4c1804b3f4763de803ce87468d86908087087814f7d47caee668",
+    "size": 13855,
+    "url": "https://repo1.maven.org/maven2/org/ioperm/morphology-el/1.0.0/morphology-el-1.0.0.jar"
    }
   ],
   "en": [

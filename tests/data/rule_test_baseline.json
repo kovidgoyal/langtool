@@ -3000,11 +3000,7 @@
   "skipped": 0
  },
  "el-GR": {
-  "failed_ids": [
-   "GREEK_ART_MASC_MISSING_N[1]",
-   "GREEK_MORE_ADJ_COMP[1]",
-   "GREEK_PREP_ART_MASC_MISSING_N[1]"
-  ],
+  "failed_ids": [],
   "skipped": 0
  },
  "en": {
