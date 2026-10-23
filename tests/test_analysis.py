@@ -147,3 +147,34 @@ def test_sentence_copy():
     words[1].immunize(999)  # this would not work if we stored a copy, which we probably should
     assert str(sentence) == '<S> word[lemma/POS{!}].[./INTERP,</S>]'
     assert sentence != copy_sentence
+
+
+def test_historical_annotations():
+    """AnalyzedTokenReadings.getHistoricalAnnotations and
+    AnalyzedSentence.getAnnotations: the disambiguator actions are only
+    recorded in verbose mode (GlobalConfig.isVerbose())"""
+    from langtool import global_config
+    atr = AnalyzedTokenReadings([AnalyzedToken('word', 'A', 'w')], 0)
+    atr.add_reading(AnalyzedToken('word', 'B', 'w'), 'RULE1')
+    assert atr.historical_annotations == ''
+    try:
+        global_config.set_verbose(True)
+        atr = AnalyzedTokenReadings([AnalyzedToken('word', 'A', 'w')], 0)
+        atr.add_reading(AnalyzedToken('word', 'B', 'w'), 'RULE1')
+        atr.add_reading(AnalyzedToken('word', 'C', 'w'), '')  # not recorded
+        atr.remove_reading(AnalyzedToken('word', 'A', 'w'), 'RULE2[1]')
+        new = AnalyzedTokenReadings.from_old(atr, [AnalyzedToken('word', 'C', 'w')], 'RULE3')
+        assert new.historical_annotations == (
+            '\nRULE1: word[w/A*] -> word[w/A*,w/B*]'
+            '\nRULE2[1]: word[w/A*,w/B*,w/C*] -> word[w/B*,w/C*]'
+            '\nRULE3: word[w/B*,w/C*] -> word[w/C*]')
+        # copies keep the history
+        assert AnalyzedTokenReadings.from_old(new, new.readings, '').historical_annotations == \
+            new.historical_annotations
+        start = AnalyzedTokenReadings([AnalyzedToken('', 'SENT_START', None)], 0)
+        space = AnalyzedTokenReadings([AnalyzedToken(' ', None, None)], 4)
+        space.add_reading(AnalyzedToken(' ', 'X', None), 'RULE4')
+        sentence = AnalyzedSentence([start, new, space])
+        assert sentence.get_annotations() == 'Disambiguator log: \n' + new.historical_annotations + '\n'
+    finally:
+        global_config.set_verbose(False)

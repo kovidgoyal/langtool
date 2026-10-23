@@ -6,6 +6,7 @@ AnalyzedSentence.
 
 import regex
 
+from . import global_config
 from ._base import AnalyzedTokenBase, AnalyzedTokenReadingsBase
 from .tools import is_whitespace
 
@@ -138,6 +139,10 @@ class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
             self.ignored_by_speller = True
         if old.typographic_apostrophe:
             self.typographic_apostrophe = True
+        if global_config._verbose:
+            self.historical_annotations = old.historical_annotations
+            if rule_applied:
+                self._add_historical_annotations(str(old), rule_applied)
         return self
 
     # --- queries ---
@@ -254,6 +259,7 @@ class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
     # --- modification ---
 
     def add_reading(self, token, rule_applied=''):
+        old_value = str(self) if rule_applied and global_config._verbose else None
         l = list(self.readings[:-1])
         if self.readings[-1].pos_tag is not None:
             l.append(self.readings[-1])
@@ -268,8 +274,11 @@ class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
         self.is_sentence_end = self.has_pos_tag(SENTENCE_END_TAGNAME)
         self._set_no_real_pos_tag()
         self.has_same_lemmas = self._are_lemmas_same()
+        if old_value is not None:
+            self._add_historical_annotations(old_value, rule_applied)
 
     def remove_reading(self, token, rule_applied=''):
+        old_value = str(self) if rule_applied and global_config._verbose else None
         tmp = AnalyzedToken(token.token, token.pos_tag, token.lemma)
         tmp.whitespace_before = self.whitespace_before
         l = []
@@ -294,6 +303,14 @@ class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
             self.is_paragraph_end = False
             self.set_paragraph_end()
         self.has_same_lemmas = self._are_lemmas_same()
+        if old_value is not None:
+            self._add_historical_annotations(old_value, rule_applied)
+
+    def _add_historical_annotations(self, old_value, rule_applied):
+        """Used to track disambiguator actions (only in verbose mode, see
+        langtool.global_config)."""
+        self.historical_annotations = '%s\n%s: %s -> %s' % (self.historical_annotations, rule_applied, old_value,
+                                                             self)
 
     def leave_reading(self, token):
         tmp = AnalyzedToken(token.token, token.pos_tag, token.lemma)
@@ -494,6 +511,16 @@ class AnalyzedSentence:
         return self.to_string(',', True)
 
     __repr__ = __str__
+
+    def get_annotations(self):
+        """The disambiguator log of the tokens (recorded only in verbose
+        mode, see langtool.global_config)."""
+        sb = ['Disambiguator log: \n']
+        for element in self.tokens:
+            if not element.is_whitespace and element.historical_annotations:
+                sb.append(element.historical_annotations)
+                sb.append('\n')
+        return ''.join(sb)
 
     def to_short_string(self, reading_delimiter):
         return self.to_string(reading_delimiter, False)

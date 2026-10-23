@@ -56,6 +56,80 @@ def test_check_string_with_callback_returns_false(lang):
     assert len(lt.check('This is my test.')) == 1
 
 
+def test_list_unknown_words(lang):
+    """JLanguageTool.setListUnknownWords/getUnknownWords"""
+    lt = JLanguageTool(lang)
+    with pytest.raises(RuntimeError):
+        lt.get_unknown_words()
+    lt.set_list_unknown_words(True)
+    lt.check('This is my test. This is your test.')
+    # the demo tagger tags no word: all non-whitespace tokens, sorted, without duplicates
+    assert lt.get_unknown_words() == ['.', 'This', 'is', 'my', 'test', 'your']
+    lt.check('Other')
+    assert lt.get_unknown_words() == ['Other']
+
+
+def test_set_output(lang):
+    """JLanguageTool.setOutput: prints the analyzed sentences and switches
+    the global verbose mode (disambiguator log) on"""
+    import io
+    from langtool import global_config
+    lt = JLanguageTool(lang)
+    out = io.StringIO()
+    try:
+        lt.set_output(out)
+        assert global_config.is_verbose()
+        lt.check('This is my test.')
+        a = lt.analyze_text('This is my test.')[0]
+        assert out.getvalue() == 2 * (str(a) + '\n' + a.get_annotations() + '\n')
+        # (the paragraph end reading is added by 'add_paragaph_end', as in Java)
+        assert a.get_annotations() == ('Disambiguator log: \n\nadd_paragaph_end: .[./SENT_END*] -> '
+                                       '.[./SENT_END*,./PARA_END*]\n')
+    finally:
+        lt.set_output(None)
+    assert not global_config.is_verbose()
+
+
+def test_correct_text_from_matches():
+    """Tools.correctTextFromMatches"""
+    from langtool.rules.base import RuleMatch
+    from langtool.tool import correct_text_from_matches
+
+    class _Rule:
+        pass
+    text = 'This is is a a test.'
+    m1 = RuleMatch(_Rule(), None, 5, 10, 'x', suggestions=['IS'])
+    m2 = RuleMatch(_Rule(), None, 8, 12, 'x', suggestions=['a'])  # overlaps, the error was already corrected
+    m3 = RuleMatch(_Rule(), None, 11, 14, 'x')  # no suggestion
+    m4 = RuleMatch(_Rule(), None, 15, 19, 'x', suggestions=['example'])
+    assert correct_text_from_matches(text, [m1, m2, m3, m4]) == 'This IS a a example.'
+    assert correct_text_from_matches(text, []) == text
+
+
+def test_pattern_rule_performers_per_thread(lang):
+    """The matchers of pattern rules and the replacers of disambiguation
+    rules keep state while matching (like in Java, where a new one is created
+    for every match), so each thread gets its own one"""
+    import threading
+    from langtool.extensions import disambiguation_rules
+    rule = [r for r in lang.get_pattern_rules() if hasattr(r, 'get_matcher')][0]
+    drule = disambiguation_rules(lang)[0][0]
+    drule.replace(JLanguageTool(lang).get_analyzed_sentence('This is a test.'))
+    m, r = rule.get_matcher(), drule._replacers.r
+    assert rule.get_matcher() is m
+    other = {}
+
+    def run():
+        other['m'] = rule.get_matcher()
+        drule.replace(JLanguageTool(lang).get_analyzed_sentence('This is a test.'))
+        other['r'] = drule._replacers.r
+    t = threading.Thread(target=run)
+    t.start()
+    t.join()
+    assert other['m'] is not m and other['r'] is not r
+    assert rule.get_matcher() is m and drule._replacers.r is r
+
+
 # --- AnnotatedTextTest -------------------------------------------------------
 # langtool's AnnotatedText is built from (is_markup, text, interpret_as) parts,
 # there's no AnnotatedTextBuilder, no global meta data and no

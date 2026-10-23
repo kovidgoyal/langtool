@@ -3,6 +3,8 @@ AbstractPatternRule, AbstractTokenBasedRule, PatternRule, RegexPatternRule
 and org.languagetool.tagging.disambiguation.rules.DisambiguationPatternRule.
 """
 
+import threading
+
 from ..rules.base import Rule, TYPE_HINT, TYPE_OTHER
 
 
@@ -261,7 +263,9 @@ class PatternRule(AbstractTokenBasedRule):
                 loop_cnt += 1
         self.element_no = element_no
         self.use_list = use_list
-        self._matcher = None
+        # the matchers keep state while matching, so every thread gets its
+        # own one (Java creates a new PatternRuleMatcher for every match())
+        self._matchers = threading.local()
 
     def get_short_message(self):
         return self.short_message
@@ -285,10 +289,10 @@ class PatternRule(AbstractTokenBasedRule):
         return matches
 
     def get_matcher(self):
-        m = self._matcher
+        m = getattr(self._matchers, 'm', None)
         if m is None:
             from .matcher import PatternRuleMatcher
-            m = self._matcher = PatternRuleMatcher(self, self.use_list)
+            m = self._matchers.m = PatternRuleMatcher(self, self.use_list)
         return m
 
     def estimate_context_for_sure_match(self):
@@ -381,7 +385,10 @@ class DisambiguationPatternRule(AbstractTokenBasedRule):
         self.message = ''
         self.suggestions_out_msg = ''
         self.unifier_config = None
-        self._replacer = None
+        # the replacers keep state while matching, so every thread gets its
+        # own one (Java creates a new DisambiguationPatternRuleReplacer for
+        # every replace())
+        self._replacers = threading.local()
 
     def set_new_interpretations(self, readings):
         self.new_token_readings = list(readings)
@@ -389,8 +396,8 @@ class DisambiguationPatternRule(AbstractTokenBasedRule):
     def replace(self, sentence):
         if self.can_be_ignored_for(sentence):
             return sentence
-        r = self._replacer
+        r = getattr(self._replacers, 'r', None)
         if r is None:
             from .matcher import DisambiguationPatternRuleReplacer
-            r = self._replacer = DisambiguationPatternRuleReplacer(self)
+            r = self._replacers.r = DisambiguationPatternRuleReplacer(self)
         return r.replace(sentence)

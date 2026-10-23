@@ -3,6 +3,7 @@ language models and spell checking)."""
 
 import threading
 
+from . import global_config
 from .analysis import (AnalyzedToken, AnalyzedTokenReadings, AnalyzedSentence, SENTENCE_START_TAGNAME,
                        copy_readings)
 from .messages import messages_for
@@ -107,6 +108,9 @@ class JLanguageTool:
         self.clean_overlapping_matches = True
         self.level = level
         self.match_filters = []
+        self.list_unknown_words = False
+        self.unknown_words = set()
+        self.print_stream = None
         self._lock = threading.RLock()
         if rules is not None:
             self.builtin_rules = list(rules)
@@ -255,16 +259,50 @@ class JLanguageTool:
         cb = self.check_cancelled_callback
         return cb is not None and cb()
 
+    def set_output(self, print_stream):
+        """JLanguageTool.setOutput: the stream (a file-like object) to print
+        the analyzed sentences and the disambiguator log to, None for no
+        output. Like in Java this switches the global verbose mode
+        (langtool.global_config) on or off."""
+        self.print_stream = print_stream
+        global_config.set_verbose(print_stream is not None)
+
+    def set_list_unknown_words(self, list_unknown_words):
+        """Whether to store the unknown words of the checked texts, see
+        get_unknown_words()."""
+        self.list_unknown_words = list_unknown_words
+
+    def get_unknown_words(self):
+        """The sorted list of unknown words in the latest run of check()
+        (Java's String order)."""
+        if not self.list_unknown_words:
+            raise RuntimeError('listUnknownWords is set to false, unknown words not stored')
+        return sorted(self.unknown_words, key=lambda w: w.encode('utf-16-be', 'surrogatepass'))
+
+    def _remember_unknown_words(self, analyzed):
+        if self.list_unknown_words:
+            for reading in analyzed.non_blank_tokens:
+                if not reading.is_tagged():
+                    self.unknown_words.add(reading.token)
+
+    def _print_sentence_info(self, analyzed):
+        if self.print_stream is not None:
+            print(str(analyzed), file=self.print_stream)
+            print(analyzed.get_annotations(), file=self.print_stream)
+
     def analyze_sentences(self, sentences):
+        self.unknown_words = set()
         out = []
         n = len(sentences)
         for j, s in enumerate(sentences):
             if self._cancelled():
                 break
             a = self.get_analyzed_sentence(s)
+            self._remember_unknown_words(a)
             if j + 1 == n:
                 a = mark_as_paragraph_end(a)
             out.append(a)
+            self._print_sentence_info(a)
         return out
 
     def analyze_text(self, text):
@@ -409,6 +447,36 @@ class JLanguageTool:
         m.column = column
         m.end_column = end_column
         return m
+
+
+def correct_text(contents, lt):
+    """Port of org.languagetool.tools.Tools.correctText: automatically
+    applies the first suggestion of each match of lt.check(contents)."""
+    rule_matches = lt.check(contents)
+    if not rule_matches:
+        return contents
+    return correct_text_from_matches(contents, rule_matches)
+
+
+def correct_text_from_matches(contents, matches):
+    """Port of org.languagetool.tools.Tools.correctTextFromMatches"""
+    sb = contents
+    errors = []
+    for rm in matches:
+        if rm.suggested_replacements:
+            errors.append(sb[rm.from_pos:rm.to_pos])
+    offset = 0
+    counter = 0
+    for rm in matches:
+        replacements = rm.suggested_replacements
+        if replacements:
+            # make sure the error hasn't been already corrected:
+            start, end = rm.from_pos - offset, rm.to_pos - offset
+            if start >= 0 and end >= start and errors[counter] == sb[start:end]:
+                sb = sb[:start] + replacements[0] + sb[end:]
+                offset += rm.to_pos - rm.from_pos - len(replacements[0])
+            counter += 1
+    return sb
 
 
 def mark_as_paragraph_end(a):
