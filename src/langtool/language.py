@@ -11,6 +11,18 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 RULES_DIR = os.path.join(DATA_DIR, 'rules')
 RESOURCE_DIR = os.path.join(DATA_DIR, 'resource')
 
+_DEFAULT_QUOTES = ('"', '"', "'", "'")
+_INSIDE_SUGGESTION = jregex.compile('<suggestion>(.+?)</suggestion>')
+_TYPO_APOSTROPHE = jregex.compile("([\\p{L}\\d-])'([\\p{L}\u00ab])", jregex.IGNORECASE)
+_NBSPACE1 = jregex.compile('\\b([a-zA-Z]\\.) ([a-zA-Z]\\.)')
+_NBSPACE2 = jregex.compile('\\b([a-zA-Z]\\.) ')
+_QUOTED_CHAR = jregex.compile(" '(.)'")
+_TYPO1 = jregex.compile("([\u202f\u00a0 \u00ab\"\\(])'")
+_TYPO2 = jregex.compile("'([\u202f\u00a0 !\\?,\\.;:\"\\)])")
+_TYPO3 = jregex.compile("\u2018s\\b([^\u2019])")
+_TYPO4 = jregex.compile('([ \\(])"')
+_TYPO5 = jregex.compile('"([\u202f\u00a0 !\\?,\\.;:\\)])')
+
 
 class Language:
     """A language (variant). Instances are obtained with get_language()."""
@@ -255,6 +267,69 @@ class Language:
 
     def filter_rule_matches_after_overlapping(self, matches):
         return matches
+
+    # --- typography (Language.getOpeningDoubleQuote() etc.) ---
+
+    def _quote(self, i):
+        q = self.get('quotes')
+        return q[i] if q else _DEFAULT_QUOTES[i]
+
+    def get_opening_double_quote(self):
+        return self._quote(0)
+
+    def get_closing_double_quote(self):
+        return self._quote(1)
+
+    def get_opening_single_quote(self):
+        return self._quote(2)
+
+    def get_closing_single_quote(self):
+        return self._quote(3)
+
+    def is_advanced_typography_enabled(self):
+        return bool(self.get('advanced_typography', False))
+
+    def to_advanced_typography(self, text):
+        """Port of Language.toAdvancedTypography(): converts the
+        <suggestion> markup and (if advanced typography is enabled) quotes,
+        apostrophes, ellipses and spaces of a message to typographic
+        characters"""
+        od, cd = self.get_opening_double_quote(), self.get_closing_double_quote()
+        if not self.is_advanced_typography_enabled():
+            return text.replace('<suggestion>', od).replace('</suggestion>', cd)
+        os_, cs = self.get_opening_single_quote(), self.get_closing_single_quote()
+        out = text
+        preserved = []
+        offset = 0
+        while True:
+            m = _INSIDE_SUGGESTION.search(out, offset)
+            if m is None:
+                break
+            group = m.group(1)
+            preserved.append(group)
+            out = out.replace('<suggestion>' + group + '</suggestion>', '\\' + str(len(preserved) - 1), 1)
+            offset = m.end()
+        out = out.replace('...', '\u2026')
+        out = _NBSPACE1.sub('\\1\u00a0\\2', out)
+        out = _NBSPACE2.sub('\\1\u00a0', out)
+        out = _TYPO_APOSTROPHE.sub('\\1\u2019\\2', out)
+        if out.startswith("'"):
+            out = os_ + out[1:]
+        if out.endswith("'"):
+            out = out[:-1] + cs
+        out = _QUOTED_CHAR.sub(lambda m: ' ' + os_ + m.group(1) + cs, out)
+        out = _TYPO1.sub(lambda m: m.group(1) + os_, out)
+        out = _TYPO2.sub(lambda m: cs + m.group(1), out)
+        out = _TYPO3.sub(lambda m: '\u2019s' + m.group(1), out)
+        if out.startswith('"'):
+            out = od + out[1:]
+        if out.endswith('"'):
+            out = out[:-1] + cd
+        out = _TYPO4.sub(lambda m: m.group(1) + od, out)
+        out = _TYPO5.sub(lambda m: cd + m.group(1), out)
+        for i, p in enumerate(preserved):
+            out = out.replace('\\' + str(i), od + p + cd, 1)
+        return out.replace('<suggestion>', od).replace('</suggestion>', cd)
 
     def is_variant(self):
         """Like Language.isVariant(): true for the languages that are subclasses
