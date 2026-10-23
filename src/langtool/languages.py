@@ -518,8 +518,11 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('MultipleWhitespaceRule'),
                R('LongSentenceRule', max_words=50), R('SentenceWhitespaceRule')],
     ),
+    # org.languagetool.language.Tagalog (code in langtool.lang.tl); its
+    # MorfologikTagalogSpellerRule (after MultipleWhitespaceRule) is not
+    # ported (spell checking)
     'tl': dict(
-        name='Tagalog', countries=['PH'], variants=[V('tl-PH')],
+        name='Tagalog', countries=['PH'], variants=[V('tl-PH')], sentence_tokenizer='srx',
         tagger=dict(dict='tl/tagalog.dict', lowercase_with_uppercase=True), word_tokenizer='TagalogWordTokenizer',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
