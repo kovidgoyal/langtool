@@ -150,8 +150,11 @@ LANGUAGES = {
                R('ArabicWordCoherencyRule'), R('ArabicWordinessRule'), R('ArabicWrongWordInContextRule'),
                R('ArabicTransVerbRule'), R('ArabicInflectedOneWordReplaceRule')],
     ),
+    # org.languagetool.language.Asturian (code in langtool.lang.ast); its
+    # MorfologikAsturianSpellerRule (after GenericUnpairedBracketsRule) is not
+    # ported (spell checking)
     'ast': dict(
-        name='Asturian', countries=['ES'], variants=[V('ast-ES')],
+        name='Asturian', countries=['ES'], variants=[V('ast-ES')], sentence_tokenizer='srx',
         tagger=dict(dict='ast/asturian.dict', lowercase_with_uppercase=True),
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
