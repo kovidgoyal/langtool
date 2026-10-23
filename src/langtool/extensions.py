@@ -107,8 +107,15 @@ def create_synthesizer(language):
             tags_path = locate(tags, language.dictionary_path, language.download_dictionaries)
         except DictionaryNotFound:
             tags_path = None
+    # BaseSynthesizer(sorosFileName, ...): the number speller of the .sor
+    # file (spec 'sor', none without one) and the Roman numberer of
+    # Roman.sor that every BaseSynthesizer has
+    from .soros import load_soros
+    sor = spec.get('sor')
+    number_speller = load_soros(language.resource_path(sor), language.short_code) if sor else None
+    roman_numberer = load_soros(language.resource_path('Roman.sor'), 'Roman')
     return BaseSynthesizer(language.dictionary(spec['dict']), tags_path, resource_language(language),
-                           resource_dir(language))
+                           resource_dir(language), number_speller, roman_numberer)
 
 
 def create_word_tokenizer(language):
