@@ -16,4 +16,4 @@ MorfologikTagalogSpellerRule (org.languagetool.language.tl) is not ported
 from ...extensions import register
 from .tokenizers import TagalogWordTokenizer
 
-register('word_tokenizer', 'TagalogWordTokenizer', lambda language: TagalogWordTokenizer())
+register('word_tokenizer', 'TagalogWordTokenizer', lambda language: TagalogWordTokenizer(), language='tl')

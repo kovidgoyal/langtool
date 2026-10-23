@@ -16,4 +16,4 @@ MorfologikMalayalamSpellerRule (org.languagetool.rules.ml) is not ported
 from ...extensions import register
 from .tokenizers import MalayalamWordTokenizer
 
-register('word_tokenizer', 'MalayalamWordTokenizer', lambda language: MalayalamWordTokenizer())
+register('word_tokenizer', 'MalayalamWordTokenizer', lambda language: MalayalamWordTokenizer(), language='ml')

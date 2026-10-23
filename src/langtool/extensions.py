@@ -18,11 +18,14 @@ _lock = threading.Lock()
 _loaded = False
 
 
-def register(kind, name, factory):
+def register(kind, name, factory, language=None):
     """Register a factory for a language specific component. kind is one of
     'tagger', 'synthesizer', 'word_tokenizer', 'sentence_tokenizer',
-    'disambiguator', 'chunker', 'rule', 'filter'."""
-    _registry[(kind, name)] = factory
+    'disambiguator', 'chunker', 'rule', 'filter'. language is the short code
+    of the language the name is meant for: names (Java class names) are
+    looked up for the language first, then globally, so different languages
+    can have components with the same name (e.g. 'CompoundRule')."""
+    _registry[(kind, name, language)] = factory
 
 
 def _load_language_modules():
@@ -34,9 +37,13 @@ def _load_language_modules():
                 _loaded = True
 
 
-def lookup(kind, name):
+def lookup(kind, name, language=None):
     _load_language_modules()
-    return _registry.get((kind, name))
+    if language is not None:
+        f = _registry.get((kind, name, language))
+        if f is not None:
+            return f
+    return _registry.get((kind, name, None))
 
 
 def note_unsupported(language, kind, name):
@@ -62,7 +69,7 @@ def resource_dir(language):
 def _custom(language, kind, name):
     if not name:
         return None
-    f = lookup(kind, name)
+    f = lookup(kind, name, language.short_code)
     if f is None:
         note_unsupported(language, kind, name)
     return f
