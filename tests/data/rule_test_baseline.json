@@ -8931,33 +8931,7 @@
   "skipped": 77
  },
  "ro-RO": {
-  "failed_ids": [
-   "A_SE_OPUNE_IMPOTRIVA[2]",
-   "BUNA_STARE[1]",
-   "CARE_PE_CARE__BINELE_CARE_MI_L_AI[4]",
-   "CARE_PE_CARE__CAIETUL_CARE_L-AM[2]",
-   "CARE_PE_CARE__CARTEA_CARE_TI-AM[1]",
-   "CELEI_DE_A_TREIA_ZILE_TORIDA[2]",
-   "CELEI_DE_A_TREIA_ZI[1]",
-   "DIN_CALE_AFARA[1]",
-   "INTOARCE_TE_INAPOI[1]",
-   "MI-AR_PLACEA[1]",
-   "MIJLOACE_MASS-MEDIA[1]",
-   "NEVASTA_DE_AL_DOILEA[1]",
-   "PROCENT_LA_SUTA[10]",
-   "PROCENT_LA_SUTA[11]",
-   "PROCENT_LA_SUTA[13]",
-   "PROCENT_LA_SUTA[4]",
-   "PROCENT_LA_SUTA[5]",
-   "PROCENT_LA_SUTA[6]",
-   "PROCENT_LA_SUTA[7]",
-   "PROCENT_LA_SUTA[8]",
-   "PROCENT_LA_SUTA[9]",
-   "SE_MERITA[2]",
-   "SE_MERITA[3]",
-   "SPUS_CA_SA_L_ASTEPT[1]",
-   "S_A_ARE[4]"
-  ],
+  "failed_ids": [],
   "skipped": 0
  },
  "ru-RU": {

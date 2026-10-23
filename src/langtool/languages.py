@@ -487,8 +487,11 @@ LANGUAGES = {
                        xml(True)],
         rules=_PT_RULES,
     ),
+    # org.languagetool.language.Romanian (code in langtool.lang.ro); its
+    # MorfologikRomanianSpellerRule (after WordRepeatRule) is not ported
+    # (spell checking)
     'ro': dict(
-        name='Romanian', countries=['RO'], variants=[V('ro-RO')],
+        name='Romanian', countries=['RO'], variants=[V('ro-RO')], sentence_tokenizer='srx',
         tagger=dict(dict='ro/romanian.dict', lowercase_with_uppercase=True),
         synthesizer=dict(dict='ro/romanian_synth.dict', tags='ro/romanian_tags.txt'),
         word_tokenizer='RomanianWordTokenizer',
