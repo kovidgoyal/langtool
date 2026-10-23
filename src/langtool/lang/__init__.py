@@ -8,6 +8,7 @@ from . import be  # noqa: F401
 from . import crh  # noqa: F401
 from . import da  # noqa: F401
 from . import is_  # noqa: F401
+from . import it  # noqa: F401
 from . import lt  # noqa: F401
 from . import ml  # noqa: F401
 from . import sk  # noqa: F401

@@ -390,8 +390,12 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Italian (code in langtool.lang.it); its
+    # MorfologikItalianSpellerRule (after GenericUnpairedBracketsRule) is not
+    # ported (spell checking), nor is ItalianConfusionProbabilityRule
+    # (language model)
     'it': dict(
-        name='Italian', countries=['IT', 'CH'], variants=[V('it')],
+        name='Italian', countries=['IT', 'CH'], variants=[V('it')], sentence_tokenizer='srx',
         tagger=dict(dict='it/italian.dict', lowercase_with_uppercase=True),
         synthesizer=dict(dict='it/italian_synth.dict', tags='it/italian_tags.txt'),
         disambiguator=[xml()],
