@@ -296,8 +296,11 @@ def has_diacritics(s):
     return s != remove_diacritics(s)
 
 
+_CAMEL_CASE = regex.compile(r'[a-z]+[A-Z][A-Za-z]+')
+
+
 def is_camel_case(s):
-    return regex.fullmatch(r'[a-z]+[A-Z][A-Za-z]+', s) is not None
+    return _CAMEL_CASE.fullmatch(s) is not None
 
 
 def preserve_case(input_string, model_string):

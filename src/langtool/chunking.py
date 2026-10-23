@@ -4,17 +4,23 @@ from . import jregex
 
 
 class ChunkTag:
-    __slots__ = ('chunk_tag', 'is_regexp', 'pattern')
+    __slots__ = ('chunk_tag', 'is_regexp', '_pattern')
 
     def __init__(self, chunk_tag, is_regexp=False):
         if chunk_tag is None or not chunk_tag.strip():
             raise ValueError('chunkTag cannot be null or empty: %r' % chunk_tag)
         self.chunk_tag = chunk_tag
         self.is_regexp = is_regexp
-        self.pattern = jregex.compile(chunk_tag) if is_regexp else None
+        self._pattern = None
+
+    @property
+    def pattern(self):
+        if self.is_regexp and self._pattern is None:
+            self._pattern = jregex.compile(self.chunk_tag)
+        return self._pattern
 
     def matches(self, tag):
-        if self.pattern is not None:
+        if self.is_regexp:
             return self.pattern.fullmatch(tag.chunk_tag) is not None
         return self.chunk_tag == tag.chunk_tag
 

@@ -234,18 +234,24 @@ def _is_base_grammar_file(src, lang):
 
 class DisambiguationRuleTester:
     """Port of DisambiguationRuleTest: checks the examples of
-    disambiguation.xml."""
+    disambiguation.xml. Like the Java test, each example is analyzed with
+    the pre-disambiguation (e.g. multiword chunkers) and all the rules that
+    come before the tested rule, and the readings of the marked token are
+    compared with the inputform/outputform in AnalyzedSentence.toShortString
+    format (e.g. "10[10/CD]")."""
 
     def __init__(self, lt):
         self.lt = lt
         self.language = lt.language
         self.failures = []
+        self.rules = None
 
-    def run(self):
+    def run(self, rules=None):
         from .extensions import disambiguation_rules
-        from .analysis import AnalyzedSentence
-        lang = self.language.default_variant
-        rules, _ = disambiguation_rules(lang, False)
+        if rules is None:
+            lang = self.language.default_variant
+            rules, _ = disambiguation_rules(lang, False)
+        self.rules = rules
         for rule in rules:
             try:
                 self._test_rule(rule)
@@ -254,62 +260,102 @@ class DisambiguationRuleTester:
                 self.failures.append(RuleFailure(rule, 'Exception: %s\n%s' % (e, traceback.format_exc())))
         return self.failures
 
-    def _analyze(self, sentence):
-        """Analyze a sentence with all disambiguation but the given rule."""
-        return self.lt.get_raw_analyzed_sentence(sentence)
+    def _fail(self, rule, msg):
+        self.failures.append(RuleFailure(rule, msg))
+
+    def disambiguate_until(self, rule_id, sentence):
+        """Pre-disambiguation plus all rules before the first one with the
+        given id (DisambiguationRuleTest.disambiguateUntil)."""
+        sentence = _pre_xml_disambiguate(self.lt, sentence)
+        for rule in self.rules:
+            if rule.get_id() == rule_id:
+                break
+            sentence = rule.replace(sentence)
+        return sentence
 
     def _test_rule(self, rule):
-        for ex in rule.untouched_examples:
-            s = clean_xml(ex)
-            sent = self.lt.get_raw_analyzed_sentence(s)
-            sent = _pre_xml_disambiguate(self.lt, sent)
-            before = sent.to_short_string('|')
-            after = rule.replace(sent).to_short_string('|')
+        from .analysis import AnalyzedSentence
+        lt = self.lt
+        rid = rule.get_id()
+        for good in rule.untouched_examples or ():
+            good = clean_xml(_WS.sub('', good))
+            if not good.strip():
+                self._fail(rule, 'Empty untouched example')
+                continue
+            sent = self.disambiguate_until(rid, lt.get_raw_analyzed_sentence(good))
+            to_replace = self.disambiguate_until(rid, lt.get_raw_analyzed_sentence(good))
+            before, after = str(sent), str(rule.replace(to_replace))
             if before != after:
-                self.failures.append(RuleFailure(rule, 'Disambiguated sentence should be untouched: %r\n'
-                                                       'before: %s\nafter:  %s' % (s, before, after)))
-        for example, inp, out in rule.examples:
-            s = clean_xml(example)
-            sent = self.lt.get_raw_analyzed_sentence(s)
-            sent = _pre_xml_disambiguate(self.lt, sent)
-            marker_start = example.find('<marker>')
-            marker_end = example.find('</marker>')
-            if marker_start < 0 or marker_end < 0:
-                self.failures.append(RuleFailure(rule, 'No marker in example: %r' % example))
+                self._fail(rule, 'The untouched example (%s) for rule %s was touched!\nbefore: %s\nafter:  %s' % (
+                    good, rule, before, after))
+        for example, input_forms, output_forms in rule.examples or ():
+            if not output_forms or not output_forms.strip():
+                self._fail(rule, 'No output form found for: %s' % rid)
                 continue
-            text_before = clean_xml(example[:marker_start])
-            marked = clean_xml(example[marker_start + 8:marker_end])
-            res = rule.replace(sent)
-            tok = _find_token(sent, len(text_before), marked)
-            tok2 = _find_token(res, len(text_before), marked)
-            if tok is None or tok2 is None:
-                self.failures.append(RuleFailure(rule, 'Marked token not found in %r' % s))
+            start = example.find('<marker>')
+            end = example.find('</marker>') - len('<marker>')
+            if start == -1 or example.find('</marker>') == -1:
+                self._fail(rule, "No position markup ('<marker>...</marker>') in disambiguated example: %r" % example)
                 continue
-            got_in = _readings_string(tok)
-            got_out = _readings_string(tok2)
-            if inp is not None and _normalize_readings(inp) != _normalize_readings(got_in):
-                self.failures.append(RuleFailure(rule, 'Input form %r expected %r but got %r' % (s, inp, got_in)))
-            if out is not None and _normalize_readings(out) != _normalize_readings(got_out):
-                self.failures.append(RuleFailure(rule, 'Output form %r expected %r but got %r' % (s, out, got_out)))
+            if not input_forms or not input_forms.strip():
+                self._fail(rule, 'No input form found for: %s' % rid)
+                continue
+            if input_forms == output_forms:
+                self._fail(rule, 'Input and output forms for rule %s are the same!' % rid)
+                continue
+            text = clean_xml(example)
+            clean_input = lt.get_raw_analyzed_sentence(text)
+            sent = self.disambiguate_until(rid, lt.get_raw_analyzed_sentence(text))
+            disambiguated = rule.replace(self.disambiguate_until(rid, lt.get_raw_analyzed_sentence(text)))
+            if clean_input == disambiguated:
+                self._fail(rule, 'Disambiguated sentence is equal to the non-disambiguated sentence for rule: '
+                                 '%s. The sentence was: %s' % (rid, sent))
+                continue
+            if sent == disambiguated:
+                self._fail(rule, 'Disambiguated sentence is equal to the input sentence for rule: %s. '
+                                 'The sentence was: %s' % (rid, sent))
+                continue
+            ok = True
+            for label, sentence, expected in (('input', sent, input_forms), ('output', disambiguated, output_forms)):
+                reading = ''
+                for atr in sentence.tokens:
+                    if atr.is_sentence_start and '<S>' not in expected:
+                        continue
+                    if atr.start_pos == start:
+                        reading = AnalyzedSentence([atr]).to_short_string(',')
+                        if atr.end_pos != end:
+                            self._fail(rule, 'Wrong marker position in the example for the rule %s: got %d-%d, '
+                                             'expected %d-%d. Sentence: %r' % (rid, atr.start_pos, atr.end_pos,
+                                                                              start, end, str(sentence)))
+                            ok = False
+                        break
+                if not ok:
+                    break
+                got = _sort_forms(reading)
+                if expected != got:
+                    self._fail(rule, 'The %s form for the rule %s in the example: %s is different than expected '
+                                     '(expected %s but got %s)' % (label, rid, example, expected, got))
+                    break
 
 
 def _pre_xml_disambiguate(lt, sentence):
+    """Disambiguator.preDisambiguate: the disambiguation stages that run
+    before the XML rules (e.g. multiword chunkers of hybrid disambiguators)."""
+    from .disambiguation import ChainDisambiguator, XmlRuleDisambiguator
+    d = lt.language.disambiguator
+    if isinstance(d, ChainDisambiguator):
+        for stage in d.stages:
+            if isinstance(stage, XmlRuleDisambiguator):
+                break
+            sentence = stage.disambiguate(sentence)
     return sentence
 
 
-def _find_token(sentence, start, text):
-    for t in sentence.tokens:
-        if t.start_pos == start and t.token == text:
-            return t
-    for t in sentence.tokens:
-        if t.start_pos == start:
-            return t
-    return None
-
-
-def _readings_string(atr):
-    return '|'.join(str(r) for r in atr.readings)
-
-
-def _normalize_readings(s):
-    return sorted(p for p in s.split('|') if p)
+def _sort_forms(word_forms):
+    """DisambiguationRuleTest.sortForms"""
+    if word_forms == ',[,]' or not word_forms:
+        return word_forms
+    word = word_forms[:word_forms.index('[') + 1]
+    forms = word_forms[word_forms.index('[') + 1:-1].split(',')
+    forms.sort(key=lambda f: f.encode('utf-16-be', 'surrogatepass'))
+    return word + ','.join(forms) + ']'

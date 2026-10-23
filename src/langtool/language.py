@@ -46,12 +46,22 @@ class Language:
         return self.code
 
     @property
+    def resource_root(self):
+        d = self.definition.get('data_dir')
+        return os.path.join(d, 'resource') if d else RESOURCE_DIR
+
+    @property
+    def rules_root(self):
+        d = self.definition.get('data_dir')
+        return os.path.join(d, 'rules') if d else RULES_DIR
+
+    @property
     def resource_dir(self):
-        return os.path.join(RESOURCE_DIR, self.short_code)
+        return os.path.join(self.resource_root, self.definition.get('resource_language', self.short_code))
 
     @property
     def rules_dir(self):
-        return os.path.join(RULES_DIR, self.short_code)
+        return os.path.join(self.rules_root, self.short_code)
 
     def get(self, key, default=None):
         """Lookup a configuration value, the variant overrides the language."""
@@ -84,7 +94,10 @@ class Language:
     def resource_path(self, name):
         """Path to a resource file, name like 'en/multiwords.txt' or
         'segment.srx'"""
-        return os.path.join(RESOURCE_DIR, name)
+        p = os.path.join(self.resource_root, name)
+        if not os.path.exists(p) and self.resource_root != RESOURCE_DIR:
+            p = os.path.join(RESOURCE_DIR, name)
+        return p
 
     def dictionary(self, name):
         """Load a morfologik dictionary, name like 'en/english.dict'"""
@@ -199,7 +212,7 @@ class Language:
                     problems = []
                     msgs = messages_for(self.short_code)
                     for f in self.get_rule_file_names():
-                        r, skipped = load_pattern_rules(f, self, RESOURCE_DIR, ff, msgs)
+                        r, skipped = load_pattern_rules(f, self, self.resource_root, ff, msgs)
                         rules.extend(r)
                         problems.extend(skipped)
                     self._pattern_rule_problems = problems
@@ -223,19 +236,8 @@ class Language:
         return rm
 
     def get_priority_for_id(self, id):
-        prio = self.get('priorities', {})
-        if id in prio:
-            return prio[id]
-        for prefix, p in self.get('priority_prefixes', ()):
-            if id.startswith(prefix):
-                return p
-        if id.upper() == 'TOO_LONG_SENTENCE':
-            return -101
-        if id == 'REPETITIONS_STYLE':
-            return -55
-        if 'STYLE' in id:
-            return -50
-        return 0
+        from .priorities import priority_for_id
+        return priority_for_id(self.short_code, id, self.get('priorities'))
 
     def get_rule_priority(self, rule):
         cat = self.get_priority_for_id(rule.category.id if rule.category is not None else '')
@@ -255,7 +257,9 @@ class Language:
         return matches
 
     def is_variant(self):
-        return len(self.definition.get('variants', ())) > 1 and self.code != self.short_code
+        """Like Language.isVariant(): true for the languages that are subclasses
+        of another language class, i.e. all but the first variant."""
+        return self.code != self.definition['variants'][0]['code']
 
     def equals_consider_variants(self, other):
         if self.code == other.code:

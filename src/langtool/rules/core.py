@@ -667,7 +667,7 @@ class LongParagraphRule(CoreTextLevelRule):
         mw = self.max_words
         for n, sentence in enumerate(sentences):
             pe = is_paragraph_end(sentences, n, slb)
-            if not pe and '\n' in regex.sub(r'^\n+', '', sentence.text, count=1):
+            if not pe and '\n' in _LEADING_NL.sub('', sentence.text, count=1):
                 has_lb = True
             for t in sentence.non_blank_tokens:
                 if not t.is_whitespace and not t.is_sentence_start and not t.is_non_word():
@@ -687,6 +687,8 @@ class LongParagraphRule(CoreTextLevelRule):
         return out
 
 
+_LEADING_NL = regex.compile(r'^\n+')
+_END_PUNCT = regex.compile(r'[:.?!…]')
 _QUOTES_REGEX = regex.compile('[’\'"„“”»«‚‘›‹()\\[\\]]')
 
 
@@ -844,7 +846,7 @@ class PunctuationMarkAtParagraphEnd2(CoreTextLevelRule):
                     last = t
                     break
             pe = is_paragraph_end(sentences, sent_pos, slb)
-            if pe and token_count > 10 and last is not None and not regex.fullmatch(r'[:.?!…]', last.token) and \
+            if pe and token_count > 10 and last is not None and not _END_PUNCT.fullmatch(last.token) and \
                     not last.is_non_word():
                 rm = RuleMatch(self, sentence, pos + last.start_pos, pos + last.end_pos,
                                self.messages['punctuation_mark_paragraph_end_msg'])

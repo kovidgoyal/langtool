@@ -17,6 +17,7 @@ from . import rules as R
 from .match import Match, convert_case, INCLUDE_NONE, NONE as CASE_NONE
 
 MISTAKE = '<mistake/>'
+_WS = regex.compile(r'\s+')
 PLEASE_SPELL_ME = '<pleasespellme/>'
 
 _ALLOWED_CHARS = '[^<>()]*?'
@@ -611,7 +612,7 @@ def _skip_corrected_reference(positions, ref):
 
 def resolve_filter_arguments(filter_args, pattern_tokens, pattern_token_pos, positions):
     result = {}
-    for arg in regex.split(r'\s+', filter_args.strip()):
+    for arg in _WS.split(filter_args.strip()):
         if not arg:
             continue
         d = arg.find(':')
@@ -711,7 +712,7 @@ def match_regex_rule(rule, sentence):
                            is_all_uppercase=False, suggestions_out_msg=pout, set_original_error_str=True)
             if rule.regex_filter is not None:
                 args = {}
-                for arg in regex.split(r'\s+', rule.filter_args or ''):
+                for arg in _WS.split(rule.filter_args or ''):
                     if not arg:
                         continue
                     d = arg.find(':')

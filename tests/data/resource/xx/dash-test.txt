@@ -1,0 +1,4 @@
+# test data for AbstractDashRule
+e-mail
+fun-park*
+web-site+

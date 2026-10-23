@@ -46,8 +46,8 @@ def convert_case(conversion, s, sample, lang_code=None):
 class Match:
 
     __slots__ = ('pos_tag', 'suppress_misspelled', 'regex_replace', 'pos_tag_replace', 'case_conversion',
-                 'include_skipped', 'regex_match', 'set_pos', 'postag_regexp', 'static_lemma', 'lemma',
-                 'token_ref', 'pos_regex_match', 'in_message_only')
+                 'include_skipped', '_regex_match', '_regex_match_src', 'set_pos', 'postag_regexp', 'static_lemma',
+                 'lemma', 'token_ref', '_pos_regex_match', '_pos_regex_src', 'in_message_only')
 
     def __init__(self, pos_tag=None, pos_tag_replace=None, postag_regexp=False, regex_match=None,
                  regex_replace=None, case_conversion=NONE, set_pos=False, suppress_misspelled=False,
@@ -55,8 +55,12 @@ class Match:
         self.pos_tag = pos_tag
         self.postag_regexp = postag_regexp
         self.case_conversion = case_conversion
-        self.regex_match = jregex.compile(regex_match) if regex_match is not None else None
-        self.pos_regex_match = jregex.compile(pos_tag) if postag_regexp and pos_tag is not None else None
+        self._regex_match_src = regex_match
+        self._regex_match = None
+        if regex_match is not None:
+            jregex.translate(regex_match)  # check syntax
+        self._pos_regex_src = pos_tag if postag_regexp and pos_tag is not None else None
+        self._pos_regex_match = None
         self.regex_replace = regex_replace
         self.pos_tag_replace = pos_tag_replace
         self.set_pos = set_pos
@@ -67,13 +71,28 @@ class Match:
         self.token_ref = 0
         self.in_message_only = False
 
+    @property
+    def regex_match(self):
+        r = self._regex_match
+        if r is None and self._regex_match_src is not None:
+            r = self._regex_match = jregex.compile(self._regex_match_src)
+        return r
+
+    @property
+    def pos_regex_match(self):
+        r = self._pos_regex_match
+        if r is None and self._pos_regex_src is not None:
+            r = self._pos_regex_match = jregex.compile(self._pos_regex_src)
+        return r
+
     def set_lemma_string(self, lemma):
         if lemma:
             self.lemma = lemma
             self.static_lemma = True
             self.postag_regexp = True
             if self.pos_tag is not None:
-                self.pos_regex_match = jregex.compile(self.pos_tag)
+                self._pos_regex_src = self.pos_tag
+                self._pos_regex_match = None
 
     def converts_case(self):
         return self.case_conversion != NONE

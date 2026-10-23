@@ -327,12 +327,25 @@ class RegexPatternRule(AbstractPatternRule):
                  regexp_mark, case_sensitive):
         super().__init__(id, description, language)
         self.message = message
-        self.pattern = regex
+        if isinstance(regex, tuple):
+            self._pattern_src = regex
+            self._pattern = None
+        else:
+            self._pattern_src = None
+            self._pattern = regex
         self.short_message = short_message or ''
         self.suggestions_out_msg = suggestions_out_msg or ''
         self.mark_group = regexp_mark
         self.case_sensitive = case_sensitive
         self.regex_filter = None
+
+    @property
+    def pattern(self):
+        p = self._pattern
+        if p is None:
+            from .. import jregex
+            p = self._pattern = jregex.compile(*self._pattern_src)
+        return p
 
     def get_short_message(self):
         return self.short_message

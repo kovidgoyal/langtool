@@ -17,7 +17,7 @@ class ManualSynthesizer:
     def __init__(self, paths):
         self.map = {}
         tags = set()
-        for form, lemma, tag in iter_manual_lines(paths):
+        for form, lemma, tag in iter_manual_lines(paths, check_nbsp=False):
             self.map.setdefault((lemma, tag), []).append(form)
             tags.add(tag)
         self.possible_tags = tags

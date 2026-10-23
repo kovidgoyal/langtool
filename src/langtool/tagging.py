@@ -36,7 +36,7 @@ def _java_split(line, sep):
     return parts
 
 
-def iter_manual_lines(paths):
+def iter_manual_lines(paths, check_nbsp=True):
     """Yield the (form, lemma, tag) triplets from LT manual tagger files."""
     for path in paths:
         sep = '\t'
@@ -47,6 +47,9 @@ def iter_manual_lines(paths):
                     sep = line.replace('#separatorRegExp=', '')
                 if not line or line[0] == '#':
                     continue
+                if check_nbsp and '\u00a0' in line:
+                    raise ValueError('Non-breaking space found in line #%d of %s: %r, please remove it' % (
+                        lineno, path, line))
                 if '#' in line:
                     line = java_trim(line[:line.index('#')])
                 parts = _java_split(line, sep)

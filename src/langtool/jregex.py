@@ -71,6 +71,10 @@ _JAVA_PROPS = {
     'javaisocontrol': '\\x00-\\x1F\\x7F-\\x9F',
     'javadefined': '\\P{Cn}',
     'javaidentifierignorable': '\\x00-\\x08\\x0E-\\x1B\\x7F-\\x9F\\p{Cf}',
+    'javajavaidentifierstart': '\\p{L}\\p{Nl}\\p{Sc}\\p{Pc}',
+    'javajavaidentifierpart': '\\p{L}\\p{Nl}\\p{Sc}\\p{Pc}\\p{Nd}\\p{Mn}\\p{Mc}\\x00-\\x08\\x0E-\\x1B\\x7F-\\x9F\\p{Cf}',
+    'javaunicodeidentifierstart': '\\p{ID_Start}',
+    'javaunicodeidentifierpart': '\\p{ID_Continue}\\x00-\\x08\\x0E-\\x1B\\x7F-\\x9F\\p{Cf}',
 }
 
 _BINARY_PROPS = {
@@ -93,6 +97,11 @@ _BINARY_PROPS = {
     'joincontrol': '\\p{Join_Control}',
     'join_control': '\\p{Join_Control}',
     'emoji': '\\p{Emoji}',
+    'emoji_presentation': '\\p{Emoji_Presentation}',
+    'emoji_modifier': '\\p{Emoji_Modifier}',
+    'emoji_modifier_base': '\\p{Emoji_Modifier_Base}',
+    'emoji_component': '\\p{Emoji_Component}',
+    'extended_pictographic': '\\p{Extended_Pictographic}',
 }
 
 _valid_prop_cache = {}
@@ -110,47 +119,79 @@ def _valid_regex_prop(name):
     return r
 
 
+_GENERAL_CATEGORIES = frozenset(
+    'Cn Lu Ll Lt Lm Lo Mn Me Mc Nd Nl No Zs Zl Zp Cc Cf Co Cs Pd Ps Pe Pc Po Sm Sc Sk So Pi Pf '
+    'L M N Z C P S LC LD L1 all'.split())
+
+_POSIX_NAMES = ('Lower', 'Upper', 'ASCII', 'Alpha', 'Digit', 'Alnum', 'Punct', 'Graph', 'Print', 'Blank',
+                'Cntrl', 'XDigit', 'Space')
+
+_JAVA_PROP_NAMES = {k.lower(): k for k in (
+    'javaLowerCase', 'javaUpperCase', 'javaLetter', 'javaDigit', 'javaLetterOrDigit', 'javaWhitespace',
+    'javaSpaceChar', 'javaAlphabetic', 'javaIdeographic', 'javaTitleCase', 'javaMirrored', 'javaISOControl',
+    'javaDefined', 'javaIdentifierIgnorable', 'javaJavaIdentifierStart', 'javaJavaIdentifierPart',
+    'javaUnicodeIdentifierStart', 'javaUnicodeIdentifierPart')}
+
+
+def _gc_set(name):
+    if name == 'LC':
+        return '\\p{Lu}\\p{Ll}\\p{Lt}'
+    if name == 'LD':
+        return '\\p{L}\\p{Nd}'
+    if name == 'L1':
+        return '\\x00-\\xFF'
+    if name == 'all':
+        return '\\x00-\\U0010FFFF'
+    return '\\p{%s}' % name
+
+
 def _property_set(name, unicode_classes):
     """Return the content of a V1 set (usable between [ and ]) matching the
-    given Java property name."""
-    n = name.strip()
-    low = n.lower()
-    if low in _POSIX:
-        return _POSIX[low][1 if unicode_classes else 0]
-    if low in _JAVA_PROPS:
-        return _JAVA_PROPS[low]
+    given Java property name. Names are validated like java.util.regex does
+    (case sensitive, 'Is'/'In' prefixes, key=value forms)."""
+    n = name
     if '=' in n:
         key, val = n.split('=', 1)
-        key = key.strip().lower()
-        val = val.strip()
-        if key in ('gc', 'general_category'):
-            return '\\p{%s}' % val
-        if key in ('sc', 'script'):
-            return '\\p{Script=%s}' % val
-        if key in ('blk', 'block'):
-            return '\\p{Block=%s}' % val
-        return '\\p{%s}' % n
-    if low.startswith('is'):
+        lkey = key.lower()
+        if lkey in ('gc', 'general_category'):
+            if val in _GENERAL_CATEGORIES:
+                return _gc_set(val)
+            raise JavaRegexError('Unknown general category: %s' % name)
+        if lkey in ('sc', 'script'):
+            if _valid_regex_prop('Script=' + val):
+                return '\\p{Script=%s}' % val
+            raise JavaRegexError('Unknown script: %s' % name)
+        if lkey in ('blk', 'block'):
+            if _valid_regex_prop('Block=' + val):
+                return '\\p{Block=%s}' % val
+            raise JavaRegexError('Unknown block: %s' % name)
+        raise JavaRegexError('Unknown Unicode property: %s' % name)
+    if n.startswith('Is'):
         rest = n[2:]
         lr = rest.lower()
         if lr in _BINARY_PROPS:
             return _BINARY_PROPS[lr]
         if lr in _POSIX:
             return _POSIX[lr][1 if unicode_classes else 0]
-        if _valid_regex_prop(rest):
-            return '\\p{%s}' % rest
-        if _valid_regex_prop(n):
-            return '\\p{%s}' % n
+        if rest in _GENERAL_CATEGORIES:
+            return _gc_set(rest)
+        if rest and _valid_regex_prop('Script=' + rest):
+            return '\\p{Script=%s}' % rest
         raise JavaRegexError('Unknown property: %s' % name)
-    if low.startswith('in'):
+    if n.startswith('In'):
         rest = n[2:]
-        if _valid_regex_prop('Block=' + rest):
+        if rest and _valid_regex_prop('Block=' + rest):
             return '\\p{Block=%s}' % rest
-        if _valid_regex_prop(n):
-            return '\\p{%s}' % n
         raise JavaRegexError('Unknown block: %s' % name)
-    if _valid_regex_prop(n):
-        return '\\p{%s}' % n
+    if n in _POSIX_NAMES:
+        return _POSIX[n.lower()][1 if unicode_classes else 0]
+    if n.startswith('java'):
+        low = n.lower()
+        if _JAVA_PROP_NAMES.get(low) == n:
+            return _JAVA_PROPS[low]
+        raise JavaRegexError('Unknown Java property: %s' % name)
+    if n in _GENERAL_CATEGORIES:
+        return _gc_set(n)
     raise JavaRegexError('Unknown property: %s' % name)
 
 
@@ -170,7 +211,7 @@ def _escape_char(c):
     if c == '\x0b':
         return '\\x0B'
     if c == ' ':
-        return ' '
+        return '\\ '
     if ord(c) < 32:
         return '\\x%02x' % ord(c)
     return '\\' + c
@@ -207,17 +248,90 @@ def _count_groups(p):
     return count
 
 
+_CURLY = regex.compile(r'\{(\d+)(?:(,)(\d*))?\}')
+_CURLY_X = regex.compile(r'\{(\d+)\s*(?:(,)\s*(\d*)\s*)?\}')
+_GROUP_NAME = regex.compile(r'[A-Za-z][A-Za-z0-9]*\Z')
+_MAX_REPEAT = 2 ** 31 - 1
+_BIG_REPEAT = 100000
+
+# special case of Java's CASE_INSENSITIVE|UNICODE_CASE matching:
+# Character.toLowerCase(Character.toUpperCase(c)) is 'i' for all of these
+_DOTTED_I = 'iIıİ'
+
+# Java line terminators
+_LT = '\\n\\r\\x85\\u2028\\u2029'
+_DOLLAR = '(?=(?:\\r\\n|(?<!\\r)\\n|[\\r\\x85\\u2028\\u2029])?\\Z)'
+_DOLLAR_UNIX = '(?=\\n?\\Z)'
+_DOLLAR_M = '(?=\\r\\n|(?<!\\r)\\n|[\\r\\x85\\u2028\\u2029]|\\Z)'
+_DOLLAR_M_UNIX = '(?=\\n|\\Z)'
+_CARET_M = '(?:\\A|(?<=[\\n\\x85\\u2028\\u2029])|(?<=\\r)(?!\\n))(?!\\Z)'
+_CARET_M_UNIX = '(?:\\A|(?<=\\n))(?!\\Z)'
+
+
+def _ascii_swapcase_ranges(lo, hi):
+    """Set fragments for the other case of the ASCII letters in [lo, hi]."""
+    out = []
+    for a, b in ((0x41, 0x5A), (0x61, 0x7A)):
+        s, e = max(lo, a), min(hi, b)
+        if s <= e:
+            d = 32 if a == 0x41 else -32
+            out.append('%s-%s' % (chr(s + d), chr(e + d)))
+    return out
+
+
+def _is_cased_set(val):
+    """Whether a property set depends on the letter case, Java matches those
+    case insensitively (like \\p{Lu} matching 'a' with CASE_INSENSITIVE)
+    even without UNICODE_CASE."""
+    return any(x in val for x in ('\\p{Lu', '\\p{Ll', '\\p{Lt', 'Lowercase', 'Uppercase'))
+
+
+class _Flags:
+    """The java.util.regex flags in effect at some point of the pattern."""
+    __slots__ = ('ci', 'ucase', 'uclass', 'dotall', 'unix', 'multi', 'comments')
+
+    def __init__(self):
+        self.ci = self.ucase = self.uclass = self.dotall = self.unix = self.multi = self.comments = False
+
+    def copy(self):
+        f = _Flags.__new__(_Flags)
+        for k in _Flags.__slots__:
+            setattr(f, k, getattr(self, k))
+        return f
+
+
 class _Translator:
 
     def __init__(self, pattern, flags):
         self.p = pattern
         self.n = len(pattern)
         self.i = 0
-        self.unicode_classes = bool(flags & UNICODE_CHARACTER_CLASS)
-        self.dotall = False
-        self.comments = False
+        f = self.f = _Flags()
+        if flags & IGNORECASE:
+            f.ci = f.ucase = True
+        if flags & UNICODE_CHARACTER_CLASS:
+            f.uclass = f.ucase = True
+        # whether the regex module currently matches case insensitively
+        self.r_ci = bool(flags & IGNORECASE)
         self.out = []
         self.group_count = _count_groups(pattern)
+        self.group_names = set()
+        self._class_depth = 0
+
+    # flag shortcuts
+    @property
+    def unicode_classes(self):
+        return self.f.uclass
+
+    @property
+    def aci(self):
+        """ASCII-only case insensitivity (CASE_INSENSITIVE without
+        UNICODE_CASE), done by expanding the letters."""
+        return self.f.ci and not self.f.ucase
+
+    @property
+    def uci(self):
+        return self.f.ci and self.f.ucase
 
     def error(self, msg):
         raise JavaRegexError('%s at position %d in: %r' % (msg, self.i, self.p))
@@ -225,6 +339,20 @@ class _Translator:
     def peek(self, k=0):
         j = self.i + k
         return self.p[j] if j < self.n else ''
+
+    def skip_comments(self):
+        """In COMMENTS mode skip whitespace and #-comments."""
+        if not self.f.comments:
+            return
+        while self.i < self.n:
+            c = self.p[self.i]
+            if c in ' \t\n\r\x0b\f':
+                self.i += 1
+            elif c == '#':
+                j = self.p.find('\n', self.i)
+                self.i = self.n if j < 0 else j + 1
+            else:
+                break
 
     # ---- escapes ----
 
@@ -243,12 +371,13 @@ class _Translator:
         """Parse an escape sequence starting after the backslash. Returns a
         tuple (kind, value) where kind is 'char' (value is a literal
         character), 'set' (value is V1 set content), 'nset' (negated set
-        content) or 'raw' (value is regex text, only outside of sets)."""
+        content), 'quote' (a \\Q...\\E literal) or 'raw' (value is regex text,
+        only outside of sets)."""
         if self.i >= self.n:
             self.error('Trailing backslash')
         c = self.p[self.i]
         self.i += 1
-        uc = self.unicode_classes
+        uc = self.f.uclass
         if c == 'w':
             return 'set', _U_W if uc else _ASCII_W
         if c == 'W':
@@ -273,18 +402,16 @@ class _Translator:
             if self.peek() == '{':
                 end = self.p.find('}', self.i)
                 if end < 0:
-                    self.error('Unclosed property')
+                    self.error('Unclosed character family')
                 name = self.p[self.i + 1:end]
                 self.i = end + 1
             else:
                 name = self.peek()
+                if not name:
+                    self.error('Illegal character family')
                 self.i += 1
-            neg = c == 'P'
-            if name.startswith('^'):
-                neg = not neg
-                name = name[1:]
             content = _property_set(name, uc)
-            return ('nset' if neg else 'set'), content
+            return ('nset' if c == 'P' else 'set'), content
         if c == 't':
             return 'char', '\t'
         if c == 'n':
@@ -306,14 +433,18 @@ class _Translator:
                 digits += self.peek()
                 self.i += 1
             if not digits:
-                self.error('Bad octal escape')
+                self.error('Illegal octal escape sequence')
             return 'char', chr(int(digits, 8))
         if c == 'x':
             if self.peek() == '{':
                 end = self.p.find('}', self.i)
-                v = int(self.p[self.i + 1:end], 16)
+                try:
+                    v = int(self.p[self.i + 1:end], 16)
+                    ch = chr(v)
+                except (ValueError, OverflowError):
+                    self.error('Illegal hexadecimal escape sequence')
                 self.i = end + 1
-                return 'char', chr(v)
+                return 'char', ch
             return 'char', chr(self.read_hex(2))
         if c == 'u':
             v = self.read_hex(4)
@@ -331,6 +462,8 @@ class _Translator:
             return 'char', chr(v)
         if c == 'c':
             ch = self.peek()
+            if not ch:
+                self.error('Illegal control escape sequence')
             self.i += 1
             return 'char', chr(ord(ch) ^ 64)
         if c == 'N' and self.peek() == '{':
@@ -338,7 +471,10 @@ class _Translator:
             name = self.p[self.i + 1:end]
             self.i = end + 1
             import unicodedata
-            return 'char', unicodedata.lookup(name)
+            try:
+                return 'char', unicodedata.lookup(name)
+            except KeyError:
+                self.error('Unknown character name ' + name)
         if c == 'Q':
             end = self.p.find('\\E', self.i)
             if end < 0:
@@ -372,6 +508,8 @@ class _Translator:
         if c == 'z':
             return 'raw', '\\Z'
         if c == 'Z':
+            if self.f.unix:
+                return 'raw', '(?=\\n?\\Z)'
             return 'raw', '(?=(?:\\r\\n|[\\n\\r\\x85\\u2028\\u2029])?\\Z)'
         if c == 'G':
             return 'raw', '\\G'
@@ -381,11 +519,15 @@ class _Translator:
             return 'raw', '\\X'
         if c == 'k':
             if self.peek() != '<':
-                self.error('Bad named backreference')
+                self.error('\\k is not followed by \'<\' for named capturing group')
             end = self.p.find('>', self.i)
+            if end < 0:
+                self.error('named capturing group is missing trailing \'>\'')
             name = self.p[self.i + 1:end]
             self.i = end + 1
-            return 'raw', '(?P=%s)' % name
+            if name not in self.group_names:
+                self.error('named capturing group <%s> does not exist' % name)
+            return 'raw', self._backref('(?P=%s)' % name)
         if c.isdigit():
             num = int(c)
             while self.peek().isdigit() and num * 10 + int(self.peek()) <= self.group_count:
@@ -393,14 +535,48 @@ class _Translator:
                 self.i += 1
             if num > self.group_count or num == 0:
                 return 'raw', '(?!)'
-            return 'raw', '(?:\\g<%d>)' % num
+            return 'raw', self._backref('(?:\\g<%d>)' % num)
         self.error('Unknown escape: \\' + c)
+
+    def _backref(self, text):
+        if self.aci:
+            return '(?i:%s)' % text
+        return text
+
+    # ---- literals ----
+
+    def literal(self, c):
+        """A literal character outside a class, honouring the case flags."""
+        if self.f.ci:
+            if self.f.ucase:
+                if c in _DOTTED_I:
+                    return '[' + _DOTTED_I + ']'
+            elif ('a' <= c <= 'z') or ('A' <= c <= 'Z'):
+                return '[' + c + c.swapcase() + ']'
+        return _escape_char(c)
+
+    def set_escape(self, kind, val):
+        if self.aci and val in ('a-z', 'A-Z'):
+            val = 'a-zA-Z'
+        s = ('[' if kind == 'set' else '[^') + val + ']'
+        if self.aci and _is_cased_set(val):
+            # Java matches properties like \p{Lu} case insensitively even
+            # without UNICODE_CASE
+            return '(?i:' + s + ')'
+        return s
 
     # ---- character classes ----
 
     def parse_class(self):
         """Parse a Java character class, self.i is just after '['. Returns V1
         set text including the brackets."""
+        self._class_depth += 1
+        try:
+            return self._parse_class()
+        finally:
+            self._class_depth -= 1
+
+    def _parse_class(self):
         neg = False
         if self.peek() == '^':
             neg = True
@@ -408,7 +584,32 @@ class _Translator:
         items = []  # list of strings (V1 set fragments)
         intersections = []
         first = True
+        has_set = [False]
+        ci, ucase = self.f.ci, self.f.ucase
+
+        def add_char(ch):
+            items.append(_escape_char(ch))
+            if ci:
+                if ucase:
+                    if ch in _DOTTED_I:
+                        items.append(_DOTTED_I)
+                elif ('a' <= ch <= 'z') or ('A' <= ch <= 'Z'):
+                    items.append(ch.swapcase())
+
+        def add_range(lo, hi):
+            items.append(_escape_char(lo) + '-' + _escape_char(hi))
+            if ci:
+                a, b = ord(lo), ord(hi)
+                if ucase:
+                    if a <= 0x69 <= b:
+                        items.append('ıİ')
+                    elif a <= 0x49 <= b:
+                        items.append('ı')
+                else:
+                    items.extend(_ascii_swapcase_ranges(a, b))
+
         while True:
+            self.skip_comments()
             if self.i >= self.n:
                 self.error('Unclosed character class')
             c = self.p[self.i]
@@ -428,24 +629,30 @@ class _Translator:
             # single char or escape, possibly a range
             kind, val = self.class_atom()
             if kind == 'char':
-                if self.peek() == '-' and self.peek(1) not in (']', '') and self.peek(1) != '[':
-                    save = self.i
+                save = self.i
+                self.skip_comments()
+                if self.peek() == '-':
                     self.i += 1
-                    kind2, val2 = self.class_atom()
-                    if kind2 == 'char':
-                        if ord(val2) < ord(val):
-                            self.error('Illegal character range')
-                        items.append(_escape_char(val) + '-' + _escape_char(val2))
-                        continue
-                    # not a range, e.g. [a-\\w]: treat '-' literally
-                    self.i = save
-                items.append(_escape_char(val))
+                    self.skip_comments()
+                    if self.peek() not in (']', '', '['):
+                        kind2, val2 = self.class_atom()
+                        if kind2 == 'char':
+                            if ord(val2) < ord(val):
+                                self.error('Illegal character range')
+                            add_range(val, val2)
+                            continue
+                    # not a range, e.g. [a-\\w] or [a-]: treat '-' literally
+                self.i = save
+                add_char(val)
             elif kind == 'quote':
-                items.extend(_escape_char(ch) for ch in val)
-            elif kind == 'set':
-                items.append('[' + val + ']')
-            elif kind == 'nset':
-                items.append('[^' + val + ']')
+                for ch in val:
+                    add_char(ch)
+            elif kind in ('set', 'nset'):
+                if ci and not ucase and val in ('a-z', 'A-Z'):
+                    val = 'a-zA-Z'
+                if _is_cased_set(val):
+                    has_set[0] = True
+                items.append(('[' if kind == 'set' else '[^') + val + ']')
         intersections.append(items)
         parts = []
         for its in intersections:
@@ -453,13 +660,15 @@ class _Translator:
                 continue
             parts.append('[' + ''.join(its) + ']')
         if not parts:
-            body = '[]' if not neg else ''
-            return '[^]' if neg else '[^\\x00-\\U0010FFFF]'
+            return '[^\\x00-\\U0010FFFF]' if not neg else '[\\x00-\\U0010FFFF]'
         if len(parts) == 1:
             inner = parts[0][1:-1]
         else:
             inner = '&&'.join(parts)
-        return ('[^' if neg else '[') + inner + ']'
+        s = ('[^' if neg else '[') + inner + ']'
+        if has_set[0] and self.aci and self._class_depth == 1:
+            s = '(?i:' + s + ')'
+        return s
 
     def class_atom(self):
         c = self.p[self.i]
@@ -470,110 +679,177 @@ class _Translator:
 
     # ---- main ----
 
+    def _quantifier(self):
+        """Parse a quantifier at self.i (after skipping comments). Returns
+        (text, is_curly) or None."""
+        c = self.peek()
+        if c in ('*', '+', '?') and c:
+            self.i += 1
+            return c, False
+        if c == '{':
+            m = (_CURLY_X if self.f.comments else _CURLY).match(self.p, self.i)
+            if m is None:
+                self.error('Illegal repetition')
+            lo = int(m.group(1))
+            hi = m.group(3)
+            if lo > _MAX_REPEAT or (hi and int(hi) > _MAX_REPEAT):
+                self.error('Illegal repetition range')
+            if m.group(2):
+                if hi:
+                    if int(hi) < lo:
+                        self.error('Illegal repetition range')
+                    # huge upper bounds make the regex module allocate a lot
+                    # of memory, they are practically unbounded
+                    q = '{%d,%d}' % (lo, int(hi)) if int(hi) <= _BIG_REPEAT else '{%d,}' % lo
+                else:
+                    q = '{%d,}' % lo
+            else:
+                q = '{%d}' % lo
+            self.i = m.end()
+            return q, True
+        return None
+
+    def _modifier(self):
+        self.skip_comments()
+        c = self.peek()
+        if c in ('?', '+') and c:
+            self.i += 1
+            return c
+        return ''
+
     def translate(self):
         out = self.out
-        # index into out where the last complete atom starts, used to wrap
-        # stacked quantifiers like X*{1,3}, which Java accepts
+        # index into out where the last complete atom starts (None if there
+        # is nothing a quantifier could apply to)
         atom_start = None
-        quantified = False
-        group_stack = []
-        while self.i < self.n:
+        stack = []  # (flags, regex ci state, out index of the group start)
+        while True:
+            self.skip_comments()
+            if self.i >= self.n:
+                break
             c = self.p[self.i]
-            if c in '*+?' or (c == '{' and self._curly_quantifier() is not None):
-                if c == '{':
-                    q = self._curly_quantifier()
-                    self.i += len(q)
-                else:
-                    q = c
-                    self.i += 1
-                if self.peek() in ('?', '+') and self.peek():
-                    q += self.peek()
-                    self.i += 1
-                if quantified and atom_start is not None:
-                    out[atom_start:] = ['(?:' + ''.join(out[atom_start:]) + ')']
+            if c in '*+?{':
+                if atom_start is None:
+                    self.error('Dangling meta character \'%s\'' % c)
+                q, _ = self._quantifier()
+                q += self._modifier()
                 out.append(q)
-                quantified = True
+                # Java ignores counted quantifiers directly following a
+                # quantifier (a{2}{3} == a{2}), any other quantifier there is
+                # a syntax error
+                while True:
+                    self.skip_comments()
+                    nc = self.peek()
+                    if nc == '{':
+                        self._quantifier()
+                        self._modifier()
+                        continue
+                    if nc and nc in '*+?':
+                        self.error('Dangling meta character \'%s\'' % nc)
+                    break
+                atom_start = None
                 continue
-            quantified = False
             if c == '\\':
                 self.i += 1
-                atom_start = len(out)
+                start = len(out)
                 kind, val = self.parse_escape(False)
                 if kind == 'char':
-                    out.append(_escape_char(val))
+                    out.append(self.literal(val))
                 elif kind == 'quote':
-                    lit = ''.join(_escape_char(ch) for ch in val)
-                    out.append('(?:' + lit + ')' if len(val) > 1 else lit)
-                elif kind == 'set':
-                    out.append('[' + val + ']')
-                elif kind == 'nset':
-                    out.append('[^' + val + ']')
+                    if not val:
+                        start = None
+                    elif len(val) == 1:
+                        out.append(self.literal(val))
+                    else:
+                        out.append('(?:' + ''.join(self.literal(ch) for ch in val) + ')')
+                elif kind in ('set', 'nset'):
+                    out.append(self.set_escape(kind, val))
                 else:
                     out.append(val)
+                atom_start = start
             elif c == '[':
                 self.i += 1
                 atom_start = len(out)
                 out.append(self.parse_class())
             elif c == '(':
                 self.i += 1
-                group_stack.append(len(out))
+                saved = (self.f.copy(), self.r_ci, len(out))
                 g = self.parse_group_open()
-                if g:
-                    out.append(g)
-                else:
-                    group_stack.pop()
+                if g is None:
+                    # (?flags) applying to the rest of the enclosing group
+                    atom_start = None
+                    continue
+                stack.append(saved)
+                out.append(g)
                 atom_start = None
             elif c == ')':
                 self.i += 1
-                atom_start = group_stack.pop() if group_stack else None
+                if not stack:
+                    self.error('Unmatched closing \')\'')
+                self.f, self.r_ci, start = stack.pop()
                 out.append(')')
+                atom_start = start
             elif c == '.':
                 self.i += 1
                 atom_start = len(out)
-                out.append('.' if self.dotall else '[^' + _LINE_TERMINATORS + ']')
-            elif c == '{':
+                f = self.f
+                if f.dotall:
+                    out.append('(?s:.)')
+                elif f.unix:
+                    out.append('[^\\n]')
+                else:
+                    out.append('[^' + _LT + ']')
+            elif c == '^':
+                self.i += 1
                 atom_start = len(out)
-                out.append('\\{')
+                if self.f.multi:
+                    out.append(_CARET_M_UNIX if self.f.unix else _CARET_M)
+                else:
+                    out.append('\\A')
+            elif c == '$':
                 self.i += 1
-            elif c == '}':
                 atom_start = len(out)
-                out.append('\\}')
+                f = self.f
+                if f.multi:
+                    out.append(_DOLLAR_M_UNIX if f.unix else _DOLLAR_M)
+                else:
+                    out.append(_DOLLAR_UNIX if f.unix else _DOLLAR)
+            elif c == '|':
                 self.i += 1
-            elif c == '#' and self.comments:
-                j = self.p.find('\n', self.i)
-                self.i = self.n if j < 0 else j + 1
-            elif c in ' \t\n\r' and self.comments:
-                self.i += 1
+                atom_start = None
+                out.append('|')
             else:
-                atom_start = len(out) if c not in '|^$' else None
-                out.append(c)
                 self.i += 1
+                atom_start = len(out)
+                out.append(self.literal(c))
+        if stack:
+            self.error('Unclosed group')
         return ''.join(out)
 
-    def _curly_quantifier(self):
-        j = self.p.find('}', self.i)
-        if j < 0:
-            return None
-        body = self.p[self.i + 1:j]
-        if body and body[0].isdigit() and all(ch.isdigit() or ch == ',' for ch in body) and body.count(',') <= 1:
-            return self.p[self.i:j + 1]
-        return None
-
     def parse_group_open(self):
+        """Parse a group opening after '('. Returns the regex text, or None
+        for a (?flags) construct which isn't a group."""
+        self.skip_comments()
         if self.peek() != '?':
             return '('
         self.i += 1
         c = self.peek()
-        if c in ':=!>':
+        if c in (':', '=', '!', '>') and c:
             self.i += 1
             return '(?' + c
         if c == '<':
             c2 = self.peek(1)
-            if c2 in '=!':
+            if c2 in ('=', '!') and c2:
                 self.i += 2
                 return '(?<' + c2
             end = self.p.find('>', self.i)
-            name = self.p[self.i + 1:end]
+            name = self.p[self.i + 1:end] if end > 0 else ''
+            if end < 0 or not _GROUP_NAME.match(name):
+                self.error('capturing group name does not start with a Latin letter or contains '
+                           'illegal characters')
+            if name in self.group_names:
+                self.error('Named capturing group <%s> is already defined' % name)
+            self.group_names.add(name)
             self.i = end + 1
             return '(?P<%s>' % name
         # inline flags
@@ -584,36 +860,44 @@ class _Translator:
             ch = self.p[j]
             if ch == '-':
                 on = False
-            elif ch in 'idmsuxU':
+            elif ch in 'idmsuxUc':
                 (flags_on if on else flags_off).append(ch)
             else:
-                self.error('Unknown inline flag ' + ch)
+                self.i = j
+                self.error('Unknown inline modifier')
             j += 1
         if j >= self.n:
             self.error('Unclosed group')
         term = self.p[j]
         self.i = j + 1
-        if 's' in flags_on:
-            self.dotall = True
-        if 's' in flags_off:
-            self.dotall = False
-        if 'x' in flags_on:
-            self.comments = True
-        if 'x' in flags_off:
-            self.comments = False
-        if 'U' in flags_on:
-            self.unicode_classes = True
-        if 'U' in flags_off:
-            self.unicode_classes = False
-        keep_on = ''.join(f for f in flags_on if f in 'imx')
-        keep_off = ''.join(f for f in flags_off if f in 'imx')
-        if 's' in flags_on or 's' in flags_off:
-            pass  # handled by translating '.'
-        flagstr = keep_on + ('-' + keep_off if keep_off else '')
+        f = self.f
+        for ch, val in [(x, True) for x in flags_on] + [(x, False) for x in flags_off]:
+            if ch == 'i':
+                f.ci = val
+            elif ch == 'u':
+                f.ucase = val
+            elif ch == 'U':
+                f.uclass = val
+                if val:
+                    f.ucase = True
+            elif ch == 's':
+                f.dotall = val
+            elif ch == 'd':
+                f.unix = val
+            elif ch == 'm':
+                f.multi = val
+            elif ch == 'x':
+                f.comments = val
+        want = f.ci and f.ucase
         if term == ':':
-            return '(?%s:' % flagstr if flagstr else '(?:'
-        # (?flags) applying to the rest of the enclosing group
-        return '(?%s)' % flagstr if flagstr else ''
+            if want != self.r_ci:
+                self.r_ci = want
+                return '(?i:' if want else '(?-i:'
+            return '(?:'
+        if want != self.r_ci:
+            self.r_ci = want
+            self.out.append('(?i)' if want else '(?-i)')
+        return None
 
 
 _cache = {}
@@ -648,12 +932,15 @@ def compile(pattern, flags=0):
 def _java_replacement(compiled, repl):
     """Convert a java.util.regex.Matcher replacement string (using $n and
     ${name} group references, backslash escapes) into a function suitable for
-    regex.sub()."""
+    regex.sub(). Invalid replacement strings raise JavaRegexError when the
+    first match is replaced (like Matcher.appendReplacement)."""
     parts = []  # (is_group, value)
     lit = []
     i = 0
     n = len(repl)
     gcount = compiled.groups
+    names = compiled.groupindex
+    error = None
 
     def flush():
         if lit:
@@ -664,39 +951,64 @@ def _java_replacement(compiled, repl):
         c = repl[i]
         if c == '\\':
             i += 1
-            if i < n:
-                lit.append(repl[i])
-                i += 1
+            if i >= n:
+                error = 'character to be escaped is missing'
+                break
+            lit.append(repl[i])
+            i += 1
             continue
-        if c == '$' and i + 1 < n:
-            if repl[i + 1] == '{':
-                end = repl.find('}', i + 2)
-                if end > 0:
-                    flush()
-                    parts.append((True, repl[i + 2:end]))
-                    i = end + 1
-                    continue
-            if repl[i + 1].isdigit():
-                num = int(repl[i + 1])
-                i += 2
-                while i < n and repl[i].isdigit() and num * 10 + int(repl[i]) <= gcount:
-                    num = num * 10 + int(repl[i])
-                    i += 1
+        if c == '$':
+            i += 1
+            if i >= n:
+                error = 'Illegal group reference: group index is missing'
+                break
+            if repl[i] == '{':
+                end = repl.find('}', i + 1)
+                name = repl[i + 1:end] if end > 0 else ''
+                if end < 0:
+                    error = "named capturing group is missing trailing '}'"
+                    break
+                if not name:
+                    error = 'named capturing group has 0 length name'
+                    break
+                if not _GROUP_NAME.match(name):
+                    error = 'capturing group name {%s} starts with digit character' % name
+                    break
+                if name not in names:
+                    error = 'No group with name {%s}' % name
+                    break
                 flush()
-                parts.append((True, num))
+                parts.append((True, name))
+                i = end + 1
                 continue
+            if not ('0' <= repl[i] <= '9'):
+                error = 'Illegal group reference'
+                break
+            num = int(repl[i])
+            i += 1
+            if num > gcount:
+                error = 'No group %d' % num
+                break
+            while i < n and '0' <= repl[i] <= '9' and num * 10 + int(repl[i]) <= gcount:
+                num = num * 10 + int(repl[i])
+                i += 1
+            flush()
+            parts.append((True, num))
+            continue
         lit.append(c)
         i += 1
     flush()
+
+    if error is not None:
+        def fail(m):
+            raise JavaRegexError('Invalid replacement %r: %s' % (repl, error))
+        return fail
 
     def func(m):
         out = []
         for is_group, p in parts:
             if is_group:
-                try:
-                    g = m.group(p)
-                except (IndexError, regex.error):
-                    g = None
+                g = m.group(p)
                 if g:
                     out.append(g)
             else:

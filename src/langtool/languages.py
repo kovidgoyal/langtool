@@ -216,8 +216,10 @@ LANGUAGES = {
         name='German', countries=['LU', 'LI', 'BE'], default_variant='de-DE', ignored_characters_regex=SOFT_HYPHEN,
         variants=[
             V('de', name='German'),
-            V('de-DE', countries=['DE'], name='German (Germany)', extra_rules=[R('GermanCompoundRule')]),
-            V('de-AT', countries=['AT'], name='German (Austria)', extra_rules=[R('GermanCompoundRule')]),
+            V('de-DE', countries=['DE'], name='German (Germany)', extra_rules=[R('GermanCompoundRule')],
+              extra_rule_files=['de-DE-AT/grammar.xml']),
+            V('de-AT', countries=['AT'], name='German (Austria)', extra_rules=[R('GermanCompoundRule')],
+              extra_rule_files=['de-DE-AT/grammar.xml']),
             V('de-CH', countries=['CH'], name='German (Swiss)', extra_rules=[R('SwissCompoundRule')],
               tagger_impl='SwissGermanTagger'),
         ],
@@ -397,7 +399,8 @@ LANGUAGES = {
     ),
     'nl': dict(
         name='Dutch', countries=['NL', 'BE'], default_variant='nl',
-        variants=[V('nl', name='Dutch'), V('nl-BE', countries=['BE'], name='Dutch (Belgium)')],
+        variants=[V('nl', name='Dutch', extra_rule_files=['nl-NL/grammar.xml']),
+                  V('nl-BE', countries=['BE'], name='Dutch (Belgium)')],
         tagger=dict(dict='nl/dutch.dict', lowercase_with_uppercase=True, impl='DutchTagger'),
         synthesizer=dict(dict='nl/dutch_synth.dict', tags='nl/dutch_tags.txt'),
         word_tokenizer='DutchWordTokenizer',
@@ -471,7 +474,7 @@ LANGUAGES = {
                R('RussianVerbConjugationRule'), R('RussianDashRule'), R('RussianSpecificCaseRule')],
     ),
     'sk': dict(
-        name='Slovak', countries=['SK'], variants=[V('sk-SK')],
+        name='Slovak', countries=['SK'], variants=[V('sk-SK')], extra_rule_files=['grammar-typography.xml'],
         tagger=dict(dict='sk/slovak.dict', lowercase_with_uppercase=True),
         synthesizer=dict(dict='sk/slovak_synth.dict', tags='sk/slovak_tags.txt'),
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),
@@ -508,6 +511,8 @@ LANGUAGES = {
     ),
     'uk': dict(
         name='Ukrainian', countries=['UA'], variants=[V('uk-UA')], ignored_characters_regex='[­́]',
+        extra_rule_files=['grammar-spelling.xml', 'grammar-grammar.xml', 'grammar-barbarism.xml',
+                          'grammar-style.xml', 'grammar-punctuation.xml'],
         tagger=dict(dict='uk/ukrainian.dict', lowercase_with_uppercase=False, impl='UkrainianTagger'),
         synthesizer=dict(dict='uk/ukrainian_synth.dict', tags='uk/ukrainian_tags.txt'),
         word_tokenizer='UkrainianWordTokenizer',
@@ -529,6 +534,12 @@ LANGUAGES = {
         rules=[R('DoublePunctuationRule'), R('MultipleWhitespaceRule')],
     ),
 }
+
+# All language modules except Crimean Tatar override
+# Language.createDefaultSentenceTokenizer() with an SRXSentenceTokenizer
+for _code, _d in LANGUAGES.items():
+    if _code != 'crh':
+        _d.setdefault('sentence_tokenizer', 'srx')
 
 
 def all_codes():
@@ -566,3 +577,15 @@ def resolve_code(code):
         d = LANGUAGES[parts[0]]
         return parts[0], d['variants'][0]['code']
     raise KeyError('Unknown language: %s' % code)
+
+
+def register_language(short_code, definition):
+    """Add (or replace) a language definition at runtime."""
+    LANGUAGES[short_code] = definition
+    for v in definition['variants']:
+        _ALIASES[v['code'].lower()] = (short_code, v['code'])
+    _ALIASES[short_code.lower()] = (short_code, definition.get('default_variant') or definition['variants'][0]['code'])
+    from . import api
+    with api._lock:
+        for v in definition['variants']:
+            api._languages.pop(v['code'], None)

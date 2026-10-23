@@ -97,6 +97,7 @@ class JLanguageTool:
         self.language = language
         self.mother_tongue = mother_tongue
         self.user_config = user_config
+        self.check_cancelled_callback = None
         self.messages = messages_for(language.short_code, language.countries[0] if len(language.countries) == 1
                                      else None)
         self.disabled_rules = set()
@@ -245,10 +246,21 @@ class JLanguageTool:
         analyzed = AnalyzedSentence(disamb.tokens, pre)
         return analyzed
 
+    def set_check_cancelled_callback(self, callback):
+        """callback() returning True stops the check (port of
+        setCheckCancelledCallback)"""
+        self.check_cancelled_callback = callback
+
+    def _cancelled(self):
+        cb = self.check_cancelled_callback
+        return cb is not None and cb()
+
     def analyze_sentences(self, sentences):
         out = []
         n = len(sentences)
         for j, s in enumerate(sentences):
+            if self._cancelled():
+                break
             a = self.get_analyzed_sentence(s)
             if j + 1 == n:
                 a = mark_as_paragraph_end(a)
@@ -315,6 +327,8 @@ class JLanguageTool:
     def _text_level_matches(self, rule_set, sdata, annotated_text, analyzed):
         out = []
         for rule in rule_set.text_level_rules:
+            if self._cancelled():
+                break
             for m in rule.match(analyzed, annotated_text):
                 fl, fc = self._find_line_column(sdata, m.from_pos)
                 tl, tc = self._find_line_column(sdata, m.to_pos)
@@ -352,6 +366,8 @@ class JLanguageTool:
         for sd in sdata:
             rules = rule_set.rules_for_sentence(sd.analyzed)
             sm = self.check_analyzed_sentence(para_mode, rules, sd.analyzed)
+            if sm and self._cancelled():
+                break
             for m in sm:
                 out.append(self.adjust_rule_match_pos(m, sd.start_offset, sd.start_column, sd.start_line, sd.text,
                                                       annotated_text))
@@ -364,6 +380,8 @@ class JLanguageTool:
         for rule in rules:
             if rule.is_text_level_rule():
                 continue
+            if self._cancelled():
+                break
             matches.extend(rule.match(analyzed))
         if not matches:
             return matches

@@ -995,10 +995,10 @@ class PatternRuleHandler(XMLRuleHandler):
                 if self.rule_anti_patterns or self.rulegroup_anti_patterns:
                     raise RuleLoadError('<regexp> rules currently cannot be used together with <antipattern>. '
                                         'Rule id: %s[%d]' % (self.id, self.sub_id))
+                jregex.translate(regex_str, flags)  # check syntax
                 rule = R.RegexPatternRule(self.id, self.name, ''.join(self.message), short_message,
                                           ''.join(self.suggestions_out_msg), self.language,
-                                          jregex.compile(regex_str, flags), self.regexp_mark,
-                                          self.regex_case_sensitive)
+                                          (regex_str, flags), self.regexp_mark, self.regex_case_sensitive)
                 rule.source_file = self.source_file
             else:
                 raise RuleLoadError("Neither '<pattern>' tokens nor '<regexp>' is set in rule '%s'" % self.id)

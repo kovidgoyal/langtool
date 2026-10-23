@@ -1,0 +1,3 @@
+# test data for AbstractRepeatedWordsRule
+large=big;huge
+fast;quick;rapid

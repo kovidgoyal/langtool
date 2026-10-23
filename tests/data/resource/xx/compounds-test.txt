@@ -1,0 +1,5 @@
+# test data for AbstractCompoundRule
+e-mail
+web-site+
+fun-park*
+tic-tac-toe

@@ -167,6 +167,12 @@ class SuggestedReplacement:
         self.suffix = suffix
         self.confidence = None
 
+    def copy(self, replacement=None):
+        c = SuggestedReplacement(self.replacement if replacement is None else replacement, self.short_description,
+                                 self.suffix)
+        c.confidence = self.confidence
+        return c
+
     def __eq__(self, o):
         return isinstance(o, SuggestedReplacement) and self.replacement == o.replacement and \
             self.short_description == o.short_description and self.suffix == o.suffix
@@ -308,6 +314,69 @@ class RuleMatch:
 
     def __lt__(self, other):
         return self.from_pos < other.from_pos
+
+    def __eq__(self, o):
+        if self is o:
+            return True
+        if type(o) is not type(self):
+            return NotImplemented
+        return self.rule.get_id() == o.rule.get_id() and \
+            (self.pattern_from_pos, self.pattern_to_pos) == (o.pattern_from_pos, o.pattern_to_pos) and \
+            (self.from_pos, self.to_pos) == (o.from_pos, o.to_pos) and self.message == o.message and \
+            self.sentence == o.sentence and self.type == o.type
+
+    def __hash__(self):
+        return hash((self.rule.get_id(), self.from_pos, self.to_pos, self.pattern_from_pos, self.pattern_to_pos,
+                     self.message, self.type))
+
+    def trim_match_ends(self):
+        """Port of RuleMatch.trimMatchEnds(): returns a match with the tokens
+        that the error string and all the suggestions have in common at the
+        start and end removed (or self if nothing can be trimmed)"""
+        replacements = list(self._suggested_replacements)
+        if not replacements:
+            return self
+        error_str = self.original_error_str
+        if not error_str:
+            self.set_original_error_str()
+            error_str = self.original_error_str
+        if not error_str or is_all_whitespace(error_str):
+            return self
+        from_pos, to_pos = self.from_pos, self.to_pos
+        from_sent, to_sent = self.get_from_pos_sentence(), self.get_to_pos_sentence()
+        changed = True
+        while changed:
+            changed = False
+            last = error_str.rfind(' ')
+            if last > 0:
+                suffix = ' ' + error_str[last + 1:]
+                trim = len(error_str) - last
+                if all(r.replacement.endswith(suffix) for r in replacements) and to_pos - trim > from_pos:
+                    replacements = [r.copy(r.replacement[:len(r.replacement) - len(suffix)]) for r in replacements]
+                    to_pos -= trim
+                    if to_sent >= 0:
+                        to_sent -= trim
+                    error_str = error_str[:last]
+                    changed = True
+            first = error_str.find(' ')
+            if first > 0:
+                prefix = error_str[:first] + ' '
+                trim = first + 1
+                if all(r.replacement.startswith(prefix) for r in replacements) and from_pos + trim < to_pos:
+                    replacements = [r.copy(r.replacement[len(prefix):]) for r in replacements]
+                    from_pos += trim
+                    if from_sent >= 0:
+                        from_sent += trim
+                    error_str = error_str[trim:]
+                    changed = True
+        if from_pos == self.from_pos and to_pos == self.to_pos:
+            return self
+        m = self.copy()
+        m._suggested_replacements = replacements
+        m.set_offset_position(from_pos, to_pos)
+        m.set_sentence_position(from_sent, to_sent)
+        m.original_error_str = error_str
+        return m
 
     def __repr__(self):
         return '%s:%d-%d:%s' % (self.rule.get_full_id(), self.from_pos, self.to_pos, self.message)

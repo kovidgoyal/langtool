@@ -56,8 +56,7 @@ def resource_language(language):
 
 
 def resource_dir(language):
-    from .language import RESOURCE_DIR
-    return os.path.join(RESOURCE_DIR, resource_language(language))
+    return language.resource_dir
 
 
 def _custom(language, kind, name):
@@ -86,7 +85,6 @@ def create_tagger(language):
 
 def create_synthesizer(language):
     from .synthesis import BaseSynthesizer
-    from .language import RESOURCE_DIR
     spec = language.get('synthesizer')
     if not spec:
         return None
@@ -94,7 +92,7 @@ def create_synthesizer(language):
     if f is not None:
         return f(language, spec)
     tags = spec.get('tags')
-    tags_path = os.path.join(RESOURCE_DIR, tags) if tags else None
+    tags_path = language.resource_path(tags) if tags else None
     if tags_path and not os.path.exists(tags_path):
         # the tags file is part of the dictionary download for some languages
         from .dictionaries import locate, DictionaryNotFound
@@ -116,11 +114,17 @@ def create_word_tokenizer(language):
 
 
 def create_sentence_tokenizer(language):
+    """'srx' is the language's segment.srx (SRXSentenceTokenizer), the
+    default is SimpleSentenceTokenizer as in Language.java"""
     name = language.get('sentence_tokenizer')
+    if name == 'srx':
+        return SRXSentenceTokenizer(language)
     f = _custom(language, 'sentence_tokenizer', name)
     if f is not None:
         return f(language)
-    return SRXSentenceTokenizer(language)
+    if name:
+        return SRXSentenceTokenizer(language)  # unported language specific tokenizer
+    return SimpleSentenceTokenizer(language)
 
 
 def create_chunker(language):
@@ -134,7 +138,6 @@ def create_chunker(language):
 def create_disambiguator(language):
     from .disambiguation import (DemoDisambiguator, ChainDisambiguator, MultiWordChunker, MultiWordChunker2,
                                  XmlRuleDisambiguator)
-    from .language import RESOURCE_DIR
     stages = language.get('disambiguator')
     if not stages:
         return DemoDisambiguator()
@@ -147,13 +150,13 @@ def create_disambiguator(language):
             from .api import get_language
             out.append(_xml_disambiguator(get_language(st[1]).default_variant, st[2]))
         elif kind == 'multiword':
-            path = os.path.join(RESOURCE_DIR, st[1])
+            path = language.resource_path(st[1])
             if os.path.exists(path):
                 out.append(_shared_chunker(path, **st[2]))
         elif kind == 'multiword2':
             kw = dict(st[2])
             impl = kw.pop('impl', None)
-            path = os.path.join(RESOURCE_DIR, st[1])
+            path = language.resource_path(st[1])
             f = _custom(language, 'disambiguator', impl)
             if f is not None:
                 out.append(f(language, path, **kw))
@@ -186,24 +189,23 @@ _xml_cache = {}
 
 def disambiguation_rules(language, use_global=False):
     """Load the disambiguation rules of a language (default variant)."""
-    from .language import RESOURCE_DIR
     from .patterns.loader import load_disambiguation_rules
     from .rules.filters import default_filter_factory
-    key = (language.code, use_global)
+    key = (language.code, use_global, language.resource_root)
     with _lock:
         r = _xml_cache.get(key)
         if r is None:
             rules = []
             problems = []
             ff = default_filter_factory()
-            path = os.path.join(RESOURCE_DIR, language.short_code, 'disambiguation.xml')
+            path = os.path.join(language.resource_dir, 'disambiguation.xml')
             if os.path.exists(path):
-                rr, p = load_disambiguation_rules(path, language, RESOURCE_DIR, ff)
+                rr, p = load_disambiguation_rules(path, language, language.resource_root, ff)
                 rules.extend(rr)
                 problems.extend(p)
             if use_global:
-                rr, p = load_disambiguation_rules(os.path.join(RESOURCE_DIR, 'disambiguation-global.xml'), language,
-                                                  RESOURCE_DIR, ff)
+                rr, p = load_disambiguation_rules(language.resource_path('disambiguation-global.xml'), language,
+                                                  language.resource_root, ff)
                 rules.extend(rr)
                 problems.extend(p)
             r = _xml_cache[key] = (rules, problems)
@@ -244,10 +246,10 @@ class SRXSentenceTokenizer:
     _doc = None
     _doc_lock = threading.Lock()
 
-    def __init__(self, language, srx_path=None):
-        from .language import RESOURCE_DIR
+    def __init__(self, language, srx_path=None, lang_code=None):
         self.language = language
-        self.srx_path = srx_path or os.path.join(RESOURCE_DIR, 'segment.srx')
+        self.srx_path = srx_path or language.resource_path('segment.srx')
+        self.lang_code = lang_code or language.short_code
         self.par_code = '_two'
 
     @classmethod
@@ -263,10 +265,19 @@ class SRXSentenceTokenizer:
             return d
 
     def tokenize(self, text):
-        return self._document(self.srx_path).segment(text, self.language.short_code + self.par_code)
+        return self._document(self.srx_path).segment(text, self.lang_code + self.par_code)
 
     def single_line_breaks_marks_para(self):
         return self.par_code == '_one'
 
     def set_single_line_breaks_marks_paragraph(self, val):
         self.par_code = '_one' if val else '_two'
+
+
+class SimpleSentenceTokenizer(SRXSentenceTokenizer):
+    """Port of org.languagetool.tokenizers.SimpleSentenceTokenizer, the
+    default for languages without their own segmentation rules"""
+
+    def __init__(self, language=None):
+        from .language import RESOURCE_DIR
+        super().__init__(language, os.path.join(RESOURCE_DIR, 'segment-simple.srx'), 'xx')
