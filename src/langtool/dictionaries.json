@@ -1,0 +1,749 @@
+{
+ "languages": {
+  "ar": [
+   {
+    "files": [
+     {
+      "name": "ar/arabic_synth.dict",
+      "path": "org/languagetool/resource/ar/arabic_synth.dict",
+      "size": 14938886
+     },
+     {
+      "name": "ar/arabic.info",
+      "path": "org/languagetool/resource/ar/arabic.info",
+      "size": 186
+     },
+     {
+      "name": "ar/arabic_synth.info",
+      "path": "org/languagetool/resource/ar/arabic_synth.info",
+      "size": 98
+     },
+     {
+      "name": "ar/arabic.dict",
+      "path": "org/languagetool/resource/ar/arabic.dict",
+      "size": 11950573
+     }
+    ],
+    "sha256": "c17b901363fd4cdff9eaa5bb8d33975a56a81c6b8c844ffbd1ef8dd5cea368f8",
+    "size": 14561846,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-ar/6.8/language-ar-6.8.jar"
+   }
+  ],
+  "ast": [
+   {
+    "files": [
+     {
+      "name": "ast/asturian.dict",
+      "path": "org/languagetool/resource/ast/asturian.dict",
+      "size": 269710
+     },
+     {
+      "name": "ast/asturian.info",
+      "path": "org/languagetool/resource/ast/asturian.info",
+      "size": 101
+     }
+    ],
+    "sha256": "772fc113d9da478a242e4539f1c963561c45443dd63a9f1838b2564e0018be44",
+    "size": 990589,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/asturian-pos-dict/0.1/asturian-pos-dict-0.1.jar"
+   }
+  ],
+  "br": [
+   {
+    "files": [
+     {
+      "name": "br/breton.info",
+      "path": "org/languagetool/resource/br/breton.info",
+      "size": 100
+     },
+     {
+      "name": "br/breton.dict",
+      "path": "org/languagetool/resource/br/breton.dict",
+      "size": 3133920
+     }
+    ],
+    "sha256": "0addcf6bf65b55cd6197d19d8ef75edf7cd204ca63cade5ff00fc2f7f8d1d642",
+    "size": 1771841,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-br/6.8/language-br-6.8.jar"
+   }
+  ],
+  "ca": [
+   {
+    "files": [
+     {
+      "name": "ca/ca-ES_tags.txt",
+      "path": "org/languagetool/resource/ca/ca-ES_tags.txt",
+      "size": 4287
+     },
+     {
+      "name": "ca/ca-ES.info",
+      "path": "org/languagetool/resource/ca/ca-ES.info",
+      "size": 100
+     },
+     {
+      "name": "ca/ca-ES.dict",
+      "path": "org/languagetool/resource/ca/ca-ES.dict",
+      "size": 1461925
+     },
+     {
+      "name": "ca/ca-ES_synth.dict",
+      "path": "org/languagetool/resource/ca/ca-ES_synth.dict",
+      "size": 1188349
+     },
+     {
+      "name": "ca/ca-ES_synth.info",
+      "path": "org/languagetool/resource/ca/ca-ES_synth.info",
+      "size": 99
+     }
+    ],
+    "sha256": "e5f32aadd1852e8e442810611d89906c06369a94d2a62c1a142eb3e8f5bda2f1",
+    "size": 9299914,
+    "url": "https://repo1.maven.org/maven2/org/softcatala/catalan-pos-dict/3.3/catalan-pos-dict-3.3.jar"
+   }
+  ],
+  "crh": [
+   {
+    "files": [
+     {
+      "name": "crh/crimean_tatar_synth.dict_tags.txt",
+      "path": "org/languagetool/resource/crh/crimean_tatar_synth.dict_tags.txt",
+      "size": 77164
+     },
+     {
+      "name": "crh/crimean_tatar.info",
+      "path": "org/languagetool/resource/crh/crimean_tatar.info",
+      "size": 100
+     },
+     {
+      "name": "crh/crimean_tatar_synth.info",
+      "path": "org/languagetool/resource/crh/crimean_tatar_synth.info",
+      "size": 142
+     },
+     {
+      "name": "crh/crimean_tatar.dict",
+      "path": "org/languagetool/resource/crh/crimean_tatar.dict",
+      "size": 1935268
+     },
+     {
+      "name": "crh/crimean_tatar_synth.dict",
+      "path": "org/languagetool/resource/crh/crimean_tatar_synth.dict",
+      "size": 2023563
+     }
+    ],
+    "sha256": "62d0dea38eabdc4d4ea4e6417026e1dd4e338624bbacd692340f8ee647831311",
+    "size": 2193485,
+    "url": "https://repo1.maven.org/maven2/org/qirimca/nlp/morfologik-crh-lt/1.0.1/morfologik-crh-lt-1.0.1.jar"
+   }
+  ],
+  "da": [
+   {
+    "files": [
+     {
+      "name": "da/danish.dict",
+      "path": "org/languagetool/resource/da/danish.dict",
+      "size": 597834
+     },
+     {
+      "name": "da/danish.info",
+      "path": "org/languagetool/resource/da/danish.info",
+      "size": 100
+     }
+    ],
+    "sha256": "819dd3789a84e66adebce0e6870fa0b553056b5c0e7107e92b0c198e272a3bda",
+    "size": 1105264,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-da/6.8/language-da-6.8.jar"
+   }
+  ],
+  "de": [
+   {
+    "files": [
+     {
+      "name": "de/german_synth.info",
+      "path": "org/languagetool/resource/de/german_synth.info",
+      "size": 100
+     },
+     {
+      "name": "de/german.info",
+      "path": "org/languagetool/resource/de/german.info",
+      "size": 98
+     },
+     {
+      "name": "de/german_synth.dict",
+      "path": "org/languagetool/resource/de/german_synth.dict",
+      "size": 1608062
+     },
+     {
+      "name": "de/german_tags.txt",
+      "path": "org/languagetool/resource/de/german_tags.txt",
+      "size": 49353
+     },
+     {
+      "name": "de/german.dict",
+      "path": "org/languagetool/resource/de/german.dict",
+      "size": 879291
+     }
+    ],
+    "sha256": "56f0b00adb704cbc1e86776b45f6890efe90685ab370a34b5b299593cdcaae22",
+    "size": 1517999,
+    "url": "https://repo1.maven.org/maven2/de/danielnaber/german-pos-dict/1.2.4/german-pos-dict-1.2.4.jar"
+   }
+  ],
+  "el": [
+   {
+    "files": [
+     {
+      "name": "el/greek_synth.dict",
+      "path": "org/languagetool/resource/el/greek_synth.dict",
+      "size": 198
+     },
+     {
+      "name": "el/greek_synth.info",
+      "path": "org/languagetool/resource/el/greek_synth.info",
+      "size": 100
+     },
+     {
+      "name": "el/greek.dict",
+      "path": "org/languagetool/resource/el/greek.dict",
+      "size": 239
+     },
+     {
+      "name": "el/greek.info",
+      "path": "org/languagetool/resource/el/greek.info",
+      "size": 100
+     }
+    ],
+    "sha256": "87964131ec60455a71304b9b8c9ae96dbf62ac232f2185c2d3dd8b94cdccf17f",
+    "size": 592541,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-el/6.8/language-el-6.8.jar"
+   }
+  ],
+  "en": [
+   {
+    "files": [
+     {
+      "name": "en/english_synth.info",
+      "path": "org/languagetool/resource/en/english_synth.info",
+      "size": 98
+     },
+     {
+      "name": "en/english.dict",
+      "path": "org/languagetool/resource/en/english.dict",
+      "size": 625361
+     },
+     {
+      "name": "en/english.info",
+      "path": "org/languagetool/resource/en/english.info",
+      "size": 99
+     },
+     {
+      "name": "en/english_tags.txt",
+      "path": "org/languagetool/resource/en/english_tags.txt",
+      "size": 543
+     },
+     {
+      "name": "en/english_synth.dict",
+      "path": "org/languagetool/resource/en/english_synth.dict",
+      "size": 591310
+     }
+    ],
+    "sha256": "2a3e96b49854e5275f8eb7a1bb5b3b85b82f687fed272f3043882ccc0b1634b1",
+    "size": 4650617,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/english-pos-dict/0.6/english-pos-dict-0.6.jar"
+   }
+  ],
+  "es": [
+   {
+    "files": [
+     {
+      "name": "es/es-ES_synth.info",
+      "path": "org/languagetool/resource/es/es-ES_synth.info",
+      "size": 99
+     },
+     {
+      "name": "es/es-ES.info",
+      "path": "org/languagetool/resource/es/es-ES.info",
+      "size": 664
+     },
+     {
+      "name": "es/es-ES_tags.txt",
+      "path": "org/languagetool/resource/es/es-ES_tags.txt",
+      "size": 25101
+     },
+     {
+      "name": "es/es-ES.dict",
+      "path": "org/languagetool/resource/es/es-ES.dict",
+      "size": 2603354
+     },
+     {
+      "name": "es/es-ES_synth.dict",
+      "path": "org/languagetool/resource/es/es-ES_synth.dict",
+      "size": 1895870
+     }
+    ],
+    "sha256": "f5cf2f9939c0fd17dd0cad75a8fd05893c7a0c035bbf159b5dc8f81740271b9a",
+    "size": 2914808,
+    "url": "https://repo1.maven.org/maven2/org/softcatala/spanish-pos-dict/2.5/spanish-pos-dict-2.5.jar"
+   }
+  ],
+  "fr": [
+   {
+    "files": [
+     {
+      "name": "fr/french_tags.txt",
+      "path": "org/languagetool/resource/fr/french_tags.txt",
+      "size": 3744
+     },
+     {
+      "name": "fr/french.dict",
+      "path": "org/languagetool/resource/fr/french.dict",
+      "size": 1137949
+     },
+     {
+      "name": "fr/french_synth.dict",
+      "path": "org/languagetool/resource/fr/french_synth.dict",
+      "size": 649325
+     },
+     {
+      "name": "fr/french.info",
+      "path": "org/languagetool/resource/fr/french.info",
+      "size": 1013
+     },
+     {
+      "name": "fr/french_synth.info",
+      "path": "org/languagetool/resource/fr/french_synth.info",
+      "size": 94
+     }
+    ],
+    "sha256": "d3a92261ef88802b648dd63387794947fe1e3cae984f1150f87b809ca8350ade",
+    "size": 1414238,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/french-pos-dict/0.7/french-pos-dict-0.7.jar"
+   }
+  ],
+  "ga": [
+   {
+    "files": [
+     {
+      "name": "ga/irish_synth.info",
+      "path": "org/languagetool/resource/ga/irish_synth.info",
+      "size": 69
+     },
+     {
+      "name": "ga/irish.info",
+      "path": "org/languagetool/resource/ga/irish.info",
+      "size": 69
+     },
+     {
+      "name": "ga/irish.dict",
+      "path": "org/languagetool/resource/ga/irish.dict",
+      "size": 7342496
+     },
+     {
+      "name": "ga/irish_synth.dict",
+      "path": "org/languagetool/resource/ga/irish_synth.dict",
+      "size": 15620011
+     }
+    ],
+    "sha256": "52a9ecb80eb72cbe1105ed68ce22d529eb6d5e830ff2d065cf99322bc5f795c0",
+    "size": 12876802,
+    "url": "https://repo1.maven.org/maven2/io/github/jimregan/languagetool-ga-dicts/0.02/languagetool-ga-dicts-0.02.jar"
+   }
+  ],
+  "gl": [
+   {
+    "files": [
+     {
+      "name": "gl/galician_synth.dict",
+      "path": "org/languagetool/resource/gl/galician_synth.dict",
+      "size": 3376957
+     },
+     {
+      "name": "gl/galician_synth.info",
+      "path": "org/languagetool/resource/gl/galician_synth.info",
+      "size": 100
+     },
+     {
+      "name": "gl/galician.dict",
+      "path": "org/languagetool/resource/gl/galician.dict",
+      "size": 3291586
+     },
+     {
+      "name": "gl/galician.info",
+      "path": "org/languagetool/resource/gl/galician.info",
+      "size": 100
+     }
+    ],
+    "sha256": "56aa886ea8b56ffb4ef9f842b725b6b7c1b2c8c29be5509b750845f04969c65b",
+    "size": 4397116,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-gl/6.8/language-gl-6.8.jar"
+   }
+  ],
+  "it": [
+   {
+    "files": [
+     {
+      "name": "it/italian_synth.dict",
+      "path": "org/languagetool/resource/it/italian_synth.dict",
+      "size": 260827
+     },
+     {
+      "name": "it/italian_synth.info",
+      "path": "org/languagetool/resource/it/italian_synth.info",
+      "size": 99
+     },
+     {
+      "name": "it/italian.dict",
+      "path": "org/languagetool/resource/it/italian.dict",
+      "size": 456530
+     },
+     {
+      "name": "it/italian.info",
+      "path": "org/languagetool/resource/it/italian.info",
+      "size": 105
+     }
+    ],
+    "sha256": "99d29bc20627345f973856cea5660ebf52f1049438d1fc5c512dc68dc4b0c95a",
+    "size": 864239,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-it/6.8/language-it-6.8.jar"
+   }
+  ],
+  "km": [
+   {
+    "files": [
+     {
+      "name": "km/khmer.dict",
+      "path": "org/languagetool/resource/km/khmer.dict",
+      "size": 269276
+     },
+     {
+      "name": "km/khmer.info",
+      "path": "org/languagetool/resource/km/khmer.info",
+      "size": 110
+     }
+    ],
+    "sha256": "5fcfa74a19141b258b4792acd26b039a89f0d63631e21ddd021e065380f8a996",
+    "size": 571639,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-km/6.8/language-km-6.8.jar"
+   }
+  ],
+  "ml": [
+   {
+    "files": [
+     {
+      "name": "ml/malayalam.info",
+      "path": "org/languagetool/resource/ml/malayalam.info",
+      "size": 101
+     },
+     {
+      "name": "ml/malayalam.dict",
+      "path": "org/languagetool/resource/ml/malayalam.dict",
+      "size": 3410
+     }
+    ],
+    "sha256": "26e5deffcf378840815c39443aea11625fc43da3243fda348233be30ed39f85e",
+    "size": 702926,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-ml/6.8/language-ml-6.8.jar"
+   }
+  ],
+  "nl": [
+   {
+    "files": [
+     {
+      "name": "nl/dutch_synth.dict",
+      "path": "org/languagetool/resource/nl/dutch_synth.dict",
+      "size": 14117414
+     },
+     {
+      "name": "nl/dutch.info",
+      "path": "org/languagetool/resource/nl/dutch.info",
+      "size": 140
+     },
+     {
+      "name": "nl/dutch.dict",
+      "path": "org/languagetool/resource/nl/dutch.dict",
+      "size": 13416746
+     },
+     {
+      "name": "nl/dutch_synth.info",
+      "path": "org/languagetool/resource/nl/dutch_synth.info",
+      "size": 108
+     },
+     {
+      "name": "nl/dutch_tags.txt",
+      "path": "org/languagetool/resource/nl/dutch_tags.txt",
+      "size": 1739
+     }
+    ],
+    "sha256": "f91c712ee961889f2950a5c9c97f4f84791b2fec59706af1970dadee5baba677",
+    "size": 34506897,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/dutch-pos-dict/0.1/dutch-pos-dict-0.1.jar"
+   }
+  ],
+  "pl": [
+   {
+    "files": [
+     {
+      "name": "pl/polish.info",
+      "path": "org/languagetool/resource/pl/polish.info",
+      "size": 1676
+     },
+     {
+      "name": "pl/polish.dict",
+      "path": "org/languagetool/resource/pl/polish.dict",
+      "size": 2797415
+     },
+     {
+      "name": "pl/polish_synth.dict",
+      "path": "org/languagetool/resource/pl/polish_synth.dict",
+      "size": 2872448
+     },
+     {
+      "name": "pl/polish_synth.info",
+      "path": "org/languagetool/resource/pl/polish_synth.info",
+      "size": 1678
+     }
+    ],
+    "sha256": "425af97a945ac90df6637a9575463c2d2af92562517b5d380ee9e478ffa2bbb1",
+    "size": 5543023,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-pl/6.8/language-pl-6.8.jar"
+   }
+  ],
+  "pt": [
+   {
+    "files": [
+     {
+      "name": "pt/portuguese_tags.txt",
+      "path": "org/languagetool/resource/pt/portuguese_tags.txt",
+      "size": 23238
+     },
+     {
+      "name": "pt/portuguese_synth.dict",
+      "path": "org/languagetool/resource/pt/portuguese_synth.dict",
+      "size": 948068
+     },
+     {
+      "name": "pt/portuguese.info",
+      "path": "org/languagetool/resource/pt/portuguese.info",
+      "size": 99
+     },
+     {
+      "name": "pt/portuguese.dict",
+      "path": "org/languagetool/resource/pt/portuguese.dict",
+      "size": 1223161
+     },
+     {
+      "name": "pt/portuguese_synth.info",
+      "path": "org/languagetool/resource/pt/portuguese_synth.info",
+      "size": 99
+     }
+    ],
+    "sha256": "fe8da88bb31b6372855741fbd81ee1c7477b4f8a0624d3dafd20ee23e184650e",
+    "size": 4351056,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/portuguese-pos-dict/1.2.0/portuguese-pos-dict-1.2.0.jar"
+   }
+  ],
+  "ro": [
+   {
+    "files": [
+     {
+      "name": "ro/romanian.dict",
+      "path": "org/languagetool/resource/ro/romanian.dict",
+      "size": 703152
+     },
+     {
+      "name": "ro/test_diacritics.info",
+      "path": "org/languagetool/resource/ro/test_diacritics.info",
+      "size": 101
+     },
+     {
+      "name": "ro/test_diacritics.dict",
+      "path": "org/languagetool/resource/ro/test_diacritics.dict",
+      "size": 218
+     },
+     {
+      "name": "ro/romanian.info",
+      "path": "org/languagetool/resource/ro/romanian.info",
+      "size": 101
+     },
+     {
+      "name": "ro/romanian_synth.info",
+      "path": "org/languagetool/resource/ro/romanian_synth.info",
+      "size": 101
+     },
+     {
+      "name": "ro/romanian_synth.dict",
+      "path": "org/languagetool/resource/ro/romanian_synth.dict",
+      "size": 552686
+     }
+    ],
+    "sha256": "17d234dfd2d8d8f06867e5684e51c8bff94497cd0d0cacba6006e9e8c17e0977",
+    "size": 1447981,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-ro/6.8/language-ro-6.8.jar"
+   }
+  ],
+  "ru": [
+   {
+    "files": [
+     {
+      "name": "ru/russian.info",
+      "path": "org/languagetool/resource/ru/russian.info",
+      "size": 410
+     },
+     {
+      "name": "ru/russian_synth.info",
+      "path": "org/languagetool/resource/ru/russian_synth.info",
+      "size": 431
+     },
+     {
+      "name": "ru/russian_synth.dict",
+      "path": "org/languagetool/resource/ru/russian_synth.dict",
+      "size": 1481255
+     },
+     {
+      "name": "ru/russian.dict",
+      "path": "org/languagetool/resource/ru/russian.dict",
+      "size": 2322253
+     }
+    ],
+    "sha256": "1fc0d8d56417f5807a6addcca915ddc26526aac8f938f73ff23c281a8655dbfe",
+    "size": 6089891,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-ru/6.8/language-ru-6.8.jar"
+   }
+  ],
+  "sk": [
+   {
+    "files": [
+     {
+      "name": "sk/slovak_synth.dict",
+      "path": "org/languagetool/resource/sk/slovak_synth.dict",
+      "size": 2590243
+     },
+     {
+      "name": "sk/slovak_synth.info",
+      "path": "org/languagetool/resource/sk/slovak_synth.info",
+      "size": 99
+     },
+     {
+      "name": "sk/slovak.info",
+      "path": "org/languagetool/resource/sk/slovak.info",
+      "size": 99
+     },
+     {
+      "name": "sk/slovak.dict",
+      "path": "org/languagetool/resource/sk/slovak.dict",
+      "size": 760313
+     }
+    ],
+    "sha256": "70378e9b328cb5db8c07aa13ab270245f0ad68c1834b5716ef2ac2ae36384e80",
+    "size": 2601522,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-sk/6.8/language-sk-6.8.jar"
+   }
+  ],
+  "sv": [
+   {
+    "files": [
+     {
+      "name": "sv/swedish_synth.info",
+      "path": "org/languagetool/resource/sv/swedish_synth.info",
+      "size": 100
+     },
+     {
+      "name": "sv/swedish_synth.dict",
+      "path": "org/languagetool/resource/sv/swedish_synth.dict",
+      "size": 270499
+     },
+     {
+      "name": "sv/swedish.info",
+      "path": "org/languagetool/resource/sv/swedish.info",
+      "size": 1017
+     },
+     {
+      "name": "sv/swedish.dict",
+      "path": "org/languagetool/resource/sv/swedish.dict",
+      "size": 304053
+     }
+    ],
+    "sha256": "fe8877bfaafc7b54049997973f128c192a09b965c7d9e3ab5a7eacbcf8aebffe",
+    "size": 1262447,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-sv/6.8/language-sv-6.8.jar"
+   }
+  ],
+  "ta": [
+   {
+    "files": [
+     {
+      "name": "ta/tamil.dict",
+      "path": "org/languagetool/resource/ta/tamil.dict",
+      "size": 36673
+     },
+     {
+      "name": "ta/tamil.info",
+      "path": "org/languagetool/resource/ta/tamil.info",
+      "size": 167
+     }
+    ],
+    "sha256": "060ee6a7244f60ac7bdafece05cdeda97d591867e5d29e03d30e8578e444b5a4",
+    "size": 59546,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-ta/6.8/language-ta-6.8.jar"
+   }
+  ],
+  "tl": [
+   {
+    "files": [
+     {
+      "name": "tl/tagalog.info",
+      "path": "org/languagetool/resource/tl/tagalog.info",
+      "size": 105
+     },
+     {
+      "name": "tl/tagalog.dict",
+      "path": "org/languagetool/resource/tl/tagalog.dict",
+      "size": 43690
+     }
+    ],
+    "sha256": "fd4520f1c14110cdeca4e43dea6310b811c269b647b890198409b57e4c88d4dc",
+    "size": 142796,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-tl/6.8/language-tl-6.8.jar"
+   }
+  ],
+  "uk": [
+   {
+    "files": [
+     {
+      "name": "uk/ukrainian.dict",
+      "path": "org/languagetool/resource/uk/ukrainian.dict",
+      "size": 3340126
+     },
+     {
+      "name": "uk/ukrainian.info",
+      "path": "org/languagetool/resource/uk/ukrainian.info",
+      "size": 142
+     },
+     {
+      "name": "uk/ukrainian_synth.dict",
+      "path": "org/languagetool/resource/uk/ukrainian_synth.dict",
+      "size": 2528840
+     },
+     {
+      "name": "uk/ukrainian_synth.dict_tags.txt",
+      "path": "org/languagetool/resource/uk/ukrainian_synth.dict_tags.txt",
+      "size": 193248
+     },
+     {
+      "name": "uk/ukrainian_synth.info",
+      "path": "org/languagetool/resource/uk/ukrainian_synth.info",
+      "size": 142
+     },
+     {
+      "name": "uk/ukrainian_tags.txt",
+      "path": "org/languagetool/resource/uk/ukrainian_tags.txt",
+      "size": 220152
+     }
+    ],
+    "sha256": "4b8a06a731d12047dd91bfb3a63638f258b4477f1591e167fe0b286a4c22c645",
+    "size": 6251960,
+    "url": "https://repo1.maven.org/maven2/ua/net/nlp/morfologik-ukrainian-lt/6.8.6/morfologik-ukrainian-lt-6.8.6.jar"
+   }
+  ]
+ },
+ "version": 1
+}

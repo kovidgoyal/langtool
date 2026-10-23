@@ -1,0 +1,244 @@
+"""Locating and downloading the binary (morfologik) dictionaries.
+
+The dictionaries are too large to be bundled with the package. They are
+found in (in order):
+
+1. Paths passed explicitly (``dictionary_path`` argument) or set in the
+   ``LANGTOOL_DICT_PATH`` environment variable (os.pathsep separated). Each
+   path can be a directory containing the dictionary files (either directly,
+   in a ``<lang>/`` sub directory or in the ``org/languagetool/resource/<lang>``
+   layout), a LanguageTool installation directory, or a .jar file
+   (e.g. ``english-pos-dict-0.6.jar`` or ``language-pl-6.8.jar``).
+2. The download cache (``LANGTOOL_CACHE_DIR`` or the user cache directory).
+3. If not found and downloading is allowed, the jars listed in
+   dictionaries.json are downloaded from Maven Central into the cache,
+   checksums verified and the dictionary files extracted.
+"""
+
+import hashlib
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import zipfile
+from functools import lru_cache
+
+_lock = threading.RLock()
+
+
+class DictionaryNotFound(Exception):
+    pass
+
+
+@lru_cache()
+def manifest():
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dictionaries.json'), encoding='utf-8') as f:
+        return json.load(f)
+
+
+def cache_dir():
+    d = os.environ.get('LANGTOOL_CACHE_DIR')
+    if not d:
+        if sys.platform == 'win32':
+            base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+            d = os.path.join(base, 'langtool', 'cache')
+        elif sys.platform == 'darwin':
+            d = os.path.join(os.path.expanduser('~/Library/Caches'), 'langtool')
+        else:
+            d = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'langtool')
+    return os.path.join(d, 'dictionaries-v%d' % manifest()['version'])
+
+
+def required_files(lang):
+    """The dictionary related files (relative names like en/english.dict) for a
+    language code (e.g. 'en')."""
+    out = []
+    for src in manifest()['languages'].get(lang, ()):
+        for e in src['files']:
+            out.append(e['name'])
+    return out
+
+
+def _search_paths(extra):
+    paths = []
+    if extra:
+        if isinstance(extra, (str, os.PathLike)):
+            extra = [extra]
+        paths.extend(os.fspath(p) for p in extra)
+    env = os.environ.get('LANGTOOL_DICT_PATH')
+    if env:
+        paths.extend(p for p in env.split(os.pathsep) if p)
+    return paths
+
+
+def _find_in_jar(jar, name):
+    try:
+        with zipfile.ZipFile(jar) as z:
+            for cand in ('org/languagetool/resource/' + name, name):
+                try:
+                    z.getinfo(cand)
+                except KeyError:
+                    continue
+                return cand
+    except (OSError, zipfile.BadZipFile):
+        pass
+    return None
+
+
+def _extract_from_jar(jar, entry, dest):
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with zipfile.ZipFile(jar) as z, z.open(entry) as src:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest))
+        with os.fdopen(fd, 'wb') as out:
+            shutil.copyfileobj(src, out)
+        os.replace(tmp, dest)
+
+
+def _locate_in_path(base, name):
+    """Return a filesystem path for the dictionary file name (e.g.
+    en/english.dict) in the search path base, extracting it from a jar into
+    the cache if necessary."""
+    lang, fname = name.split('/', 1) if '/' in name else ('', name)
+    if os.path.isfile(base):
+        if base.endswith(('.jar', '.zip')):
+            entry = _find_in_jar(base, name)
+            if entry is not None:
+                dest = os.path.join(cache_dir(), 'extracted', name)
+                if not os.path.exists(dest) or os.path.getmtime(dest) < os.path.getmtime(base):
+                    _extract_from_jar(base, entry, dest)
+                return dest
+        return None
+    if not os.path.isdir(base):
+        return None
+    for cand in (os.path.join(base, name), os.path.join(base, fname),
+                 os.path.join(base, 'org', 'languagetool', 'resource', name)):
+        if os.path.isfile(cand):
+            return cand
+    # jars in the directory or a LanguageTool installation
+    for sub in ('', 'libs'):
+        d = os.path.join(base, sub)
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if f.endswith('.jar'):
+                r = _locate_in_path(os.path.join(d, f), name)
+                if r is not None:
+                    return r
+    return None
+
+
+def locate(name, dictionary_path=None, download=True):
+    """Return the path of the dictionary file name, e.g. 'en/english.dict'.
+    The corresponding .info file is guaranteed to be next to it."""
+    is_dict = name.endswith('.dict')
+    info = name[:-5] + '.info' if is_dict else None
+    for base in _search_paths(dictionary_path):
+        p = _locate_in_path(base, name)
+        if p is not None:
+            if info is not None:
+                ip = os.path.splitext(p)[0] + '.info'
+                if not os.path.exists(ip):
+                    ip2 = _locate_in_path(base, info)
+                    if ip2 is None:
+                        continue
+                    if os.path.dirname(ip2) != os.path.dirname(p):
+                        # make sure the .info is next to the .dict
+                        dest = os.path.join(cache_dir(), 'extracted', name)
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        shutil.copy2(p, dest)
+                        shutil.copy2(ip2, os.path.splitext(dest)[0] + '.info')
+                        p = dest
+            return p
+    lang = name.split('/', 1)[0]
+    p = os.path.join(cache_dir(), name)
+    if os.path.exists(p):
+        return p
+    if download:
+        download_language(lang)
+        if os.path.exists(p):
+            return p
+    raise DictionaryNotFound(
+        'The dictionary %s was not found. Either allow downloading it or specify its location with the '
+        'dictionary_path argument or the LANGTOOL_DICT_PATH environment variable.' % name)
+
+
+def is_available(lang, dictionary_path=None):
+    for name in required_files(lang):
+        try:
+            locate(name, dictionary_path, download=False)
+        except DictionaryNotFound:
+            return False
+    return True
+
+
+def _download(url, dest, expected_sha256, progress=None):
+    import urllib.request
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest))
+    h = hashlib.sha256()
+    try:
+        with os.fdopen(fd, 'wb') as out, urllib.request.urlopen(url, timeout=60) as r:
+            total = int(r.headers.get('Content-Length') or 0)
+            done = 0
+            while True:
+                chunk = r.read(1 << 16)
+                if not chunk:
+                    break
+                h.update(chunk)
+                out.write(chunk)
+                done += len(chunk)
+                if progress is not None:
+                    progress(url, done, total)
+        if h.hexdigest() != expected_sha256:
+            raise OSError('Checksum mismatch for %s' % url)
+        os.replace(tmp, dest)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def download_language(lang, progress=None):
+    """Download the dictionaries for the language code lang (e.g. 'en') into
+    the cache directory."""
+    with _lock:
+        sources = manifest()['languages'].get(lang)
+        if not sources:
+            return
+        cd = cache_dir()
+        for src in sources:
+            files = src['files']
+            if all(os.path.exists(os.path.join(cd, e['name'])) for e in files):
+                continue
+            jar = os.path.join(cd, 'jars', src['url'].rsplit('/', 1)[1])
+            if not os.path.exists(jar):
+                _download(src['url'], jar, src['sha256'], progress)
+            for e in files:
+                _extract_from_jar(jar, e['path'], os.path.join(cd, e['name']))
+            try:
+                os.remove(jar)
+            except OSError:
+                pass
+
+
+def main(argv=None):
+    """Command line entry point: download the dictionaries for the given
+    languages (or all)."""
+    import argparse
+    p = argparse.ArgumentParser(description='Download LanguageTool dictionaries')
+    p.add_argument('languages', nargs='*', help='language codes, e.g. en de (default: all)')
+    args = p.parse_args(argv)
+    langs = args.languages or sorted(manifest()['languages'])
+    for lang in langs:
+        code = lang.split('-')[0]
+        print('Downloading dictionaries for', code, '...')
+        download_language(code)
+    print('Dictionaries are in', cache_dir())
+
+
+if __name__ == '__main__':
+    main()
