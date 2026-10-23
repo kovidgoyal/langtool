@@ -32,6 +32,16 @@ EXTERNAL = {
     'pt': ('org.languagetool', 'portuguese-pos-dict', '1.2.0'),
     'uk': ('ua.net.nlp', 'morfologik-ukrainian-lt', '6.8.6'),
 }
+# files of EXTERNAL jars that are not in the org/languagetool/resource
+# layout: jar path -> name (the jar is searched for the path given in the
+# manifest, see dictionaries._find_in_jar)
+EXTERNAL_FILES = {
+    # GreekAnalyzer of org.ioperm.morphology.el (used by GreekTagger)
+    'el': {
+        'org/ioperm/morphology/el/analysis.dict': 'el/analysis.dict',
+        'org/ioperm/morphology/el/analysis.info': 'el/analysis.info',
+    },
+}
 SKIP_MODULES = {'all', 'sr', 'de-DE-x-simple-language'}
 
 
@@ -58,11 +68,17 @@ def wanted(name):
     return base.endswith('_tags.txt')
 
 
-def entries(jar_path, lang):
+def entries(jar_path, names=None):
+    """The dictionary files of a jar; names: mapping of jar paths to names
+    (only those files are taken), see EXTERNAL_FILES"""
     out = []
     with zipfile.ZipFile(jar_path) as z:
         for info in z.infolist():
             n = info.filename
+            if names is not None:
+                if n in names:
+                    out.append({'path': n, 'name': names[n], 'size': info.file_size})
+                continue
             if info.is_dir() or not wanted(n):
                 continue
             if '/resource/' not in n:
@@ -101,7 +117,7 @@ def main():
         if in_repo:
             url = jar_url('org.languagetool', 'language-' + mod, LT_RELEASE)
             jar = fetch(url, cache)
-            ents = [e for e in entries(jar, mod) if e['name'].rsplit('.', 1)[0] in
+            ents = [e for e in entries(jar) if e['name'].rsplit('.', 1)[0] in
                     {p.rsplit('.', 1)[0] for p in in_repo}]
             # verify identical to the repository versions
             with zipfile.ZipFile(jar) as z:
@@ -117,8 +133,10 @@ def main():
         if mod in EXTERNAL:
             url = jar_url(*EXTERNAL[mod])
             jar = fetch(url, cache)
-            ents = [e for e in entries(jar, mod) if not e["name"].rsplit("/", 1)[-1].startswith("SynthDictionaryBuilder")]
-            sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar), 'files': ents})
+            ents = [e for e in entries(jar, EXTERNAL_FILES.get(mod))
+                    if not e['name'].rsplit('/', 1)[-1].startswith('SynthDictionaryBuilder')]
+            if ents:  # jars without (non-spelling) dictionaries are not needed
+                sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar), 'files': ents})
         if sources:
             manifest['languages'][mod] = sources
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'langtool', 'dictionaries.json')

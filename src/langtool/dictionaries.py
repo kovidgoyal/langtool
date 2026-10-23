@@ -73,10 +73,20 @@ def _search_paths(extra):
     return paths
 
 
+@lru_cache()
+def _manifest_jar_paths(name):
+    """The paths in the jars of the manifest for the dictionary file name
+    (e.g. el/analysis.dict is org/ioperm/morphology/el/analysis.dict in the
+    morphology-el jar)"""
+    lang = name.split('/', 1)[0]
+    return tuple(e['path'] for src in manifest()['languages'].get(lang, ()) for e in src['files']
+                 if e['name'] == name)
+
+
 def _find_in_jar(jar, name):
     try:
         with zipfile.ZipFile(jar) as z:
-            for cand in ('org/languagetool/resource/' + name, name):
+            for cand in ('org/languagetool/resource/' + name, name) + _manifest_jar_paths(name):
                 try:
                     z.getinfo(cand)
                 except KeyError:
