@@ -1,6 +1,7 @@
 """String utilities, port of org.languagetool.tools.StringTools with Java
 character semantics (java.lang.Character)."""
 
+import sys
 import unicodedata
 
 import regex
@@ -390,3 +391,29 @@ def is_numeric(s):
     if not s:
         return False
     return all(is_digit(c) for c in s)
+
+
+_SPECIAL_CHARACTERS = None
+
+
+def trim_special_characters(s):
+    """StringTools.trimSpecialCharacters: removes all characters that are not
+    (Unicode) whitespace, letters, digits or punctuation."""
+    global _SPECIAL_CHARACTERS
+    if _SPECIAL_CHARACTERS is None:
+        from . import jregex
+        _SPECIAL_CHARACTERS = jregex.compile(r'(?U)[^\p{Space}\p{Alnum}\p{Punct}]')
+    return _SPECIAL_CHARACTERS.sub('', s)
+
+
+def is_junit_test():
+    """Port of org.languagetool.rules.TestHackHelper.isJUnitTest: true if
+    called (directly or indirectly) from a unit test (pytest, the counterpart
+    of org.junit) or from langtool.testing (the port of PatternRuleTest)."""
+    f = sys._getframe(1)
+    while f is not None:
+        name = f.f_globals.get('__name__') or ''
+        if name.startswith('_pytest.') or name == 'langtool.testing':
+            return True
+        f = f.f_back
+    return False

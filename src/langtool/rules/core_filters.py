@@ -1,11 +1,13 @@
 """Language independent rule filters from languagetool-core (the
 <filter class="org.languagetool.rules.XXX"> classes)."""
 
+import datetime
+
 import regex
 
 from .. import jregex
 from ..tools import (is_punctuation_or_symbol, is_capitalized_word, is_whitespace, uppercase_first_char,
-                     is_not_all_lowercase)
+                     is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test)
 from .filters import RuleFilter
 
 _WS = regex.compile(r'\s+')
@@ -163,6 +165,163 @@ class ShortenedYearRangeChecker(RuleFilter):
         except (ValueError, TypeError):
             return None
         return match if x >= y else None
+
+
+# java.util.Calendar.SUNDAY .. SATURDAY
+SUNDAY, MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY = range(1, 8)
+
+
+def _julian_day_number(year, month, day, gregorian):
+    a = (14 - month) // 12
+    y = year + 4800 - a
+    m = month + 12 * a - 3
+    jdn = day + (153 * m + 2) // 5 + 365 * y + y // 4
+    if gregorian:
+        return jdn - y // 100 + y // 400 - 32045
+    return jdn - 32083
+
+
+class CalendarDate:
+    """The fields of a java.util.GregorianCalendar (default cutover:
+    Julian calendar before 1582-10-15) used by the date filters. month is
+    0-based (Calendar.MONTH), day_of_week is Calendar.SUNDAY (1) to
+    Calendar.SATURDAY (7)."""
+
+    __slots__ = ('year', 'month', 'day_of_month', 'day_of_week')
+
+    def __init__(self, year=None, month=None, day_of_month=None, day_of_week=None):
+        self.year = year
+        self.month = month
+        self.day_of_month = day_of_month
+        self.day_of_week = day_of_week
+
+    @classmethod
+    def of(cls, year, month, day_of_month):
+        """Calendar.set(year, month, dayOfMonth, 0, 0, 0) on a non-lenient
+        calendar followed by get(DAY_OF_WEEK): raises ValueError (Java:
+        IllegalArgumentException) for invalid dates such as 32.8.2014, the
+        29th of February of a non leap year or the days skipped by the
+        Gregorian reform (1582-10-05 to 1582-10-14)."""
+        if year < 1 or not 0 <= month <= 11 or not 1 <= day_of_month <= 31:
+            raise ValueError('invalid date')
+        m = month + 1
+        if (year, m, day_of_month) >= (1582, 10, 15):
+            gregorian = True
+            leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+        elif (year, m, day_of_month) <= (1582, 10, 4):
+            gregorian = False
+            leap = year % 4 == 0
+        else:
+            raise ValueError('invalid date')
+        days = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)[month]
+        if day_of_month > days:
+            raise ValueError('invalid date')
+        dow = (_julian_day_number(year, m, day_of_month, gregorian) + 1) % 7 + 1
+        return cls(year, month, day_of_month, dow)
+
+
+_DAY_OF_MONTH_PATTERN = jregex.compile(r'(\d+).*')
+
+
+class AbstractDateCheckFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractDateCheckFilter: accepts rule
+    matches if a date doesn't match the accompanying weekday, e.g. if
+    "Monday, 8 November 2003" isn't actually a Monday. Replaces {realDay}
+    with the real day of the date in the rule's message, {day} with the
+    claimed day from the text and {currentYear} with the current year.
+
+    Subclasses implement get_day_of_week(str) (Sunday returns 1, Monday 2,
+    ...), get_day_of_week_name(date) (Java: getDayOfWeek(Calendar), the
+    localized name of date.day_of_week), get_month(str) (January returns 1)
+    and optionally get_day_of_month(str). Java's getCalendar() only provides
+    the calendar of the language's locale, which makes no difference for
+    the fields used here (year, month, day of month, day of week), so it is
+    not needed. Exceptions: ValueError (Java: IllegalArgumentException) is
+    propagated, other errors (Java: RuntimeException, e.g. an unknown day
+    name) discard the match."""
+
+    def get_day_of_week(self, localized_week_day_string):
+        raise NotImplementedError()
+
+    def get_day_of_week_name(self, date):
+        raise NotImplementedError()
+
+    def get_day_of_month(self, localized_day_of_month):
+        return 0
+
+    def get_month(self, localized_month):
+        raise NotImplementedError()
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        from .base import RuleMatch
+        try:
+            week_day = self.get_required('weekDay', arguments).replace('\u00ad', '')  # replace soft hyphen
+            day_of_week_from_string = self.get_day_of_week(week_day)
+            try:
+                date_from_date = self._get_date(arguments)
+            except ValueError as e:
+                if isinstance(e, _InvalidDate):
+                    # happens with 'dates' like '32.8.2014' - those should be caught by a different rule
+                    return None
+                raise
+            if day_of_week_from_string != date_from_date.day_of_week:
+                cal_from_date_string = CalendarDate(day_of_week=day_of_week_from_string)
+                message = match.message.replace('{realDay}', self.get_day_of_week_name(date_from_date)) \
+                    .replace('{day}', self.get_day_of_week_name(cal_from_date_string)) \
+                    .replace('{currentYear}', str(datetime.date.today().year))
+                rule_match = RuleMatch(match.rule, match.sentence, match.from_pos, match.to_pos, message,
+                                       match.short_message)
+                rule_match.type = match.type
+                rule_match.url = 'https://www.timeanddate.com/calendar/?year=%d' % date_from_date.year
+                return rule_match
+            return None
+        except ValueError:
+            raise
+        except Exception:  # noqa: BLE001 -- Java: catch (RuntimeException e), logged and skipped
+            # this can happen with some special characters which the regex matches but which the code
+            # cannot map to days, e.g. German "Dıenstag" vs "Dienstag"
+            return None
+
+    def _get_date(self, args):
+        year_arg = args.get('year')
+        if year_arg is None and is_junit_test():
+            # Hack for tests of date - weekday match with missing year: in production, we assume
+            # the current year, for xml tests, we use weekdays of the year 2014
+            year = 2014
+        elif year_arg is None:
+            # assume current year for rule DATUM_WOCHENTAG_OHNE_JAHR etc.
+            year = datetime.date.today().year
+        else:
+            year = java_parse_int(year_arg)
+        month = self._get_month_from_arguments(args)
+        day_of_month = self._get_day_of_month_from_arguments(args)
+        try:
+            return CalendarDate.of(year, month, day_of_month)
+        except ValueError as e:
+            raise _InvalidDate(str(e))
+
+    def _get_day_of_month_from_arguments(self, args):
+        day_of_month_string = self.get_required('day', args)
+        m = _DAY_OF_MONTH_PATTERN.fullmatch(day_of_month_string)
+        if m:
+            # The day of the month is a number, possibly with a suffix such as "22nd"
+            return java_parse_int(m.group(1))
+        # In some languages, the day of the month can also be written with letters rather than with
+        # digits, so parse localized numbers.
+        return self.get_day_of_month(day_of_month_string)
+
+    def _get_month_from_arguments(self, args):
+        month_str = self.get_required('month', args)
+        if is_numeric(month_str):
+            month = java_parse_int(month_str)
+        else:
+            month = self.get_month(trim_special_characters(month_str))
+        return month - 1
+
+
+class _InvalidDate(ValueError):
+    """Calendar.get(DAY_OF_WEEK) failing on an invalid date (Java's
+    IllegalArgumentException that is caught)"""
 
 
 _IS_PUNCTUATION = regex.compile(r'\p{P}')

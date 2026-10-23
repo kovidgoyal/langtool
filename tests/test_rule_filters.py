@@ -282,3 +282,81 @@ def test_clean_overlapping_unordered(my_demo_lang):
     unordered = [_rm('P1_RULE', 11, 12, 'msg2'), _rm('P2_RULE', 9, 10, 'msg1', 'picky')]
     with pytest.raises(ValueError):  # Java: IllegalArgumentException
         _filter(unordered, my_demo_lang)
+
+
+# --- AbstractDateCheckFilter -------------------------------------------------
+
+from langtool.rules.core_filters import AbstractDateCheckFilter, CalendarDate  # noqa: E402
+
+
+def test_calendar_date_day_of_week():
+    # java.util.GregorianCalendar: Sunday is 1, Julian calendar before 1582-10-15
+    assert CalendarDate.of(2014, 9, 7).day_of_week == 3  # Tuesday, 7 October 2014
+    assert CalendarDate.of(2000, 0, 1).day_of_week == 7  # Saturday
+    assert CalendarDate.of(2024, 1, 29).day_of_week == 5  # Thursday
+    assert CalendarDate.of(1582, 9, 15).day_of_week == 6  # Friday, first Gregorian day
+    assert CalendarDate.of(1582, 9, 4).day_of_week == 5  # Thursday, last Julian day
+    assert CalendarDate.of(1500, 1, 29).day_of_week == 7  # Julian leap year
+
+
+@pytest.mark.parametrize('ymd', [(2014, 7, 32), (2014, 1, 29), (1900, 1, 29), (2014, 12, 1), (2014, -1, 1),
+                                 (2014, 0, 0), (0, 0, 1), (1582, 9, 10)])
+def test_calendar_date_invalid(ymd):
+    # non-lenient Calendar: IllegalArgumentException
+    with pytest.raises(ValueError):
+        CalendarDate.of(*ymd)
+
+
+class _EnglishDateCheckFilter(AbstractDateCheckFilter):
+    _DAYS = ('sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat')
+    _MONTHS = ('jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec')
+
+    def get_day_of_week(self, s):
+        for i, d in enumerate(self._DAYS):
+            if s.lower().startswith(d):
+                return i + 1
+        raise RuntimeError('unknown day ' + s)
+
+    def get_day_of_week_name(self, date):
+        return ('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')[date.day_of_week - 1]
+
+    def get_month(self, s):
+        for i, m in enumerate(self._MONTHS):
+            if s.lower().startswith(m):
+                return i + 1
+        raise RuntimeError('unknown month ' + s)
+
+
+def _date_match(message='{day} is really a {realDay} ({currentYear})'):
+    m = RuleMatch(FakeRule(), None, 0, 5, message, 'short')
+    m.type = 'Hint'
+    return m
+
+
+def test_date_check_filter():
+    import datetime
+    f = _EnglishDateCheckFilter()
+    args = dict(weekDay='Mon', day='7th', month='Oct­', year='2014')
+    m = f.accept_rule_match(_date_match(), args, 0, [], [])
+    assert m.message == 'Monday is really a Tuesday (%d)' % datetime.date.today().year
+    assert m.short_message == 'short'
+    assert m.type == 'Hint'
+    assert m.url == 'https://www.timeanddate.com/calendar/?year=2014'
+    assert f.accept_rule_match(_date_match(), dict(args, weekDay='Tue'), 0, [], []) is None
+    # numeric months
+    assert f.accept_rule_match(_date_match(), dict(args, month='10'), 0, [], []) is not None
+    assert f.accept_rule_match(_date_match(), dict(args, month='10', weekDay='Tue'), 0, [], []) is None
+    # invalid dates and unknown names: no match
+    assert f.accept_rule_match(_date_match(), dict(args, day='32'), 0, [], []) is None
+    assert f.accept_rule_match(_date_match(), dict(args, month='13'), 0, [], []) is None
+    assert f.accept_rule_match(_date_match(), dict(args, weekDay='Xyz'), 0, [], []) is None
+    assert f.accept_rule_match(_date_match(), dict(args, month='Xyz'), 0, [], []) is None
+    # no year: 2014 in tests (TestHackHelper.isJUnitTest), the current year otherwise
+    no_year = dict(weekDay='Mon', day='7', month='Oct')
+    assert f.accept_rule_match(_date_match(), no_year, 0, [], []) is not None
+    assert f.accept_rule_match(_date_match(), dict(no_year, weekDay='Tue'), 0, [], []) is None
+    # missing arguments: IllegalArgumentException
+    with pytest.raises(ValueError):
+        f.accept_rule_match(_date_match(), dict(day='7', month='Oct'), 0, [], [])
+    with pytest.raises(ValueError):
+        f.accept_rule_match(_date_match(), dict(weekDay='Mon', month='Oct'), 0, [], [])

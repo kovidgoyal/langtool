@@ -174,3 +174,15 @@ def test_all_start_with_lowercase():
     assert not tools.all_start_with_lowercase('the Fellowship of the Ring')
     assert tools.all_start_with_lowercase('bilbo')
     assert not tools.all_start_with_lowercase('Baggins')
+
+
+def test_trim_special_characters():
+    # StringTools.trimSpecialCharacters: keeps whitespace, letters, digits and punctuation
+    assert tools.trim_special_characters('ott­.') == 'ott.'
+    assert tools.trim_special_characters('Dez€ember 3, ß') == 'Dezember 3, ß'
+    assert tools.trim_special_characters('a b-c!') == 'a b-c!'
+
+
+def test_is_junit_test():
+    # TestHackHelper.isJUnitTest: true when called from a pytest test
+    assert tools.is_junit_test()
