@@ -204,8 +204,11 @@ LANGUAGES = {
                R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'),
                R('WhiteSpaceAtBeginOfParagraph')],
     ),
+    # org.languagetool.language.Danish (code in langtool.lang.da); its
+    # HunspellRule (after GenericUnpairedBracketsRule) is not ported (spell
+    # checking)
     'da': dict(
-        name='Danish', countries=['DK'], variants=[V('da-DK')],
+        name='Danish', countries=['DK'], variants=[V('da-DK')], sentence_tokenizer='srx',
         tagger=dict(dict='da/danish.dict', lowercase_with_uppercase=True),
         disambiguator=[xml()],
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),
