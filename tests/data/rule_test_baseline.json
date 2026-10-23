@@ -8000,17 +8000,7 @@
   "skipped": 0
  },
  "km-KH": {
-  "failed_ids": [
-   "FROM_Classifier[1]",
-   "Gender_spec[1]",
-   "MOK_BI_NEAK[1]",
-   "NOUN_NENG_NOUN2[1]",
-   "NOUN_NENG_NOUN[1]",
-   "NOUN_POSESIVEPRONOUN[1]",
-   "NUNG_PDOAL[1]",
-   "WANT_VERB1[1]",
-   "WANT_VERB2[1]"
-  ],
+  "failed_ids": [],
   "skipped": 0
  },
  "lt-LT": {

@@ -408,8 +408,11 @@ LANGUAGES = {
         tagger=dict(impl='JapaneseTagger'), word_tokenizer='JapaneseWordTokenizer',
         rules=[R('DoublePunctuationRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Khmer (code in langtool.lang.km); its
+    # KhmerHunspellRule (first in getRelevantRules) is not ported (spell
+    # checking)
     'km': dict(
-        name='Khmer', countries=['KH'], variants=[V('km-KH')],
+        name='Khmer', countries=['KH'], variants=[V('km-KH')], sentence_tokenizer='srx',
         tagger=dict(dict='km/khmer.dict', lowercase_with_uppercase=True), word_tokenizer='KhmerWordTokenizer',
         disambiguator=[xml()],
         rules=[R('KhmerSimpleReplaceRule'), R('KhmerWordRepeatRule'), R('KhmerUnpairedBracketsRule'),
