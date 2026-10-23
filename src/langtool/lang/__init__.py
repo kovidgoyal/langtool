@@ -5,4 +5,5 @@ registers the implementations with langtool.extensions."""
 
 from . import is_  # noqa: F401
 from . import lt  # noqa: F401
+from . import sl  # noqa: F401
 from . import ta  # noqa: F401

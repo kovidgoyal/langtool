@@ -487,8 +487,11 @@ LANGUAGES = {
                brackets(['[', '(', '{', '„', '»', '«', '"'], [']', ')', '}', '“', '«', '»', '"']),
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule'), R('CompoundRule')],
     ),
+    # org.languagetool.language.Slovenian (code in langtool.lang.sl); its
+    # MorfologikSlovenianSpellerRule (after GenericUnpairedBracketsRule) is
+    # not ported (spell checking)
     'sl': dict(
-        name='Slovenian', countries=['SI'], variants=[V('sl-SI')], tagger=None,
+        name='Slovenian', countries=['SI'], variants=[V('sl-SI')], tagger=None, sentence_tokenizer='srx',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),
                brackets(['[', '(', '{', '„', '»', '«', '"'], [']', ')', '}', '”', '«', '»', '"']),
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule')],
