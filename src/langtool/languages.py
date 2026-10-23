@@ -302,8 +302,9 @@ LANGUAGES = {
         chunker='EnglishChunker',
         rules=_EN_RULES,
     ),
+    # org.languagetool.language.Esperanto (code in langtool.lang.eo)
     'eo': dict(
-        name='Esperanto', countries=[], variants=[V('eo')],
+        name='Esperanto', countries=[], variants=[V('eo')], sentence_tokenizer='srx',
         tagger=dict(impl='EsperantoTagger'), word_tokenizer='EsperantoWordTokenizer',
         disambiguator=[xml()],
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
