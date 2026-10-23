@@ -116,6 +116,19 @@ class Rule:
     def set_default_on(self):
         self.default_off = False
 
+    def add_example_pair(self, incorrect_sentence, correct_sentence):
+        """Rule.addExamplePair: an incorrect example (with its error marked
+        by <marker>...</marker>) and the corrected sentence; the marked part
+        of the corrected sentence becomes the correction of the incorrect
+        example."""
+        start = correct_sentence.find('<marker>')
+        end = correct_sentence.find('</marker>')
+        if start != -1 and end != -1:
+            self.incorrect_examples.append(Example(incorrect_sentence, [correct_sentence[start + len('<marker>'):end]]))
+        else:
+            self.incorrect_examples.append(Example(incorrect_sentence))
+        self.correct_examples.append(Example(correct_sentence))
+
     def add_tags(self, tags):
         for t in tags:
             if t and t not in self.tags:

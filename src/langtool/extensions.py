@@ -232,18 +232,24 @@ def create_rules(language, messages, user_config=None):
     specs.extend(language.variant_definition.get('extra_rules', ()))
     rules = []
     for name, kw in specs:
+        # examples=(wrong, fixed): the IncorrectExample/CorrectExample
+        # constructor arguments of the Java rule (Rule.addExamplePair)
+        examples = kw.get('examples')
+        if examples is not None:
+            kw = {k: v for k, v in kw.items() if k != 'examples'}
         cls = CORE_RULES.get(name)
         if cls is not None:
-            rules.append(cls(messages, language, **kw))
+            r = cls(messages, language, **kw)
+        else:
+            f = _custom(language, 'rule', name)
+            r = f(messages, language, user_config, **kw) if f is not None else None
+        if r is None:
             continue
-        f = _custom(language, 'rule', name)
-        if f is not None:
-            r = f(messages, language, user_config, **kw)
-            if r is not None:
-                if isinstance(r, (list, tuple)):
-                    rules.extend(r)
-                else:
-                    rules.append(r)
+        new = r if isinstance(r, (list, tuple)) else [r]
+        if examples is not None:
+            for rule in new:
+                rule.add_example_pair(*examples)
+        rules.extend(new)
     return rules
 
 

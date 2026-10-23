@@ -6,6 +6,7 @@ encoders). Only lookups are supported, not building of dictionaries.
 """
 
 import os
+import sys
 import threading
 
 __all__ = ['Dictionary', 'DictionaryMetadata', 'read_properties']
@@ -514,6 +515,59 @@ class Dictionary:
                 stack.append(fsa.first_arc(dest))
             if final:
                 yield bytes(buf)
+
+    def count_entries(self):
+        """Return (entries, entries_without_tag): the number of entries that
+        iter_all() yields and how many of them have no tag (None), computed
+        on the automaton (memoized per node) without enumerating the entries,
+        which is much faster for dictionaries with millions of word forms."""
+        fsa = self.fsa
+        sep = self.metadata.separator
+        p = self._prefix_bytes
+        # states: -1 in the word; 0..p bytes of the encoded stem read (the
+        # tag separator is only looked for after the p prefix bytes); p + 1
+        # tag separator just read (empty tag so far); p + 2 in the tag
+        in_word, empty_tag, in_tag = -1, p + 1, p + 2
+
+        def step(state, b):
+            if state == in_word:
+                return 0 if b == sep else in_word
+            if state <= p:
+                if state == p and b == sep:
+                    return empty_tag
+                return min(state + 1, p)
+            return in_tag
+
+        memo = {}
+
+        def count(node, state):
+            key = (node, state)
+            r = memo.get(key)
+            if r is not None:
+                return r
+            total = untagged = 0
+            arc = fsa.first_arc(node)
+            while arc:
+                s2 = step(state, fsa.label(arc))
+                if fsa.is_final(arc) and s2 != in_word:
+                    total += 1
+                    if s2 != in_tag:
+                        untagged += 1
+                dest = fsa.destination(arc)
+                if dest:
+                    t, u = count(dest, s2)
+                    total += t
+                    untagged += u
+                arc = fsa.next_arc(arc)
+            memo[key] = r = (total, untagged)
+            return r
+
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(max(old_limit, 20000))
+        try:
+            return count(fsa.root, in_word)
+        finally:
+            sys.setrecursionlimit(old_limit)
 
     def iter_all(self):
         """Iterate over all (word, lemma, tag) entries in the dictionary."""

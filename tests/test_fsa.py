@@ -105,6 +105,24 @@ def test_test_dict_iter_all():
     ])
 
 
+def _count_by_iteration(d):
+    entries = list(d.iter_all())
+    return len(entries), sum(1 for _, _, tag in entries if tag is None)
+
+
+def test_test_dict_count_entries():
+    d = Dictionary(TEST_DICT)
+    assert d.count_entries() == (5, 0) == _count_by_iteration(d)
+
+
+@pytest.mark.parametrize('lang,name', [('ast', 'ast/asturian.dict'), ('da', 'da/danish.dict')])
+def test_real_dict_count_entries(lang, name):
+    """count_entries agrees with iter_all (asturian.dict has entries without
+    a tag)"""
+    d = _load(lang, name)
+    assert d.count_entries() == _count_by_iteration(d)
+
+
 def test_test_dict_native_agrees():
     d = Dictionary(TEST_DICT)
     words = [w for w, _, _ in d.iter_all()]
