@@ -326,8 +326,9 @@ LANGUAGES = {
                R('SimpleReplaceVerbsRule'), R('SpanishWordRepeatBeginningRule'), R('CompoundRule'),
                R('SpanishRepeatedWordsRule')],
     ),
+    # org.languagetool.language.Persian (code in langtool.lang.fa)
     'fa': dict(
-        name='Persian', countries=['IR', 'AF'], variants=[V('fa')],
+        name='Persian', countries=['IR', 'AF'], variants=[V('fa')], sentence_tokenizer='srx',
         tagger=None, word_tokenizer='PersianWordTokenizer',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('MultipleWhitespaceRule'),
                R('LongSentenceRule', max_words=50), R('PersianCommaWhitespaceRule'),

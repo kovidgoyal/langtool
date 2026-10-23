@@ -7,6 +7,7 @@ from . import ast  # noqa: F401
 from . import be  # noqa: F401
 from . import crh  # noqa: F401
 from . import da  # noqa: F401
+from . import fa  # noqa: F401
 from . import is_  # noqa: F401
 from . import it  # noqa: F401
 from . import km  # noqa: F401
