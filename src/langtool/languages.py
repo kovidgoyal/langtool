@@ -501,7 +501,7 @@ LANGUAGES = {
                R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('CompoundRule')],
     ),
     'ta': dict(
-        name='Tamil', countries=['IN'], variants=[V('ta-IN')],
+        name='Tamil', countries=['IN'], variants=[V('ta-IN')], sentence_tokenizer='srx',
         tagger=dict(dict='ta/tamil.dict', lowercase_with_uppercase=True),
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('MultipleWhitespaceRule'),
                R('LongSentenceRule', max_words=50), R('SentenceWhitespaceRule')],
