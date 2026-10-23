@@ -160,8 +160,12 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Belarusian (code in langtool.lang.be); its
+    # MorfologikBelarusianSpellerRule (after DoublePunctuationRule) is not
+    # ported (spell checking)
     'be': dict(
-        name='Belarusian', countries=['BY'], variants=[V('be-BY')],
+        name='Belarusian', countries=['BY'], variants=[V('be-BY')], sentence_tokenizer='srx',
+        quotes=('«', '»', '‘', '’'), advanced_typography=True,
         tagger=None, word_tokenizer='BelarusianWordTokenizer', ignored_characters_regex='[­́̀]',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('UppercaseSentenceStartRule'),
                R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'),

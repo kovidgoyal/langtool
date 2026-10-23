@@ -303,3 +303,14 @@ def test_demo_language_via_api():
     t = langtool.LanguageTool('xx-XX')
     matches = t.check('This is my test.')
     assert [m.full_rule_id for m in matches] == ['test_unification_with_negation[1]']
+
+
+def test_to_advanced_typography():
+    """Language.toAdvancedTypography()"""
+    from langtool.api import get_language
+    en = get_language('en-US')
+    assert en.to_advanced_typography('Use <suggestion>x</suggestion> here.') == 'Use "x" here.'
+    be = get_language('be-BY')
+    assert be.is_advanced_typography_enabled()
+    assert be.to_advanced_typography("Гэта 'x'... і \"y\", <suggestion>z</suggestion>") == \
+        'Гэта ‘x’… і «y», «z»'
