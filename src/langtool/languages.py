@@ -388,8 +388,11 @@ LANGUAGES = {
         rules=[R('KhmerSimpleReplaceRule'), R('KhmerWordRepeatRule'), R('KhmerUnpairedBracketsRule'),
                R('KhmerSpaceBeforeRule')],
     ),
+    # org.languagetool.language.Lithuanian (code in langtool.lang.lt); its
+    # MorfologikLithuanianSpellerRule (after GenericUnpairedBracketsRule) is
+    # not ported (spell checking)
     'lt': dict(
-        name='Lithuanian', countries=['LT'], variants=[V('lt-LT')], tagger=None,
+        name='Lithuanian', countries=['LT'], variants=[V('lt-LT')], tagger=None, sentence_tokenizer='srx',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
     ),
