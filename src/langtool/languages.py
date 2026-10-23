@@ -7,7 +7,8 @@ Each language has:
  default_variant: code of the default variant
  tagger: dict(dict=path of .dict relative to the resource dir,
               lowercase_with_uppercase=bool) or None for no tagging
- synthesizer: dict(dict=..., tags=...) or None
+ synthesizer: dict(dict=..., tags=..., sor=path of the .sor file of the number
+   speller, optional) or None
  word_tokenizer: name of the tokenizer implementation ('core' by default)
  disambiguator: list of stages, each one of
      ('xml', use_global_disambiguation)
@@ -522,10 +523,14 @@ LANGUAGES = {
                brackets(['[', '(', '{', '„', '»', '«', '"'], [']', ')', '}', '”', '«', '»', '"']),
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Swedish (code in langtool.lang.sv); its
+    # HunspellRule (after GenericUnpairedBracketsRule) is not ported (spell
+    # checking). SwedishHybridDisambiguator: XmlRuleDisambiguator, then the
+    # MultiWordChunker
     'sv': dict(
-        name='Swedish', countries=['SE', 'FI'], variants=[V('sv')],
+        name='Swedish', countries=['SE', 'FI'], variants=[V('sv')], sentence_tokenizer='srx',
         tagger=dict(dict='sv/swedish.dict', lowercase_with_uppercase=True),
-        synthesizer=dict(dict='sv/swedish_synth.dict', tags='sv/swedish_synth.dict_tags.txt'),
+        synthesizer=dict(dict='sv/swedish_synth.dict', tags='sv/swedish_synth.dict_tags.txt', sor='sv/sv.sor'),
         disambiguator=[xml(), mw('sv/multiwords.txt')],
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('LongParagraphRule', default_words=150), R('UppercaseSentenceStartRule'),

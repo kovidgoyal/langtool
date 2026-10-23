@@ -11,5 +11,6 @@ from . import lt  # noqa: F401
 from . import ml  # noqa: F401
 from . import sk  # noqa: F401
 from . import sl  # noqa: F401
+from . import sv  # noqa: F401
 from . import ta  # noqa: F401
 from . import tl  # noqa: F401
