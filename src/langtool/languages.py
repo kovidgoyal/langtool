@@ -359,8 +359,11 @@ LANGUAGES = {
                R('GalicianRedundancyRule'), R('GalicianWordinessRule'), R('GalicianBarbarismsRule'),
                R('GalicianWikipediaRule')],
     ),
+    # org.languagetool.language.Icelandic (code in langtool.lang.is_); its
+    # HunspellNoSuggestionRule (after GenericUnpairedBracketsRule) is not
+    # ported (spell checking)
     'is': dict(
-        name='Icelandic', countries=['IS'], variants=[V('is-IS')], tagger=None,
+        name='Icelandic', countries=['IS'], variants=[V('is-IS')], tagger=None, sentence_tokenizer='srx',
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule')],
     ),
