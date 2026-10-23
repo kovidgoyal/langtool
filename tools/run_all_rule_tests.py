@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from langtool.api import get_language  # noqa
 from langtool.languages import LANGUAGES  # noqa
 from langtool.tool import JLanguageTool  # noqa
-from langtool.testing import PatternRuleTester  # noqa
+from langtool.testing import DisambiguationRuleTester, PatternRuleTester  # noqa
 
 
 def codes_to_test():
@@ -52,8 +52,13 @@ def run_language(code):
     lt = JLanguageTool(lang)
     tester = PatternRuleTester(lt)
     failures = tester.run()
-    failed = sorted({f.rule.get_full_id() for f in failures})
-    return dict(rules=len(tester.rules), failed_rules=len(failed), failures=len(failures),
+    failed = {f.rule.get_full_id() for f in failures}
+    if not lang.is_variant():
+        # the disambiguation rule examples, recorded with a 'disambiguation:' prefix
+        failed.update('disambiguation:' + f.rule.get_full_id() for f in DisambiguationRuleTester(lt).run())
+    failed = sorted(failed)
+    n_failed = len([f for f in failed if not f.startswith('disambiguation:')])
+    return dict(rules=len(tester.rules), failed_rules=n_failed, failures=len(failures),
                 skipped=len(lang._pattern_rule_problems), seconds=round(time.time() - t0, 1), failed_ids=failed)
 
 

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 from langtool.api import get_language  # noqa
 from langtool.tool import JLanguageTool  # noqa
-from langtool.testing import PatternRuleTester  # noqa
+from langtool.testing import DisambiguationRuleTester, PatternRuleTester  # noqa
 
 
 def main():
@@ -39,6 +39,19 @@ def main():
                 print('---', f.rule.get_full_id(), f.rule.source_file and os.path.basename(f.rule.source_file))
                 print(f.message)
         print('skipped (load problems):', len(lang._pattern_rule_problems))
+        if not lang.is_variant() and not args.rule:
+            # DisambiguationRuleTest, for the language (not per variant) as in Java
+            t0 = time.time()
+            dt = DisambiguationRuleTester(lt)
+            dfailures = dt.run()
+            dfailed = {f.rule.get_full_id() for f in dfailures}
+            n = len(dt.rules)
+            print('%s (disambiguation): %d rules, %d failed rules (%.1f%% pass), %d failures, %.1fs' % (
+                code, n, len(dfailed), 100.0 * (n - len(dfailed)) / max(n, 1), len(dfailures), time.time() - t0))
+            if args.verbose:
+                for f in dfailures[:None if args.verbose > 1 else 50]:
+                    print('---', f.rule.get_full_id())
+                    print(f.message)
 
 
 if __name__ == '__main__':
