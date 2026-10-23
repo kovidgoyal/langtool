@@ -198,12 +198,24 @@ LANGUAGES = {
                        ('custom', 'CatalanMultitokenDisambiguator')],
         rules=_CA_RULES,
     ),
+    # org.languagetool.language.CrimeanTatar (code in langtool.lang.crh); it
+    # overrides getSentenceTokenizer() (not createDefaultSentenceTokenizer())
+    # with an SRXSentenceTokenizer; its MorfologikCrimeanTatarSpellerRule
+    # (after WhiteSpaceAtBeginOfParagraph) is not ported (spell checking)
     'crh': dict(
-        name='Crimean Tatar', countries=['UA'], variants=[V('crh-UA')],
+        name='Crimean Tatar', countries=['UA'], variants=[V('crh-UA')], sentence_tokenizer='srx',
         tagger=dict(dict='crh/crimean_tatar.dict', lowercase_with_uppercase=False, impl='CrimeanTatarTagger'),
         synthesizer=dict(dict='crh/crimean_tatar_synth.dict', tags='crh/crimean_tatar_synth.dict_tags.txt'),
         word_tokenizer='CrimeanTatarWordTokenizer',
-        rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('UppercaseSentenceStartRule'),
+        rules=[R('CommaWhitespaceRule',
+                 examples=('Özü bir çaqrım uzaqta<marker> ,</marker> demiryol keçidi yanında yaşay.',
+                           'Özü bir çaqrım uzaqta<marker>,</marker> demiryol keçidi yanında yaşay.')),
+               R('DoublePunctuationRule'),
+               R('UppercaseSentenceStartRule',
+                 examples=('Meclis Haberleri 10.09.2003. <marker>qırımtatar</marker> Milliy Meclisiniñ 120-cı '
+                           'toplaşuvı olıp keçti',
+                           'Meclis Haberleri 10.09.2003. <marker>Qırımtatar</marker> Milliy Meclisiniñ 120-cı '
+                           'toplaşuvı olıp keçti')),
                R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'),
                R('WhiteSpaceAtBeginOfParagraph')],
     ),
@@ -561,11 +573,10 @@ LANGUAGES = {
     ),
 }
 
-# All language modules except Crimean Tatar override
-# Language.createDefaultSentenceTokenizer() with an SRXSentenceTokenizer
-for _code, _d in LANGUAGES.items():
-    if _code != 'crh':
-        _d.setdefault('sentence_tokenizer', 'srx')
+# All language modules override Language.createDefaultSentenceTokenizer()
+# (Crimean Tatar: getSentenceTokenizer()) with an SRXSentenceTokenizer
+for _d in LANGUAGES.values():
+    _d.setdefault('sentence_tokenizer', 'srx')
 
 
 def all_codes():
