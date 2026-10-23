@@ -6,6 +6,7 @@ AnalyzedSentence.
 
 import regex
 
+from ._base import AnalyzedTokenBase, AnalyzedTokenReadingsBase
 from .tools import is_whitespace
 
 SENTENCE_START_TAGNAME = 'SENT_START'
@@ -15,11 +16,10 @@ PARAGRAPH_END_TAGNAME = 'PARA_END'
 _NON_WORD_REGEX = regex.compile(r'[.?!…:;,~’\'"„“”»«‚‘›‹()\[\]\-–—*×∗·+÷/=]')
 
 
-class AnalyzedToken:
+class AnalyzedToken(AnalyzedTokenBase):
     """A single reading of a token: the token text, its POS tag and lemma."""
 
-    __slots__ = ('token', 'pos_tag', 'lemma', 'lemma_or_token', 'whitespace_before', 'has_no_pos_tag',
-                 '_lemma_or_token_lower')
+    __slots__ = ()
 
     def __init__(self, token, pos_tag=None, lemma=None):
         if token is None:
@@ -31,6 +31,8 @@ class AnalyzedToken:
         self.whitespace_before = False
         self.has_no_pos_tag = (pos_tag is None or pos_tag == SENTENCE_END_TAGNAME or pos_tag == PARAGRAPH_END_TAGNAME)
         self._lemma_or_token_lower = None
+        self._token_lower = None
+        self._lemma_lower = None
 
     @property
     def lemma_or_token_lower(self):
@@ -84,15 +86,12 @@ def _is_linebreak(token):
     return token in ('\n', '\r\n', '\r', '\n\r')
 
 
-class AnalyzedTokenReadings:
+class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
     """All readings of a token, plus token level information (position,
     whitespace, chunk tags, immunization...)."""
 
-    __slots__ = ('readings', 'start_pos', 'pos_fix', 'token', '_token_lower', 'clean_token', 'chunk_tags',
-                 'is_whitespace', 'is_linebreak', 'is_sentence_start', 'is_pos_tag_unknown', 'is_sentence_end',
-                 'is_paragraph_end', 'whitespace_before', 'whitespace_before_char', 'typographic_apostrophe',
-                 'immunized', 'immunization_source_line', 'ignored_by_speller', 'historical_annotations',
-                 'has_same_lemmas', '__weakref__')
+    __slots__ = ('start_pos', 'pos_fix', 'clean_token', 'whitespace_before_char', 'immunization_source_line',
+                 'historical_annotations', '__weakref__')
 
     def __init__(self, readings, start_pos=0):
         if isinstance(readings, AnalyzedToken):

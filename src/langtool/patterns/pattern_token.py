@@ -1,8 +1,7 @@
 """Port of org.languagetool.rules.patterns.PatternToken: a part of a pattern,
 corresponding to a <token> element in the XML rule files."""
 
-import copy
-
+from .._base import PosTokenBase, PatternTokenBase
 from ..analysis import SENTENCE_START_TAGNAME
 from . import string_matcher
 from .string_matcher import StringMatcher
@@ -15,8 +14,8 @@ def normalize_text_pattern(token):
     return '' if token is None else trim_whitespace(token)
 
 
-class PosToken:
-    __slots__ = ('pos_tag', 'negation', 'pos_pattern', 'pos_unknown')
+class PosToken(PosTokenBase):
+    __slots__ = ()
 
     def __init__(self, pos_tag, negation=False, matcher=None, regexp=None):
         if regexp is not None:
@@ -35,20 +34,23 @@ class PosToken:
         return str(self.pos_tag)
 
 
-class PatternToken:
+_PT_FIELDS = (
+    'inflected', 'negation', 'test_whitespace', 'whitespace_before', 'inside_marker', 'exception_valid_next',
+    'may_be_omitted', 'test_string', 'unification_neutral', 'uni_negation', 'last_in_unification',
+    'text_matcher', 'pos_token', 'current_and_next_exceptions', 'previous_exceptions',
+    'unification_features', 'phrase_name', 'and_group', 'or_group', 'token_reference', 'chunk_tag',
+    'skip', 'max_occurrence')
+
+
+class PatternToken(PatternTokenBase):
     """A token in a pattern. Attribute names mirror the Java fields/flags."""
 
-    __slots__ = (
-        'inflected', 'negation', 'test_whitespace', 'whitespace_before', 'inside_marker', 'exception_valid_next',
-        'may_be_omitted', 'test_string', 'unification_neutral', 'uni_negation', 'last_in_unification',
-        'text_matcher', 'pos_token', 'current_and_next_exceptions', 'previous_exceptions',
-        'unification_features', 'phrase_name', 'and_group', 'or_group', 'token_reference', 'chunk_tag',
-        'skip', 'max_occurrence', 'native', '__weakref__')
+    __slots__ = ('__weakref__',)
 
     def __init__(self, token=None, case_sensitive=False, regexp=False, inflected=False, matcher=None):
         if matcher is None:
             matcher = string_matcher.create(normalize_text_pattern(token), regexp, case_sensitive)
-        self.inflected = inflected
+        self.inflected = bool(inflected)
         self.negation = False
         self.test_whitespace = False
         self.whitespace_before = False
@@ -69,12 +71,13 @@ class PatternToken:
         self.chunk_tag = None
         self.skip = 0
         self.max_occurrence = 1
-        self.native = None
         self.set_text_matcher(matcher)
 
     def clone(self):
-        c = copy.copy(self)
-        c.native = None
+        """Shallow copy, like Java's PatternToken.clone()"""
+        c = PatternToken.__new__(PatternToken)
+        for k in _PT_FIELDS:
+            setattr(c, k, getattr(self, k))
         return c
 
     # --- matching ---

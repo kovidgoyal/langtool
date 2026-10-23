@@ -190,11 +190,22 @@ class AbstractTokenBasedRule(AbstractPatternRule):
         self.pos_hints = pos_hints or None
         self.max_span_tokens = max_span if bounded else -1
         self.min_token_count = min(min_token_count, 127)
+        from .._base import speedups
+        self._native_hints = None
+        if speedups is not None:
+            hs = tuple((th.inflected, th.lower_case_values, th.lower_case_value_set)
+                       for th in (self.token_hints or ()))
+            ph = tuple(frozenset(p) for p in self.pos_hints) if self.pos_hints else None
+            self._native_hints = speedups.RuleHints(self.min_token_count, hs, ph)
 
     def is_interpret_pos_tags_pre_disambiguation(self):
         return False
 
     def can_be_ignored_for(self, sentence):
+        nh = self._native_hints
+        if nh is not None:
+            return nh.ignorable(len(sentence.non_blank_tokens), sentence.token_offsets, sentence.lemma_offsets,
+                                sentence.pos_tag_set, not self.is_interpret_pos_tags_pre_disambiguation())
         if len(sentence.non_blank_tokens) < self.min_token_count:
             return True
         if self.token_hints is not None:

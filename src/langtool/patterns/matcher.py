@@ -9,6 +9,7 @@ org.languagetool.tagging.disambiguation.rules.DisambiguationPatternRuleReplacer.
 import regex
 
 from .. import jregex
+from .._base import speedups
 from ..analysis import AnalyzedToken, AnalyzedTokenReadings, AnalyzedSentence
 from ..rules.base import RuleMatch, rule_with_max_filter, SUGGESTION_START_TAG, SUGGESTION_END_TAG
 from ..tools import (is_all_uppercase, starts_with_uppercase, is_positive_number, add_space, is_empty)
@@ -87,6 +88,22 @@ class AbstractPatternRulePerformer:
             self.neutral_readings = {}
         else:
             self.to_unify = self.neutral_readings = None
+        self._compiled = None
+
+    def _compile(self, check_immunized, element_no):
+        """Prepare matching with the C extension, if possible."""
+        rule = self.rule
+        if speedups is None or rule.test_unification:
+            return
+        for t in rule.pattern_tokens:
+            if t.token_reference is not None:
+                return
+            if t.and_group:
+                for a in t.and_group:
+                    if a.token_reference is not None:
+                        return
+        self._compiled = speedups.CompiledPattern(tuple(rule.pattern_tokens), self.min_occur_correction,
+                                                  bool(rule.groups_or_unification), check_immunized, element_no)
 
     def is_interpret_pos_tags_pre_disambiguation(self):
         return isinstance(self.rule, R.PatternRule) and self.rule.interpret_pos_tags_pre_disambiguation
@@ -103,6 +120,19 @@ class AbstractPatternRulePerformer:
             limit = 1
         else:
             limit = max(0, len(tokens) - self.pattern_size + 1) + self.min_occur_correction
+        compiled = self._compiled
+        if compiled is not None:
+            if anchor_indices is not None:
+                ti = anchor.token_index
+                starts = [ai - ti for ai in anchor_indices if min_start <= ai - ti <= max_start and
+                          0 <= ai - ti < limit]
+                if starts:
+                    compiled.match(tokens, starts, consumer)
+            else:
+                lo, hi = max(0, min_start), min(limit - 1, max_start)
+                if lo <= hi:
+                    compiled.match(tokens, (lo, hi), consumer)
+            return
         if anchor_indices is not None:
             ti = anchor.token_index
             for ai in anchor_indices:
@@ -309,6 +339,7 @@ class PatternRuleMatcher(AbstractPatternRulePerformer):
             unifier_config = rule.language.unifier_config
         super().__init__(rule, unifier_config)
         self.use_list = use_list
+        self._compile(True, rule.element_no if use_list and isinstance(rule, R.PatternRule) else None)
 
     def match(self, sentence, min_start=0, max_start=2 ** 31):
         if self.is_interpret_pos_tags_pre_disambiguation():
@@ -703,6 +734,7 @@ class DisambiguationPatternRuleReplacer(AbstractPatternRulePerformer):
     def __init__(self, rule):
         super().__init__(rule, rule.unifier_config or rule.language.disambiguation_unifier_config)
         self._anti_matchers = None
+        self._compile(False, None)
 
     def replace(self, sentence):
         tokens = sentence.non_blank_tokens

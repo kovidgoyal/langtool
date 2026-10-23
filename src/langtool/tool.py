@@ -183,6 +183,7 @@ class JLanguageTool:
         if rs is None:
             rules = [r for r in self.get_all_active_rules() if is_rule_active_for_level(r, level)]
             rs = self._rule_set_cache[level] = RuleSet(rules, with_lemma_hints=True)
+            rs.text_level_rules = [r for r in rules if r.is_text_level_rule()]
         return rs
 
     # --- analysis ---
@@ -313,9 +314,7 @@ class JLanguageTool:
 
     def _text_level_matches(self, rule_set, sdata, annotated_text, analyzed):
         out = []
-        for rule in rule_set.all_rules:
-            if not rule.is_text_level_rule():
-                continue
+        for rule in rule_set.text_level_rules:
             for m in rule.match(analyzed, annotated_text):
                 fl, fc = self._find_line_column(sdata, m.from_pos)
                 tl, tc = self._find_line_column(sdata, m.to_pos)

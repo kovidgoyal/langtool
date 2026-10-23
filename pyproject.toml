@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "langtool"
+version = "0.1.0"
+description = "Grammar and style checking based on the LanguageTool rules: a port of the LanguageTool core to Python with a C extension"
+readme = "README.md"
+license = "LGPL-2.1-or-later"
+requires-python = ">=3.9"
+dependencies = ["lxml>=4.6", "regex>=2022.1.18"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Topic :: Text Processing :: Linguistic",
+    "Intended Audience :: Developers",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+langtool = "langtool.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+langtool = ["dictionaries.json", "data/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

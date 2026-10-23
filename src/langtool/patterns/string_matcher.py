@@ -7,6 +7,7 @@ turned into simple set lookups.
 """
 
 from .. import jregex
+from .._base import StringMatcherBase
 from ..tools import java_equals_ignore_case, is_letter_or_digit
 
 MAX_MATCH_LENGTH = 250
@@ -198,10 +199,9 @@ def get_possible_regexp_values(regexp):
         return None
 
 
-class StringMatcher:
+class StringMatcher(StringMatcherBase):
 
-    __slots__ = ('pattern', 'case_sensitive', 'is_regexp', 'kind', 'value', 'value_lower', 'values',
-                 'compiled', 'cache', 'possible_values')
+    __slots__ = ()
 
     def __init__(self, pattern, is_regexp, case_sensitive):
         self.pattern = pattern
@@ -211,11 +211,13 @@ class StringMatcher:
         self.cache = None
         self.value = self.value_lower = None
         self.values = None
+        self.possible_values = None
         if not is_regexp or pattern == '\\0':
             self._set_equals(pattern)
             return
-        # always compile to check that it is well formed
-        self.compiled = jregex.compile(pattern, 0 if case_sensitive else jregex.IGNORECASE)
+        # Java compiles the pattern here to check that it is well formed, we only
+        # translate it (compiling with the regex module is slow) and compile lazily
+        jregex.translate(pattern)
         pv = get_possible_regexp_values(pattern)
         if pv is not None:
             if len(pv) == 1:
@@ -247,13 +249,20 @@ class StringMatcher:
             if self.case_sensitive:
                 return s in self.values
             return s.lower() in self.values
-        c = self.cache
-        r = c.get(s)
+        r = self.cache.get(s)
         if r is None:
-            r = self.compiled.fullmatch(s) is not None
-            if len(c) > 50000:
-                c.clear()
-            c[s] = r
+            r = self._regex_match(s)
+        return r
+
+    def _regex_match(self, s):
+        comp = self.compiled
+        if comp is None:
+            comp = self.compiled = jregex.compile(self.pattern, 0 if self.case_sensitive else jregex.IGNORECASE)
+        r = comp.fullmatch(s) is not None
+        c = self.cache
+        if len(c) > 50000:
+            c.clear()
+        c[s] = r
         return r
 
     def matches_lower(self, s, s_lower):
