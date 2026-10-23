@@ -1,5 +1,6 @@
 """Ports of RuleMatchTest, RuleWithMaxFilterTest, SameRuleGroupFilterTest and
-CleanOverlappingFilterTest (languagetool-core/src/test/java/org/languagetool/rules/)."""
+CleanOverlappingFilterTest (languagetool-core/src/test/java/org/languagetool/rules/),
+plus tests of core filters (AbstractDateCheckFilter, AbstractAdvancedSynthesizerFilter)."""
 
 import pytest
 
@@ -360,3 +361,19 @@ def test_date_check_filter():
         f.accept_rule_match(_date_match(), dict(day='7', month='Oct'), 0, [], [])
     with pytest.raises(ValueError):
         f.accept_rule_match(_date_match(), dict(weekDay='Mon', month='Oct'), 0, [], [])
+
+
+# --- AbstractAdvancedSynthesizerFilter ---------------------------------------
+
+def test_advanced_synthesizer_filter_composite_postag():
+    """AbstractAdvancedSynthesizerFilter.getCompositePostag: \\aN and \\bN are
+    replaced by the groups of lemmaSelect (matched against the original POS
+    tag) and postagSelect (matched against the desired POS tag)"""
+    from langtool.rules.core_filters import AbstractAdvancedSynthesizerFilter
+    f = AbstractAdvancedSynthesizerFilter()
+    assert f.get_composite_postag('V(.*)', '(PP.*)', 'VMIS1S0', 'PP2CP000', 'V\\a1:\\b1') == 'VMIS1S0:PP2CP000'
+    assert f.get_composite_postag('V(.)N.*', 'V...(..).*', 'VMN0000', 'VMIP3S0', 'V\\a1(IP|IF)\\b1.') == \
+        'VM(IP|IF)3S.'
+    # no match (or a group that didn't participate): postagReplace unchanged
+    assert f.get_composite_postag('V(.*)', '(PP.*)', 'NCMS000', 'PP2CP000', 'V\\a1:\\b1') == 'V\\a1:\\b1'
+    assert f.get_composite_postag('V(X)?.*', '(PP.*)', 'VMIS1S0', 'PP2CP000', 'V\\a1:\\b1') == 'V\\a1:PP2CP000'

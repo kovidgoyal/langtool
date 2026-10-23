@@ -6,8 +6,8 @@ import datetime
 import regex
 
 from .. import jregex
-from ..tools import (is_punctuation_or_symbol, is_capitalized_word, is_whitespace, uppercase_first_char,
-                     is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test)
+from ..tools import (is_punctuation_or_symbol, is_all_uppercase, is_capitalized_word, is_whitespace,
+                     uppercase_first_char, is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test)
 from .filters import RuleFilter
 
 _WS = regex.compile(r'\s+')
@@ -548,6 +548,133 @@ class SuppressIfAnyRuleMatchesFilter(RuleFilter):
         new_pre = list(s.pre_disambig_tokens)
         new_pre[idx] = new_tokens[idx]
         return AnalyzedSentence(new_tokens, new_pre)
+
+
+class AbstractAdvancedSynthesizerFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractAdvancedSynthesizerFilter:
+    synthesize suggestions using the lemma from one token (lemmaFrom) and
+    the POS tag from another one (postagFrom). The lemmaSelect and
+    postagSelect arguments are required to choose one among several
+    possible readings. Subclasses may override is_suggestion_exception()
+    and get_new_lemma()."""
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        postag_select = self.get_required('postagSelect', arguments)
+        lemma_select = self.get_required('lemmaSelect', arguments)
+        postag_from_str = self.get_required('postagFrom', arguments)
+        lemma_from_str = self.get_required('lemmaFrom', arguments)
+        new_lemma = self.get_optional('newLemma', arguments, '')
+
+        postag_from = self._position(postag_from_str, pattern_tokens, match)
+        lemma_from = self._position(lemma_from_str, pattern_tokens, match)
+
+        postag_replace = self.get_optional('postagReplace', arguments)
+
+        lemma_token = self._get_analyzed_token(pattern_tokens[lemma_from - 1], lemma_select)
+        desired_lemma = lemma_token.lemma
+        original_postag = lemma_token.pos_tag
+        desired_postag = self._get_analyzed_token(pattern_tokens[postag_from - 1], postag_select).pos_tag
+        if new_lemma:
+            if new_lemma.startswith('_'):
+                desired_lemma = self.get_new_lemma(desired_lemma, new_lemma)
+            else:
+                desired_lemma = new_lemma
+        if desired_lemma is None:
+            return None
+
+        if desired_postag is None:
+            raise ValueError("AdvancedSynthesizerFilter: undefined POS tag for rule %s with POS regex '%s' for "
+                             "token: %s" % (match.rule.get_full_id(), postag_select, pattern_tokens[postag_from - 1]))
+
+        if postag_replace is not None:
+            desired_postag = self.get_composite_postag(lemma_select, postag_select, original_postag, desired_postag,
+                                                       postag_replace)
+
+        # take capitalization from the lemma (?)
+        is_word_capitalized = is_capitalized_word(pattern_tokens[lemma_from - 1].token)
+        is_word_allupper = is_all_uppercase(pattern_tokens[lemma_from - 1].token)
+        from ..analysis import AnalyzedToken
+        token = AnalyzedToken('', desired_postag, desired_lemma)
+        language = self.language if self.language is not None else match.rule.language
+        replacements = language.synthesizer.synthesize(token, desired_postag, True)
+        if replacements:
+            from .base import RuleMatch
+            new_match = RuleMatch(match.rule, match.sentence, match.from_pos, match.to_pos, match.message,
+                                  match.short_message)
+            new_match.type = match.type
+            replacements_list = []
+            suggestion_used = False
+            for r in match.suggested_replacements:
+                for nr in replacements:
+                    if self.is_suggestion_exception(nr, desired_postag):
+                        continue
+                    if '{suggestion}' in r or '{Suggestion}' in r or '{SUGGESTION}' in r:
+                        suggestion_used = True
+                    if is_word_capitalized:
+                        nr = uppercase_first_char(nr)
+                    if is_word_allupper:
+                        nr = nr.upper()
+                    complete = r.replace('{suggestion}', nr)
+                    complete = complete.replace('{Suggestion}', uppercase_first_char(nr))
+                    complete = complete.replace('{SUGGESTION}', nr.upper())
+                    if complete not in replacements_list:
+                        replacements_list.append(complete)
+            if not suggestion_used:
+                replacements_list.extend(replacements)
+            new_match.set_suggested_replacements([adapt_suggestion(language, r, '') for r in replacements_list])
+            return new_match
+        return match
+
+    @staticmethod
+    def _position(from_str, pattern_tokens, match):
+        if from_str.startswith('marker'):
+            i = 0
+            while i < len(pattern_tokens) and pattern_tokens[i].start_pos < match.from_pos:
+                i += 1
+            i += 1
+            if len(from_str) > 6:
+                i += java_parse_int(from_str.replace('marker', ''))
+        else:
+            i = java_parse_int(from_str)
+        if i < 1 or i > len(pattern_tokens):
+            raise ValueError('AdvancedSynthesizerFilter: Index out of bounds in %s, value: %s' % (
+                match.rule.get_full_id(), from_str))
+        return i
+
+    def get_composite_postag(self, lemma_select, postag_select, original_postag, desired_postag, postag_replace):
+        a_pattern = jregex.compile(lemma_select)
+        b_pattern = jregex.compile(postag_select)
+        a_matcher = a_pattern.fullmatch(original_postag)
+        b_matcher = b_pattern.fullmatch(desired_postag)
+        result = postag_replace
+        if a_matcher and b_matcher:
+            for i in range(1, a_pattern.groups + 1):
+                group_str = a_matcher.group(i)
+                if group_str is not None:
+                    result = result.replace('\\a%d' % i, group_str)
+            for i in range(1, b_pattern.groups + 1):
+                group_str = b_matcher.group(i)
+                if group_str is not None:
+                    result = result.replace('\\b%d' % i, group_str)
+        return result
+
+    def is_suggestion_exception(self, token, desired_postag):
+        return False
+
+    @staticmethod
+    def _get_analyzed_token(atr, regexp):
+        pattern = jregex.compile(regexp)
+        for analyzed_token in atr.readings:
+            pos_tag = analyzed_token.pos_tag
+            if pos_tag is None:
+                pos_tag = 'UNKNOWN'
+            if pattern.fullmatch(pos_tag):
+                return analyzed_token
+        # Return the first one. Something is wrong, anyway
+        return atr.readings[0]
+
+    def get_new_lemma(self, word, new_lemma):
+        return None
 
 
 _tools = {}
