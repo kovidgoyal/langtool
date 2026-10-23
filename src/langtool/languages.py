@@ -476,8 +476,11 @@ LANGUAGES = {
                R('LongSentenceRule', max_words=40), R('LongParagraphRule'), R('PreferredWordRule'),
                R('SpaceInCompoundRule'), R('SentenceWhitespaceRule'), R('CheckCaseRule')],
     ),
+    # org.languagetool.language.Polish (code in langtool.lang.pl); its
+    # MorfologikPolishSpellerRule (after PolishUnpairedBracketsRule) is not
+    # ported (spell checking)
     'pl': dict(
-        name='Polish', countries=['PL'], variants=[V('pl-PL')],
+        name='Polish', countries=['PL'], variants=[V('pl-PL')], sentence_tokenizer='srx',
         tagger=dict(dict='pl/polish.dict', lowercase_with_uppercase=True, impl='PolishTagger'),
         synthesizer=dict(dict='pl/polish_synth.dict', tags='pl/polish_tags.txt', impl='PolishSynthesizer'),
         word_tokenizer='PolishWordTokenizer',
