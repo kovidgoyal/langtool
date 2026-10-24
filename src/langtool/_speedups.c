@@ -1665,7 +1665,45 @@ py_gis_eval(PyObject *self, PyObject *args)
     return gis_make_list(sums, n);
 }
 
+/* levenshtein(s1, s2) -> int: org.apache.commons.text.similarity.LevenshteinDistance (unlimited) */
+static PyObject *
+py_levenshtein(PyObject *self, PyObject *args)
+{
+    PyObject *a, *b;
+    if (!PyArg_ParseTuple(args, "UU", &a, &b))
+        return NULL;
+    Py_ssize_t n = PyUnicode_GET_LENGTH(a), m = PyUnicode_GET_LENGTH(b);
+    if (n < m) { PyObject *t = a; a = b; b = t; Py_ssize_t tn = n; n = m; m = tn; }
+    if (m == 0)
+        return PyLong_FromSsize_t(n);
+    int ka = PyUnicode_KIND(a), kb = PyUnicode_KIND(b);
+    const void *da = PyUnicode_DATA(a), *db = PyUnicode_DATA(b);
+    Py_ssize_t *row = PyMem_Malloc((m + 1) * sizeof(Py_ssize_t));
+    if (row == NULL)
+        return PyErr_NoMemory();
+    for (Py_ssize_t j = 0; j <= m; j++)
+        row[j] = j;
+    for (Py_ssize_t i = 1; i <= n; i++) {
+        Py_UCS4 c1 = PyUnicode_READ(ka, da, i - 1);
+        Py_ssize_t diag = row[0];
+        row[0] = i;
+        for (Py_ssize_t j = 1; j <= m; j++) {
+            Py_ssize_t up = row[j];
+            Py_ssize_t cost = diag + (c1 != PyUnicode_READ(kb, db, j - 1));
+            Py_ssize_t v = up + 1;
+            if (row[j - 1] + 1 < v) v = row[j - 1] + 1;
+            if (cost < v) v = cost;
+            row[j] = v;
+            diag = up;
+        }
+    }
+    Py_ssize_t r = row[m];
+    PyMem_Free(row);
+    return PyLong_FromSsize_t(r);
+}
+
 static PyMethodDef module_methods[] = {
+    {"levenshtein", py_levenshtein, METH_VARARGS, NULL},
     {"gis_sum", py_gis_sum, METH_VARARGS, NULL},
     {"gis_eval", py_gis_eval, METH_VARARGS, NULL},
     {"pattern_token_is_matched", py_pt_is_matched, METH_VARARGS, NULL},

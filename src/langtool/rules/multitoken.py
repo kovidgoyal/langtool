@@ -15,7 +15,7 @@ _WHITESPACE_AND_SEP = regex.compile(r'\p{Zs}+')
 _CACHE_SIZE = 20000
 
 
-def levenshtein_distance(s1, s2):
+def _levenshtein_distance(s1, s2):
     """org.apache.commons.text.similarity.LevenshteinDistance (unlimited)"""
     if s1 == s2:
         return 0
@@ -30,6 +30,11 @@ def levenshtein_distance(s1, s2):
             cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (c1 != c2)))
         prev = cur
     return prev[-1]
+
+
+from .._base import speedups as _speedups  # noqa: E402
+
+levenshtein_distance = _speedups.levenshtein if _speedups is not None else _levenshtein_distance
 
 
 def is_anagram(s1, s2):
