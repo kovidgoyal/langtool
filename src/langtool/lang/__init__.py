@@ -11,6 +11,7 @@ from . import da  # noqa: F401
 from . import el  # noqa: F401
 from . import eo  # noqa: F401
 from . import fa  # noqa: F401
+from . import ga  # noqa: F401
 from . import gl  # noqa: F401
 from . import is_  # noqa: F401
 from . import it  # noqa: F401

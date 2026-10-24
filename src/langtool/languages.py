@@ -370,8 +370,11 @@ LANGUAGES = {
                R('LongParagraphRule'), R('CompoundRule'), R('QuestionWhitespaceStrictRule'),
                R('QuestionWhitespaceRule'), R('SimpleReplaceRule'), R('FrenchRepeatedWordsRule')],
     ),
+    # org.languagetool.language.Irish (code in langtool.lang.ga); its
+    # MorfologikIrishSpellerRule (after WordRepeatRule) is not ported (spell
+    # checking)
     'ga': dict(
-        name='Irish', countries=['IE'], variants=[V('ga-IE')],
+        name='Irish', countries=['IE'], variants=[V('ga-IE')], sentence_tokenizer='srx',
         tagger=dict(dict='ga/irish.dict', lowercase_with_uppercase=True, impl='IrishTagger'),
         synthesizer=dict(dict='ga/irish_synth.dict', tags='ga/irish_tags.txt'),
         disambiguator=[mw('ga/multiwords.txt'), xml()],
