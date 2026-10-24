@@ -40,3 +40,34 @@ def test_rule_examples():
     assert [(e.example, e.corrections) for e in upper.incorrect_examples] == [('<marker>x</marker>', None)]
     assert [e.example for e in upper.correct_examples] == ['X']
     assert 'examples' in spec[1]
+
+
+def test_language_hooks():
+    """The 'to_advanced_typography' and 'filter_rule_matches' extensions of
+    a language (French.toAdvancedTypography, French.filterRuleMatches); the
+    JLanguageTool calls filter_rule_matches (LanguageDependentRuleMatchFilter)
+    with the ids of the active rules"""
+    from langtool.api import get_language
+    from langtool.tool import LEVEL_DEFAULT, JLanguageTool, is_rule_active_for_level
+    lang = get_language('xx')
+    assert lang.to_advanced_typography('a "b"') == lang.base_to_advanced_typography('a "b"')
+    calls = []
+
+    def filter_rule_matches(language, matches, annotated_text, enabled_rules):
+        calls.append((language, annotated_text.plain_text, set(enabled_rules)))
+        return matches[:1]
+
+    extensions.register('to_advanced_typography', 'xx', lambda language, text: text.upper(), language='xx')
+    extensions.register('filter_rule_matches', 'xx', filter_rule_matches, language='xx')
+    try:
+        assert lang.to_advanced_typography('a "b"') == 'A "B"'
+        lt = JLanguageTool(lang)
+        matches = lt.check('a a a a.')
+        assert len(matches) <= 1
+        assert calls and calls[0][0] is lang and calls[0][1] == 'a a a a.'
+        assert calls[0][2] == {r.get_id() for r in lt.get_all_active_rules()
+                               if is_rule_active_for_level(r, LEVEL_DEFAULT)}
+    finally:
+        extensions._registry.pop(('to_advanced_typography', 'xx', 'xx'))
+        extensions._registry.pop(('filter_rule_matches', 'xx', 'xx'))
+    assert lang.filter_rule_matches(['m1', 'm2'], None, set()) == ['m1', 'm2']

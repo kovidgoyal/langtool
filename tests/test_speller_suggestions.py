@@ -99,3 +99,55 @@ def test_speller_internals_es(es_speller):
     # replacement pairs with targets of more than two characters
     assert sp.get_all_replacements('kiero', 0, 0) == ['kiero', 'quiero']
     assert sp.get_all_replacements('a', 0, 0) == ['a']
+
+
+# --- the dictionary of the plain text word lists, run-on words, MorfologikSpeller.getSuggestions ---
+
+def _plain_dictionary(lines, info=''):
+    from langtool.fsa import DictionaryMetadata, read_properties
+    from langtool.spelling import PlainTextDictionary
+    md = DictionaryMetadata(read_properties('fsa.dict.separator=+\nfsa.dict.encoding=utf-8\n'
+                                            'fsa.dict.encoder=SUFFIX\n' + info))
+    return PlainTextDictionary([s.encode('utf-8') for s in lines], md)
+
+
+def test_plain_text_dictionary():
+    """The FSA of the plain text word lists: the words, arcs in label order"""
+    d = _plain_dictionary(['cosa', 'casa', 'caso', 'casa', 'a'])
+    assert list(d._sequences(d.fsa.root)) == [b'a', b'casa', b'caso', b'cosa']
+    s = Speller(d, 1)
+    assert s.is_in_dictionary('casa') and s.is_in_dictionary('a') and not s.is_in_dictionary('cas')
+    # edit distance 1, in the order of the FSA (no frequencies)
+    assert s.find_replacements('cesa') == ['casa', 'cosa']
+    assert [c.distance for c in s.find_replacement_candidates('cesa')] == [51, 51]
+    assert Speller(d, 2).find_replacements('cesa') == ['casa', 'cosa', 'caso']
+
+
+def test_run_on_words():
+    """Speller.replaceRunOnWordCandidates (runon-words is on by default)"""
+    d = _plain_dictionary(['casa', 'grande', 'gran', 'de'])
+    s = Speller(d, 1)
+    assert [c.word for c in s.replace_run_on_word_candidates('casagrande')] == ['casa grande']
+    assert [c.word for c in s.replace_run_on_word_candidates('grande')] == []
+    # camel case and uppercase first words
+    assert [c.word for c in s.replace_run_on_word_candidates('CasaGrande')] == ['Casa Grande']
+    assert [c.word for c in s.replace_run_on_word_candidates('grande')] == []
+    s = Speller(_plain_dictionary(['casa', 'grande'], 'fsa.dict.speller.runon-words=false\n'), 1)
+    assert s.replace_run_on_word_candidates('casagrande') == []
+
+
+def test_weighted_speller():
+    """MorfologikSpeller.getSuggestions: replacement candidates and run-on
+    words with their weights, the case of the word"""
+    from langtool.spelling import SuggestionMultiSpeller, _WeightedSpeller
+    d = _plain_dictionary(['casa', 'cosa', 'grande', 'Madrid'])
+    s = _WeightedSpeller(d, 1)
+    assert s.get_suggestions('cesa') == [('casa', 51), ('cosa', 51)]
+    assert s.get_suggestions('Cesa') == [('Casa', 51), ('Cosa', 51)]
+    assert s.get_suggestions('CESA') == [('CASA', 51), ('COSA', 51)]
+    assert s.get_suggestions('casagrande') == [('casa grande', 51)]
+    assert s.get_suggestions('Madri') == [('Madrid', 51)]
+    # the multi speller: no duplicates, not the word itself, sorted by weight
+    m = SuggestionMultiSpeller(d, [b'cesar', b'casa'], 1)
+    assert m.get_suggestions('cesa') == ['casa', 'cosa', 'cesar']
+    assert m.get_weighted_suggestions_from_default_dicts('cesa') == [('casa', 51), ('cosa', 51), ('cesar', 51)]

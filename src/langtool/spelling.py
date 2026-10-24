@@ -25,7 +25,9 @@ import unicodedata
 import regex
 
 from .rules.abstract_rules import load_word_list
-from .tools import char_to_lower, char_to_upper, is_digit, is_letter, is_lower_case, is_mixed_case, is_upper_case
+from .tools import (char_to_lower, char_to_upper, is_all_uppercase, is_digit, is_emoji, is_letter, is_lower_case,
+                    is_mixed_case, is_upper_case, java_equals_ignore_case, java_split, starts_with_uppercase,
+                    uppercase_first_char)
 
 LANGUAGETOOL = 'LanguageTool'  # SpellingCheckRule.LANGUAGETOOL
 LANGUAGETOOLER = 'LanguageTooler'  # SpellingCheckRule.LANGUAGETOOLER
@@ -76,6 +78,7 @@ class SpellerMetadata:
         self.ignore_camel_case = flag('ignore-camel-case')
         self.ignore_all_uppercase = flag('ignore-all-uppercase')
         self.convert_case = flag('convert-case')
+        self.runon_words = flag('runon-words')
         # new Locale(value), the default locale otherwise (no special case mapping assumed)
         self.locale = (props.get('fsa.dict.speller.locale') or '').strip().lower() or None
 
@@ -699,6 +702,36 @@ class Speller:
     def find_replacements(self, word):
         return [cd.word for cd in self.find_replacement_candidates(word)]
 
+    def replace_run_on_word_candidates(self, original):
+        """Speller.replaceRunOnWordCandidates: propose suggestions for
+        misspelled run-on words (inspired by spell.cc in s_fsa package by
+        Jan Daciuk), as space-separated pairs of dictionary words."""
+        candidates = []
+        word_to_check = original
+        if self.input_conversion:
+            word_to_check = _apply_replacements(original, self.input_conversion)
+        if not self.is_in_dictionary(word_to_check) and self.md.runon_words:
+            locale = self.locale
+            for i in range(1, len(word_to_check)):
+                # chop from left to right
+                prefix = word_to_check[:i]
+                suffix = word_to_check[i:]
+                if (self.is_in_dictionary(suffix)
+                        # camel case words: e.g. GreatElephant
+                        or (not _is_not_capitalized_word(suffix)
+                            and self.is_in_dictionary(java_to_lower(suffix, locale)))):
+                    if self.is_in_dictionary(prefix):
+                        self._add_run_on_replacement(candidates, prefix + ' ' + suffix)
+                    elif is_upper_case(prefix[0]) and self.is_in_dictionary(java_to_lower(prefix, locale)):
+                        # a word that's uppercase just because used at sentence start
+                        self._add_run_on_replacement(candidates, prefix + ' ' + suffix)
+        return candidates
+
+    def _add_run_on_replacement(self, candidates, replacement):
+        if self.output_conversion:
+            replacement = _apply_replacements(replacement, self.output_conversion)
+        candidates.append(self._candidate_data(replacement, 1))
+
     def _find_replacement_candidates(self, word, even_if_word_in_dictionary):
         self.h_matrix.reset()
         if self.input_conversion:
@@ -1046,3 +1079,416 @@ def morfologik_suggestion_speller(language, file_name, max_edit_distance=1):
         if r is None or r.dictionary is not dictionary:
             r = _suggestion_spellers[key] = MorfologikSuggestionSpeller(dictionary, max_edit_distance)
         return r
+
+
+# --- spelling suggestions of MorfologikSpellerRule (getSpellingSuggestions) ---
+
+class _TrieFSA:
+    """An FSA (with the interface of langtool.fsa's automata) for a list of
+    byte sequences, like the one morfologik's FSABuilder builds from the
+    sorted lines of the plain text word lists (not minimized, which doesn't
+    change the accepted sequences or the order of the arcs: by unsigned
+    byte label). Nodes and arcs are positive integers, 0 is the terminal
+    node (no outgoing arcs) and the missing arc."""
+
+    def __init__(self, sequences):
+        children = [{}]  # node -> {label: child node}
+        final = [False]
+        for seq in sequences:
+            node = 0
+            for b in seq:
+                c = children[node].get(b)
+                if c is None:
+                    c = children[node][b] = len(children)
+                    children.append({})
+                    final.append(False)
+                node = c
+            final[node] = True
+        # arcs of a node are consecutive, arc ids start with 1
+        self._first = [0] * len(children)
+        labels = [0]
+        dests = [0]
+        finals = [False]
+        lasts = [False]
+        # node numbers: 0 for nodes without outgoing arcs, i + 1 otherwise
+        node_ids = [i + 1 if children[i] else 0 for i in range(len(children))]
+        first = [0] * (len(children) + 1)
+        arc_maps = [None] * (len(children) + 1)
+        for i, ch in enumerate(children):
+            if not ch:
+                continue
+            nid = node_ids[i]
+            first[nid] = len(labels)
+            m = {}
+            items = sorted(ch.items())
+            for k, (label, c) in enumerate(items):
+                m[label] = len(labels)
+                labels.append(label)
+                dests.append(node_ids[c])
+                finals.append(final[c])
+                lasts.append(k == len(items) - 1)
+            arc_maps[nid] = m
+        self._first = first
+        self._labels = labels
+        self._dests = dests
+        self._finals = finals
+        self._lasts = lasts
+        self._arc_maps = arc_maps
+        self.root = node_ids[0]
+
+    def first_arc(self, node):
+        return self._first[node]
+
+    def next_arc(self, arc):
+        return 0 if self._lasts[arc] else arc + 1
+
+    def label(self, arc):
+        return self._labels[arc]
+
+    def is_final(self, arc):
+        return self._finals[arc]
+
+    def destination(self, arc):
+        return self._dests[arc]
+
+    def get_arc(self, node, lbl):
+        m = self._arc_maps[node]
+        return m.get(lbl, 0) if m is not None else 0
+
+
+class PlainTextDictionary:
+    """The morfologik Dictionary that MorfologikMultiSpeller builds from the
+    lines of the plain text word lists (spelling.txt etc.), with the
+    metadata of the binary speller dictionary (its .info file)."""
+
+    def __init__(self, lines, metadata):
+        self.fsa = _TrieFSA(sorted(set(lines)))
+        self.metadata = metadata
+
+    def _sequences(self, node):
+        """All byte sequences accepted from node, in arc order"""
+        fsa = self.fsa
+        buf = bytearray()
+        stack = [fsa.first_arc(node)]
+        while stack:
+            arc = stack[-1]
+            depth = len(stack) - 1
+            if arc == 0:
+                stack.pop()
+                continue
+            stack[-1] = fsa.next_arc(arc)
+            del buf[depth:]
+            buf.append(fsa.label(arc))
+            dest = fsa.destination(arc)
+            if dest != 0:
+                stack.append(fsa.first_arc(dest))
+            if fsa.is_final(arc):
+                yield bytes(buf)
+
+
+_MAX_MATCH_LENGTH = 250  # StringMatcher.MAX_MATCH_LENGTH
+
+
+def _suggestion_index(suggestions, word):
+    for i, (w, _weight) in enumerate(suggestions):
+        if w == word:
+            return i
+    return -1
+
+
+class _WeightedSpeller:
+    """LanguageTool's MorfologikSpeller.getSuggestions (and getFrequency):
+    the suggestions of a morfologik Speller with a maximum edit distance
+    (replacement candidates and run-on words) as (word, weight) pairs, with
+    the case of the word to check."""
+
+    def __init__(self, dictionary, max_edit_distance):
+        if max_edit_distance <= 0:
+            raise ValueError('maxEditDistance must be > 0: %d' % max_edit_distance)
+        self.dictionary = dictionary
+        self.speller = Speller(dictionary, max_edit_distance)
+        self._lock = threading.Lock()
+
+    def get_frequency(self, word):
+        with self._lock:
+            freq = self.speller.get_frequency(word)
+            if freq == 0 and word != word.lower():
+                freq = self.speller.get_frequency(word.lower())
+            return freq
+
+    def get_suggestions(self, word):
+        suggestions = []
+        if len(word) > _MAX_MATCH_LENGTH:
+            return suggestions
+        with self._lock:
+            # (Java creates a new Speller every time)
+            if len(word) < 50:  # slow for long words (the limit is arbitrary)
+                for candidate in self.speller.find_replacement_candidates(word):
+                    suggestions.append((candidate.word, candidate.distance))
+            for candidate in self.speller.replace_run_on_word_candidates(word):
+                suggestions.append((candidate.word, candidate.distance))
+        converts_case = self.speller.convert_case
+        if converts_case and is_all_uppercase(word):
+            # all upper-case suggestions if necessary
+            i = 0
+            while i < len(suggestions):
+                sugg_word, weight = suggestions[i]
+                all_uppercase = sugg_word.upper()
+                # do not use capitalized word if it matches the original word or it's mixed case
+                if all_uppercase == word or is_mixed_case(sugg_word):
+                    all_uppercase = sugg_word
+                # remove duplicates
+                aux_index = _suggestion_index(suggestions, all_uppercase)
+                if aux_index > i:
+                    del suggestions[aux_index]
+                if -1 < aux_index < i:
+                    del suggestions[i]
+                    i -= 1
+                else:
+                    suggestions[i] = (all_uppercase, weight)
+                i += 1
+        elif converts_case and starts_with_uppercase(word):
+            # capitalize suggestions if necessary
+            i = 0
+            while i < len(suggestions):
+                sugg_word, weight = suggestions[i]
+                uppercase_first = uppercase_first_char(sugg_word)
+                # do not use capitalized word if it matches the original word or it's mixed case
+                if uppercase_first == word or is_mixed_case(sugg_word):
+                    uppercase_first = sugg_word
+                # remove capitalized duplicates
+                aux_index = _suggestion_index(suggestions, uppercase_first)
+                if aux_index > i:
+                    del suggestions[aux_index]
+                if -1 < aux_index < i:
+                    del suggestions[i]
+                    i -= 1
+                else:
+                    suggestions[i] = (uppercase_first, weight)
+                i += 1
+        return suggestions
+
+
+class SuggestionMultiSpeller:
+    """The suggestion part of MorfologikMultiSpeller (without user
+    dictionaries): the binary speller dictionary and the dictionary built
+    from the plain text word lists, with a maximum edit distance."""
+
+    def __init__(self, binary_dict, plain_text_lines, max_edit_distance):
+        self.spellers = [_WeightedSpeller(binary_dict, max_edit_distance)]
+        if plain_text_lines:
+            self.spellers.append(_WeightedSpeller(PlainTextDictionary(plain_text_lines, binary_dict.metadata),
+                                                  max_edit_distance))
+        self._cache = {}
+        self._cache_lock = threading.Lock()
+
+    def get_frequency(self, word):
+        """Get the frequency of use of a word (0-27) from the dictionary"""
+        for speller in self.spellers:
+            freq = speller.get_frequency(word)
+            if freq > 0:
+                return freq
+        return 0
+
+    def _suggestions_from_spellers(self, word):
+        result = []
+        seen_words = set()
+        for speller in self.spellers:
+            for sugg_word, weight in speller.get_suggestions(word):
+                if sugg_word not in seen_words and sugg_word != word:
+                    result.append((sugg_word, weight))
+                seen_words.add(sugg_word)
+        result.sort(key=lambda s: s[1])  # stable, like Collections.sort
+        return result
+
+    def get_suggestions(self, word):
+        """The suggestions from all dictionaries (without duplicates)."""
+        return [w for w, _weight in self._suggestions_from_spellers(word)]
+
+    def get_weighted_suggestions_from_default_dicts(self, word):
+        """The (word, weight) suggestions from the built-in dictionaries
+        (cached, like in Java)"""
+        r = self._cache.get(word)
+        if r is None:
+            r = self._suggestions_from_spellers(word)
+            with self._cache_lock:
+                if len(self._cache) >= 2000:
+                    self._cache.clear()
+                self._cache[word] = r
+        return list(r)
+
+
+_suggestion_multi_spellers = {}
+_STARTS_WITH_NUMBERS_BULLETS = regex.compile(r'(\d[\.,\d]*|\P{L}+)(.*)', regex.DOTALL)
+_STARTS_WITH_NUMBERS_BULLETS_EXCEPTIONS = regex.compile(r'([\p{C}\-\$%&]+)(.*)', regex.DOTALL)
+
+
+class MorfologikSuggestions:
+    """Mixin for MorfologikMisspellingCheck: the spelling suggestions of
+    MorfologikSpellerRule.getSpellingSuggestions(word), i.e. of the rule
+    match of the spelling rule for a sentence with just the (untagged)
+    word (no user configuration, no translations, no suggestions for words
+    split differently, which need neighbouring tokens). This is not a spell
+    checking rule: it is used by ported filters that ask the spelling rule
+    for suggestions. Subclasses may override (like the Java rules)
+    get_only_suggestions(), get_additional_top_suggestions(),
+    get_additional_suggestions(), add_hyphen_suggestions(),
+    order_suggestions(), filter_no_suggest_words(),
+    ignore_potentially_misspelled_word() and tokenizing_pattern().
+    Suggestions are strings here (SuggestedReplacement in Java)."""
+
+    def _suggestion_spellers(self):
+        """speller1, speller2 and speller3 (maximum edit distance 1, 2 and 3)"""
+        with self._lock:
+            spellers = getattr(self, '_suggestion_spellers_cache', None)
+            if spellers is not None:
+                return spellers
+        binary_dict = self.language.dictionary(self.get_file_name().lstrip('/'))
+        plain_text = []
+        for name in [self.get_spelling_file_name()] + list(self.get_additional_spelling_file_names()):
+            p = self.resource_file(name)
+            if p is not None:
+                plain_text.append(p)
+        key = (id(binary_dict), tuple(plain_text), type(self).prepare_line_for_speller)
+        with _cache_lock:
+            spellers = _suggestion_multi_spellers.get(key)
+            if spellers is None or spellers[0] is not binary_dict:
+                lines = read_plain_text_lines(plain_text, self.prepare_line_for_speller) if plain_text else []
+                spellers = _suggestion_multi_spellers[key] = (binary_dict, tuple(
+                    SuggestionMultiSpeller(binary_dict, lines, distance) for distance in (1, 2, 3)))
+        with self._lock:
+            self._suggestion_spellers_cache = spellers[1]
+        return spellers[1]
+
+    # --- hooks (SpellingCheckRule/MorfologikSpellerRule defaults) ---
+
+    def get_only_suggestions(self, word):
+        return []
+
+    def get_additional_top_suggestions(self, suggestions, word):
+        more_suggestions = []
+        if (word == 'Languagetool' or word == 'languagetool') and LANGUAGETOOL not in suggestions:
+            more_suggestions.append(LANGUAGETOOL)
+        if (word == 'Languagetooler' or word == 'languagetooler') and LANGUAGETOOLER not in suggestions:
+            more_suggestions.append(LANGUAGETOOLER)
+        return more_suggestions
+
+    def get_additional_suggestions(self, suggestions, word):
+        return []
+
+    def add_hyphen_suggestions(self, split, top_suggestions):
+        pass
+
+    def order_suggestions(self, suggestions, word):
+        return suggestions
+
+    def filter_no_suggest_words(self, suggestions):
+        return suggestions
+
+    def ignore_potentially_misspelled_word(self, word):
+        return False
+
+    def tokenizing_pattern(self):
+        return None
+
+    # --- MorfologikSpellerRule ---
+
+    def _can_be_ignored(self, word):
+        """canBeIgnored for an untagged token, not immunized nor ignored by
+        the speller (ignoreToken with MorfologikSpellerRule.ignoreWord)"""
+        from .tokenizers import is_email, is_url
+        return is_url(word) or is_email(word) or self.ignore_word(word) or is_emoji(word)
+
+    def filter_suggestions(self, suggestions):
+        """SpellingCheckRule.filterSuggestions: remove prohibited words from
+        suggestions"""
+        suggestions = [s for s in suggestions if not self.is_prohibited(s)]
+        new_suggestions = []
+        for replacement in suggestions:
+            suggestion_without_s = replacement[:-2] if len(replacement) > 3 else ''
+            if replacement.endswith(' s') and self._is_proper_noun(suggestion_without_s):
+                # "Michael s" -> "Michael's"
+                new_suggestions.insert(0, suggestion_without_s)
+                new_suggestions.insert(0, suggestion_without_s + "'s")
+            else:
+                new_suggestions.append(replacement)
+        new_suggestions = list(dict.fromkeys(new_suggestions))
+        return self.filter_no_suggest_words(new_suggestions)
+
+    def _is_proper_noun(self, word_without_s):
+        return any(atr.has_pos_tag('NNP') for atr in self.language.tagger.tag([word_without_s]))
+
+    def calc_speller_suggestions(self, word):
+        """MorfologikSpellerRule.calcSpellerSuggestions (without full
+        results and user dictionaries)"""
+        only_suggestions = self.get_only_suggestions(word)
+        if only_suggestions:
+            return list(only_suggestions)
+        speller1, speller2, speller3 = self._suggestion_spellers()
+        default_suggestions = [w for w, _ in speller1.get_weighted_suggestions_from_default_dicts(word)]
+        only_case_differs = bool(default_suggestions) and java_equals_ignore_case(word, default_suggestions[0])
+        if len(word) >= 3 and (only_case_differs or not default_suggestions):
+            # speller1 uses a maximum edit distance of 1, it won't find suggestion for "garentee", "greatful" etc.
+            default_suggestions.extend(w for w, _ in speller2.get_weighted_suggestions_from_default_dicts(word))
+            if len(word) >= 5 and not default_suggestions:
+                default_suggestions.extend(w for w, _ in speller3.get_weighted_suggestions_from_default_dicts(word))
+        top_suggestions = []
+        if not default_suggestions and '-' in word:
+            self.add_hyphen_suggestions(java_split(word, '-'), top_suggestions)
+        top_suggestions.extend(self.get_additional_top_suggestions(default_suggestions, word))
+        default_suggestions[0:0] = top_suggestions
+        default_suggestions.extend(self.get_additional_suggestions(default_suggestions, word))
+        if not default_suggestions:
+            return []
+        default_suggestions = self.filter_suggestions(default_suggestions)
+        return self.order_suggestions(default_suggestions, word)
+
+    def _rule_match_suggestions(self, word):
+        """getRuleMatches for the word of a one-token sentence: None without
+        a rule match, the suggestions otherwise"""
+        if not self.is_misspelled(word) and not self.is_prohibited(word):
+            return None
+        if self.ignore_potentially_misspelled_word(word):
+            return None
+        before_suggestion_str = ''
+        suggestions = []
+        prevent_further_suggestions = False
+        # word starting with numbers or bullets
+        clean_word = word
+        m = _STARTS_WITH_NUMBERS_BULLETS.fullmatch(word)
+        if m and not _STARTS_WITH_NUMBERS_BULLETS_EXCEPTIONS.fullmatch(word):
+            first_part = m.group(1)
+            second_part = m.group(2)
+            second_part_tokens = self.language.word_tokenizer.tokenize(second_part)
+            multitoken_is_misspelled = any(self.is_misspelled(t) for t in second_part_tokens)
+            if ((not multitoken_is_misspelled or self.is_ignored_no_case(second_part))
+                    and not self.is_prohibited(second_part)):
+                suggestions.append(first_part + ' ' + second_part)
+                prevent_further_suggestions = True
+            else:
+                before_suggestion_str = first_part + ' '
+                clean_word = second_part
+        if not prevent_further_suggestions:
+            suggestions.extend(before_suggestion_str + s for s in self.calc_speller_suggestions(clean_word))
+        return suggestions
+
+    def get_spelling_suggestions(self, w):
+        """MorfologikSpellerRule.getSpellingSuggestions: the suggestions of
+        the first rule match for a sentence of the single untagged token w"""
+        if self._can_be_ignored(w):
+            return []
+        pattern = self.tokenizing_pattern()
+        if pattern is None:
+            parts = [w]
+        else:
+            parts = []
+            index = 0
+            for m in pattern.finditer(w):
+                parts.append(w[index:m.start()])
+                index = m.end()
+            parts.append(w[index:])
+        for part in parts:
+            r = self._rule_match_suggestions(part)
+            if r is not None:
+                return r
+        return []

@@ -297,6 +297,54 @@ def has_diacritics(s):
     return s != remove_diacritics(s)
 
 
+_MAKE_WRONG = (('a', 'ä'), ('e', 'ë'), ('i', 'ï'), ('o', 'ö'), ('u', 'ù'), ('á', 'ä'), ('é', 'ë'), ('í', 'ï'),
+               ('ó', 'ö'), ('ú', 'ù'), ('à', 'ä'), ('è', 'ë'), ('ì', 'i'), ('ò', 'ö'), ('ï', 'ì'), ('ü', 'ù'))
+
+
+def split_camel_case(s):
+    """StringTools.splitCamelCase: "CamelCase" -> ["Camel", "Case"]
+    (all uppercase strings are not split)"""
+    if is_all_uppercase(s):
+        return [s]
+    word = []
+    result = []
+    previous_is_uppercase = False
+    for c in s:
+        if is_upper_case(c):
+            if not previous_is_uppercase:
+                result.append(''.join(word))
+                result.append(' ')
+                word = []
+            previous_is_uppercase = True
+        else:
+            previous_is_uppercase = False
+        word.append(c)
+    result.append(''.join(word))
+    return java_split(java_trim(''.join(result)), ' ')
+
+
+def split_digits_at_end(s):
+    """StringTools.splitDigitsAtEnd: "abc123" -> ["abc", "123"]"""
+    last_index = len(s) - 1
+    while last_index >= 0 and is_digit(s[last_index]):
+        last_index -= 1
+    non_digit_part = s[:last_index + 1]
+    digit_part = s[last_index + 1:]
+    if non_digit_part and digit_part:
+        return [non_digit_part, digit_part]
+    return [s]
+
+
+def make_wrong(s):
+    """StringTools.makeWrong: invent a wrong word to find possible
+    replacements (the first vowel found is replaced everywhere, or "-" is
+    appended)."""
+    for c, r in _MAKE_WRONG:
+        if c in s:
+            return s.replace(c, r)
+    return s + '-'
+
+
 _CAMEL_CASE = regex.compile(r'[a-z]+[A-Z][A-Za-z]+')
 
 

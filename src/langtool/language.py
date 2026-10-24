@@ -301,6 +301,19 @@ class Language:
             return dps
         return 0
 
+    def filter_rule_matches(self, matches, annotated_text, enabled_rules):
+        """Language.filterRuleMatches(), called (by the
+        LanguageDependentRuleMatchFilter) before the overlapping matches are
+        removed; enabled_rules are the ids of the active rules. Languages
+        override it by registering a 'filter_rule_matches' extension, a
+        function (language, matches, annotated_text, enabled_rules) ->
+        matches."""
+        from . import extensions
+        f = extensions.lookup('filter_rule_matches', self.short_code, self.short_code)
+        if f is None:
+            return matches
+        return f(self, matches, annotated_text, enabled_rules)
+
     def filter_rule_matches_after_overlapping(self, matches):
         return matches
 
@@ -326,6 +339,17 @@ class Language:
         return bool(self.get('advanced_typography', False))
 
     def to_advanced_typography(self, text):
+        """Language.toAdvancedTypography(), see
+        base_to_advanced_typography(). Languages override it by registering
+        a 'to_advanced_typography' extension, a function (language, text) ->
+        text."""
+        from . import extensions
+        f = extensions.lookup('to_advanced_typography', self.short_code, self.short_code)
+        if f is None:
+            return self.base_to_advanced_typography(text)
+        return f(self, text)
+
+    def base_to_advanced_typography(self, text):
         """Port of Language.toAdvancedTypography(): converts the
         <suggestion> markup and (if advanced typography is enabled) quotes,
         apostrophes, ellipses and spaces of a message to typographic

@@ -221,3 +221,21 @@ def test_java_list_sort():
     items = [3, 1, 2, 5, 4]
     tools.java_list_sort(items, lambda a, b: a - b)
     assert items == [1, 2, 3, 4, 5]
+
+
+def test_split_camel_case_and_digits():
+    """StringTools.splitCamelCase, splitDigitsAtEnd and makeWrong"""
+    from langtool.tools import make_wrong, split_camel_case, split_digits_at_end
+    assert split_camel_case('BretagneItinéraire') == ['Bretagne', 'Itinéraire']
+    assert split_camel_case('thisIsAnError') == ['this', 'Is', 'An', 'Error']
+    assert split_camel_case('iPhone') == ['i', 'Phone']
+    assert split_camel_case('HTML') == ['HTML']
+    assert split_camel_case('McDONALD') == ['Mc', 'DONALD']
+    assert split_digits_at_end('windows95') == ['windows', '95']
+    assert split_digits_at_end('95') == ['95']
+    assert split_digits_at_end('abc') == ['abc']
+    assert split_digits_at_end('a1b2') == ['a1b', '2']
+    assert make_wrong('casa') == 'cäsä'
+    assert make_wrong('souri') == 'sourï'
+    assert make_wrong('été') == 'ëtë'
+    assert make_wrong('xyz') == 'xyz-'

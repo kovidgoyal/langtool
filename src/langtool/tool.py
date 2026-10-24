@@ -191,6 +191,14 @@ class JLanguageTool:
             rs.text_level_rules = [r for r in rules if r.is_text_level_rule()]
         return rs
 
+    def _active_rule_ids(self, level):
+        """RuleSet.allRuleIds() of the active rules for the level"""
+        rs = self._active_rule_set(level)
+        ids = getattr(rs, 'all_rule_ids', None)
+        if ids is None:
+            ids = rs.all_rule_ids = frozenset(r.get_id() for r in rs.all_rules)
+        return ids
+
     # --- analysis ---
 
     def sentence_tokenize(self, text):
@@ -338,6 +346,8 @@ class JLanguageTool:
         matches = [m for m in matches if not self.ignore_rule(m.rule)]
         matches = [m for m in matches if is_rule_active_for_level(m.rule, level)]
         matches = same_rule_group_filter(matches)
+        # LanguageDependentRuleMatchFilter
+        matches = self.language.filter_rule_matches(matches, annotated_text, self._active_rule_ids(level))
         if self.clean_overlapping_matches:
             matches = clean_overlapping_filter(matches, self.language)
         matches = self.language.filter_rule_matches_after_overlapping(matches)

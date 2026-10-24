@@ -49,6 +49,10 @@ EXTERNAL_FILES = {
 # LanguageTool release ('module'); the plain text word lists are not part
 # of the package data, see tools/import_data.py
 SPELLER_FILES = {
+    'fr': {
+        'module': ['fr/hunspell/spelling.txt', 'fr/hunspell/spelling_custom.txt', 'fr/hunspell/ignore.txt',
+                   'fr/hunspell/prohibit.txt'],
+    },
     'nl': {
         'external': ['nl/spelling/nl_NL.dict', 'nl/spelling/nl_NL.info'],
         'module': ['nl/spelling/spelling.txt', 'nl/spelling/ignore.txt', 'nl/spelling/prohibit.txt'],
