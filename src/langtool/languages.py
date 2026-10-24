@@ -460,13 +460,18 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Dutch and BelgianDutch (code in
+    # langtool.lang.nl); the MorfologikDutchSpellerRule (after
+    # UppercaseSentenceStartRule) is not ported (spell checking)
     'nl': dict(
-        name='Dutch', countries=['NL', 'BE'], default_variant='nl',
+        name='Dutch', countries=['NL', 'BE'], default_variant='nl', sentence_tokenizer='srx',
+        quotes=('“', '”', '‘', '’'), advanced_typography=True,
         variants=[V('nl', name='Dutch', extra_rule_files=['nl-NL/grammar.xml']),
                   V('nl-BE', countries=['BE'], name='Dutch (Belgium)')],
         tagger=dict(dict='nl/dutch.dict', lowercase_with_uppercase=True, impl='DutchTagger'),
-        synthesizer=dict(dict='nl/dutch_synth.dict', tags='nl/dutch_tags.txt'),
+        synthesizer=dict(dict='nl/dutch_synth.dict', tags='nl/dutch_tags.txt', sor='nl/nl.sor'),
         word_tokenizer='DutchWordTokenizer',
+        # DutchHybridDisambiguator
         disambiguator=[mw('spelling_global.txt', False, True, False, _NONE, ignore_spelling=True),
                        mw('nl/multiwords.txt', True, True, False, _NONE, ignore_spelling=True), xml(True)],
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'),

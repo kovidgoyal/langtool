@@ -465,6 +465,28 @@
    {
     "files": [
      {
+      "name": "nl/spelling/ignore.txt",
+      "path": "org/languagetool/resource/nl/spelling/ignore.txt",
+      "size": 48780
+     },
+     {
+      "name": "nl/spelling/spelling.txt",
+      "path": "org/languagetool/resource/nl/spelling/spelling.txt",
+      "size": 2867317
+     },
+     {
+      "name": "nl/spelling/prohibit.txt",
+      "path": "org/languagetool/resource/nl/spelling/prohibit.txt",
+      "size": 9676
+     }
+    ],
+    "sha256": "bd0eef3121df61c9565255a6869ea25e5cfc8d97f186a7692ee036920af45f3f",
+    "size": 3420861,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-nl/6.8/language-nl-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "nl/dutch_synth.dict",
       "path": "org/languagetool/resource/nl/dutch_synth.dict",
       "size": 14117414
@@ -483,6 +505,16 @@
       "name": "nl/dutch_synth.info",
       "path": "org/languagetool/resource/nl/dutch_synth.info",
       "size": 108
+     },
+     {
+      "name": "nl/spelling/nl_NL.dict",
+      "path": "org/languagetool/resource/nl/spelling/nl_NL.dict",
+      "size": 14959766
+     },
+     {
+      "name": "nl/spelling/nl_NL.info",
+      "path": "org/languagetool/resource/nl/spelling/nl_NL.info",
+      "size": 1124
      },
      {
       "name": "nl/dutch_tags.txt",

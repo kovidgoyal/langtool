@@ -7594,42 +7594,12 @@
   "skipped": 0
  },
  "nl": {
-  "failed_ids": [
-   "A_LA_CARTE_[1]",
-   "BACKTICK[1]",
-   "CELEBRITY[1]",
-   "DA_Q_S[1]",
-   "D_R[1]",
-   "FAS_VAS[1]",
-   "FIFOS_VIVOS[1]",
-   "GEEN_HOOFDLETTER_NA_GETAL[1]",
-   "GETALLEN_UITSCHRIJVEN[1]",
-   "GETALLEN_UITSCHRIJVEN[2]",
-   "HIJ_WILT[1]",
-   "I_HAD[1]",
-   "JOU_JOUW[3]",
-   "NAAM_FOUT_GESPELD[82]",
-   "NASIS_NAZIS[1]",
-   "WERKZAAM_ZIJN[2]",
-   "WOORD_MET_UNDERSCORE[1]",
-   "ZN[1]",
-   "ZO_N_MEERVOUD[1]"
-  ],
-  "skipped": 52
+  "failed_ids": [],
+  "skipped": 0
  },
  "nl-BE": {
-  "failed_ids": [
-   "ALLEEN_BE[9]",
-   "CELEBRITY[1]",
-   "DA_Q_S[1]",
-   "D_R[1]",
-   "GETALLEN_UITSCHRIJVEN[1]",
-   "GETALLEN_UITSCHRIJVEN[2]",
-   "WERKZAAM_ZIJN[2]",
-   "ZN[1]",
-   "ZO_N_MEERVOUD[1]"
-  ],
-  "skipped": 52
+  "failed_ids": [],
+  "skipped": 0
  },
  "pl-PL": {
   "failed_ids": [],
