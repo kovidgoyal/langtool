@@ -87,6 +87,10 @@ SPELLER_FILES = {
         'module': ['ru/hunspell/ru_RU.dict', 'ru/hunspell/ru_RU.info', 'ru/hunspell/spelling.txt',
                    'ru/hunspell/ignore.txt', 'ru/hunspell/prohibit.txt'],
     },
+    'uk': {
+        'external': ['uk/hunspell/uk_UA.dict', 'uk/hunspell/uk_UA.info'],
+        'module': ['uk/hunspell/spelling.txt', 'uk/hunspell/ignore.txt'],
+    },
 }
 SKIP_MODULES = {'all', 'sr', 'de-DE-x-simple-language'}
 

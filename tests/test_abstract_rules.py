@@ -388,6 +388,30 @@ def test_space_before_rule(lt, messages, demo_language):
     assert not rule.match(lt.get_analyzed_sentence('This and that (or not).'))
 
 
+# --- AbstractPunctuationCheckRule ---
+
+class MyPunctuationCheckRule(ar.AbstractPunctuationCheckRule):
+    def is_puncts_join_ok(self, tokens):
+        return tokens in ('...', '!?')
+
+    def is_punctuation(self, token):
+        return token in ('.', ',', '!', '?')
+
+
+def test_punctuation_check_rule(lt, messages, demo_language):
+    rule = MyPunctuationCheckRule(messages, demo_language)
+    assert rule.get_id() == 'PUNCTUATION_GENERIC_CHECK'
+    assert rule.category.id == 'PUNCTUATION'
+    m, = rule.match(lt.get_analyzed_sentence('This,, and that'))
+    assert (m.from_pos, m.to_pos) == (4, 6)
+    assert m.suggested_replacements == [',']
+    assert m.message == 'bad duplication or combination of punctuation signs'
+    # a sequence at the end of the sentence
+    m, = rule.match(lt.get_analyzed_sentence('This and that.,'))
+    assert (m.from_pos, m.to_pos) == (13, 15)
+    assert not rule.match(lt.get_analyzed_sentence('This and that... Or not!?'))
+
+
 # --- WrongWordInContextRule ---
 
 class MyWrongWordInContextRule(ar.WrongWordInContextRule):

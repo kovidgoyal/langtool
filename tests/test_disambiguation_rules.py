@@ -170,3 +170,25 @@ def test_disambiguation_rule_tester_pre_disambiguation(demo_lt):
         assert tester.disambiguate_until('NO_SUCH_RULE', sentence) is marker
     finally:
         language._disambiguator = saved
+
+
+def test_chain_disambiguator_pre_disambiguate():
+    """ChainDisambiguator.pre_disambiguate runs pre_disambiguate() of the
+    stages that have one (e.g. a language's hybrid disambiguator registered
+    as a single 'custom' stage), the others are the identity"""
+    from langtool.disambiguation import ChainDisambiguator
+
+    class _Plain:
+        def disambiguate(self, sentence):
+            raise AssertionError('not called')
+
+    class _Pre:
+        def disambiguate(self, sentence):
+            raise AssertionError('not called')
+
+        def pre_disambiguate(self, sentence):
+            return sentence + ['pre']
+
+    chain = ChainDisambiguator([_Plain(), _Pre(), _Pre()])
+    assert chain.pre_disambiguate([]) == ['pre', 'pre']
+    assert ChainDisambiguator([_Plain()]).pre_disambiguate([]) == []

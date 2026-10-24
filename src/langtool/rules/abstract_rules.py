@@ -2214,6 +2214,47 @@ class GenericUnpairedQuotesRule(_TextLevelRuleBase):
 
 # --- misc ------------------------------------------------------------------
 
+class AbstractPunctuationCheckRule(_RuleBase):
+    """Port of AbstractPunctuationCheckRule: unusual combinations of
+    punctuation characters. Subclasses implement is_puncts_join_ok(tokens)
+    and is_punctuation(token)."""
+
+    rule_id = 'PUNCTUATION_GENERIC_CHECK'
+    category_id = 'PUNCTUATION'
+
+    def get_description(self):
+        return 'Use of unusual combination of punctuation characters'
+
+    def is_puncts_join_ok(self, tokens):
+        raise NotImplementedError()
+
+    def is_punctuation(self, token):
+        raise NotImplementedError()
+
+    def match(self, sentence):
+        out = []
+        tokens = sentence.tokens
+        start_token_idx = -1
+        tkns = ''
+        for i, atr in enumerate(tokens):
+            token_str = atr.token
+            if self.is_punctuation(token_str):
+                tkns += token_str
+                if start_token_idx == -1:
+                    start_token_idx = i
+                if i < len(tokens) - 1:
+                    continue
+            if len(tkns) >= 2 and not self.is_puncts_join_ok(tkns):
+                start = tokens[start_token_idx].start_pos
+                rm = RuleMatch(self, sentence, start, start + len(tkns),
+                               'bad duplication or combination of punctuation signs', 'Punctuation problem')
+                rm.set_suggested_replacement(tkns[0])
+                out.append(rm)
+            tkns = ''
+            start_token_idx = -1
+        return out
+
+
 class AbstractSpaceBeforeRule(_RuleBase):
     """Port of AbstractSpaceBeforeRule. Subclasses implement
     get_conjunctions() returning a compiled regex (jregex.compile)."""

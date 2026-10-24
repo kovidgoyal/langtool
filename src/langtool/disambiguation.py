@@ -400,3 +400,12 @@ class ChainDisambiguator:
         for s in self.stages:
             sentence = s.disambiguate(sentence)
         return sentence
+
+    def pre_disambiguate(self, sentence):
+        """Disambiguator.preDisambiguate of the stages that have one (the
+        identity for the others)"""
+        for s in self.stages:
+            f = getattr(s, 'pre_disambiguate', None)
+            if f is not None:
+                sentence = f(sentence)
+        return sentence
