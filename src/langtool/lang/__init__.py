@@ -3,6 +3,7 @@ LanguageTool), one package per language code (a trailing underscore is added
 when the code is a Python keyword, like ``is_``). Importing this package
 registers the implementations with langtool.extensions."""
 
+from . import ar  # noqa: F401
 from . import ast  # noqa: F401
 from . import be  # noqa: F401
 from . import br  # noqa: F401

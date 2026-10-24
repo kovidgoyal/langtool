@@ -137,11 +137,14 @@ _CA_RULES = [
 ]
 
 LANGUAGES = {
+    # org.languagetool.language.Arabic (code in langtool.lang.ar); its
+    # ArabicHunspellSpellerRule (after LongSentenceRule) is not ported (spell
+    # checking), nor the ArabicConfusionProbabilityRule (language model)
     'ar': dict(
         name='Arabic', countries=['', 'SA', 'DZ', 'BH', 'EG', 'IQ', 'JO', 'KW', 'LB', 'LY', 'MA', 'OM', 'QA', 'SD',
                                   'SY', 'TN', 'AE', 'YE'],
-        variants=[V('ar')],
-        tagger=dict(dict='ar/arabic.dict', lowercase_with_uppercase=True, impl='ArabicTagger'),
+        variants=[V('ar')], sentence_tokenizer='srx',
+        tagger=dict(dict='ar/arabic.dict', impl='ArabicTagger'),
         synthesizer=dict(dict='ar/arabic_synth.dict', tags='ar/arabic_tags.txt', impl='ArabicSynthesizer'),
         word_tokenizer='ArabicWordTokenizer',
         disambiguator=[mw('ar/multiwords.txt'), xml()],
