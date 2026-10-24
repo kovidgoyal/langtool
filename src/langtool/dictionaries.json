@@ -587,9 +587,61 @@
    {
     "files": [
      {
+      "name": "pt/ignore.txt",
+      "path": "org/languagetool/resource/pt/ignore.txt",
+      "size": 122512
+     },
+     {
+      "name": "pt/spelling.txt",
+      "path": "org/languagetool/resource/pt/spelling.txt",
+      "size": 6328
+     },
+     {
+      "name": "pt/prohibit.txt",
+      "path": "org/languagetool/resource/pt/prohibit.txt",
+      "size": 354
+     }
+    ],
+    "sha256": "f2d07bb211c975ba273750becd742f624d4463a8647110eff375de233d61d600",
+    "size": 2045849,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-pt/6.8/language-pt-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "pt/portuguese_tags.txt",
       "path": "org/languagetool/resource/pt/portuguese_tags.txt",
       "size": 23238
+     },
+     {
+      "name": "pt/spelling/pt-PT-45.dict",
+      "path": "org/languagetool/resource/pt/spelling/pt-PT-45.dict",
+      "size": 702614
+     },
+     {
+      "name": "pt/spelling/pt-BR.info",
+      "path": "org/languagetool/resource/pt/spelling/pt-BR.info",
+      "size": 1401
+     },
+     {
+      "name": "pt/spelling/pt-BR.dict",
+      "path": "org/languagetool/resource/pt/spelling/pt-BR.dict",
+      "size": 2293645
+     },
+     {
+      "name": "pt/spelling/pt-PT-90.dict",
+      "path": "org/languagetool/resource/pt/spelling/pt-PT-90.dict",
+      "size": 700866
+     },
+     {
+      "name": "pt/spelling/pt-PT-90.info",
+      "path": "org/languagetool/resource/pt/spelling/pt-PT-90.info",
+      "size": 1042
+     },
+     {
+      "name": "pt/spelling/pt-PT-45.info",
+      "path": "org/languagetool/resource/pt/spelling/pt-PT-45.info",
+      "size": 1042
      },
      {
       "name": "pt/portuguese_synth.dict",
