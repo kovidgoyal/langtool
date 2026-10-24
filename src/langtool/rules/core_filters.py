@@ -325,6 +325,69 @@ class _InvalidDate(ValueError):
     IllegalArgumentException that is caught)"""
 
 
+class AbstractFutureDateFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractFutureDateFilter: accepts rule
+    matches if a date (arguments year, month, day) is in the future, used
+    for the mismatch detection between verb tense and a given date.
+
+    Subclasses implement get_month(str) (January returns 1) and optionally
+    get_day_of_month(str). Java's getCalendar() only provides the calendar
+    of the language's locale (a GregorianCalendar for all languages), which
+    makes no difference here, so it is not needed.
+
+    Java compares the date at 00:00:00 (with the milliseconds of the current
+    time, which set(year, month, day, 0, 0, 0) doesn't reset) with the
+    current time, i.e. a date is in the future if it is after today. In
+    unit tests the current time is 2014-01-01 00:00:00.000, so that
+    2014-01-01 itself is in the future, except when the check happens at a
+    full second (ignored here). Invalid dates such as 32.8.2014 discard the
+    match (they should be caught by a different rule); unparsable years and
+    unknown months raise errors like in Java."""
+
+    def get_day_of_month(self, localized_day_of_month):
+        return 0
+
+    def get_month(self, localized_month):
+        raise NotImplementedError()
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        year = java_parse_int(self.get_required('year', arguments))
+        month = self._get_month_from_arguments(arguments)
+        day_of_month = self._get_day_of_month_from_arguments(arguments)
+        try:
+            CalendarDate.of(year, month, day_of_month)
+        except ValueError:
+            # happens with 'dates' like '32.8.2014' - those should be caught by a different rule
+            return None
+        date = (year, month + 1, day_of_month)
+        if is_junit_test():
+            if date >= (2014, 1, 1):
+                return match
+            return None
+        today = datetime.date.today()
+        if date > (today.year, today.month, today.day):
+            return match
+        return None
+
+    def _get_day_of_month_from_arguments(self, args):
+        day_of_month_string = self.get_required('day', args)
+        m = _DAY_OF_MONTH_PATTERN.fullmatch(day_of_month_string)
+        if m:
+            # The day of the month is a number, possibly with a suffix such as "22nd"
+            return java_parse_int(m.group(1))
+        # In some languages, the day of the month can also be written with letters rather than with
+        # digits, so parse localized numbers.
+        return self.get_day_of_month(day_of_month_string)
+
+    def _get_month_from_arguments(self, args):
+        month_str = self.get_required('month', args)
+        if is_numeric(month_str):
+            month = java_parse_int(month_str)
+        else:
+            month = self.get_month(month_str)
+        return month - 1
+
+
 _IS_PUNCTUATION = regex.compile(r'\p{P}')
 
 

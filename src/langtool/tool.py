@@ -248,6 +248,9 @@ class JLanguageTool:
         pre = copy_readings(raw.tokens)
         disamb = self.language.disambiguator.disambiguate(raw)
         analyzed = AnalyzedSentence(disamb.tokens, pre)
+        chunker = self.language.post_disambiguation_chunker
+        if chunker is not None:
+            chunker.add_chunk_tags(list(analyzed.tokens))
         return analyzed
 
     def set_check_cancelled_callback(self, callback):

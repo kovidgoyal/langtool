@@ -53,6 +53,10 @@ SPELLER_FILES = {
         'external': ['nl/spelling/nl_NL.dict', 'nl/spelling/nl_NL.info'],
         'module': ['nl/spelling/spelling.txt', 'nl/spelling/ignore.txt', 'nl/spelling/prohibit.txt'],
     },
+    'ru': {
+        'module': ['ru/hunspell/ru_RU.dict', 'ru/hunspell/ru_RU.info', 'ru/hunspell/spelling.txt',
+                   'ru/hunspell/ignore.txt', 'ru/hunspell/prohibit.txt'],
+    },
 }
 SKIP_MODULES = {'all', 'sr', 'de-DE-x-simple-language'}
 

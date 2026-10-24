@@ -363,6 +363,58 @@ def test_date_check_filter():
         f.accept_rule_match(_date_match(), dict(weekDay='Mon', month='Oct'), 0, [], [])
 
 
+# --- AbstractFutureDateFilter -------------------------------------------------
+
+from langtool.rules.core_filters import AbstractFutureDateFilter  # noqa: E402
+
+
+class _EnglishFutureDateFilter(AbstractFutureDateFilter):
+
+    def get_month(self, s):
+        return _EnglishDateCheckFilter().get_month(s)
+
+
+def test_future_date_filter():
+    """AbstractFutureDateFilter: in tests the current date is 2014-01-01
+    (TestHackHelper.isJUnitTest)"""
+    f = _EnglishFutureDateFilter()
+    m = _date_match()
+    assert f.accept_rule_match(m, dict(day='7th', month='Oct', year='2014'), 0, [], []) is m
+    assert f.accept_rule_match(m, dict(day='1', month='1', year='2014'), 0, [], []) is m
+    assert f.accept_rule_match(m, dict(day='31', month='Dec', year='2013'), 0, [], []) is None
+    assert f.accept_rule_match(m, dict(day='3', month='Mar', year='1999'), 0, [], []) is None
+    # invalid dates: no match (caught by a different rule)
+    assert f.accept_rule_match(m, dict(day='32', month='Aug', year='2014'), 0, [], []) is None
+    assert f.accept_rule_match(m, dict(day='29', month='Feb', year='2015'), 0, [], []) is None
+    assert f.accept_rule_match(m, dict(day='1', month='13', year='2015'), 0, [], []) is None
+    # unknown months, invalid years and missing arguments raise errors like in Java
+    with pytest.raises(RuntimeError):
+        f.accept_rule_match(m, dict(day='1', month='Xyz', year='2015'), 0, [], [])
+    with pytest.raises(ValueError):
+        f.accept_rule_match(m, dict(day='1', month='Jan', year='20x5'), 0, [], [])
+    with pytest.raises(ValueError):
+        f.accept_rule_match(m, dict(day='1', month='Jan'), 0, [], [])
+    # the day of the month written with letters (getDayOfMonth, 0 by default: an invalid date)
+    assert f.accept_rule_match(m, dict(day='first', month='Jan', year='2015'), 0, [], []) is None
+
+
+def test_future_date_filter_outside_tests(monkeypatch):
+    """Outside of tests, dates after today are in the future"""
+    import datetime
+    from langtool.rules import core_filters
+    monkeypatch.setattr(core_filters, 'is_junit_test', lambda: False)
+    f = _EnglishFutureDateFilter()
+    m = _date_match()
+    today = datetime.date.today()
+    tomorrow = today + datetime.timedelta(days=1)
+
+    def args(d):
+        return dict(day=str(d.day), month=str(d.month), year=str(d.year))
+
+    assert f.accept_rule_match(m, args(tomorrow), 0, [], []) is m
+    assert f.accept_rule_match(m, args(today), 0, [], []) is None
+
+
 # --- AbstractAdvancedSynthesizerFilter ---------------------------------------
 
 def test_advanced_synthesizer_filter_composite_postag():

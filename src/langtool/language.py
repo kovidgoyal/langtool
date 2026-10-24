@@ -41,6 +41,7 @@ class Language:
         self.single_line_breaks_marks_para = False
         self._lock = threading.RLock()
         self._tagger = self._synthesizer = self._disambiguator = self._chunker = None
+        self._post_disambiguation_chunker = None
         self._sentence_tokenizer = self._word_tokenizer = None
         self._pattern_rules = None
         self._pattern_rule_problems = []
@@ -157,6 +158,17 @@ class Language:
         return self._chunker or None
 
     @property
+    def post_disambiguation_chunker(self):
+        """Language.getPostDisambiguationChunker(): the chunker that adds
+        chunk tags to the disambiguated tokens (definition key
+        'post_disambiguation_chunker'), or None"""
+        if self._post_disambiguation_chunker is None:
+            with self._lock:
+                if self._post_disambiguation_chunker is None:
+                    self._post_disambiguation_chunker = self.create_post_disambiguation_chunker() or False
+        return self._post_disambiguation_chunker or None
+
+    @property
     def sentence_tokenizer(self):
         if self._sentence_tokenizer is None:
             with self._lock:
@@ -187,6 +199,10 @@ class Language:
     def create_chunker(self):
         from . import extensions
         return extensions.create_chunker(self)
+
+    def create_post_disambiguation_chunker(self):
+        from . import extensions
+        return extensions.create_post_disambiguation_chunker(self)
 
     def create_sentence_tokenizer(self):
         from . import extensions

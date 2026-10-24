@@ -149,6 +149,16 @@ def create_chunker(language):
     return None
 
 
+def create_post_disambiguation_chunker(language):
+    """Language.createDefaultPostDisambiguationChunker(): a 'chunker'
+    component (definition key 'post_disambiguation_chunker')"""
+    name = language.get('post_disambiguation_chunker')
+    f = _custom(language, 'chunker', name)
+    if f is not None:
+        return f(language)
+    return None
+
+
 def create_disambiguator(language):
     from .disambiguation import (DemoDisambiguator, ChainDisambiguator, MultiWordChunker, MultiWordChunker2,
                                  XmlRuleDisambiguator)

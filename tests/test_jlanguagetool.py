@@ -204,34 +204,45 @@ _ID_RE = re.compile(r'^[A-Z_][A-Z0-9_]+$')
 
 
 def test_java_rules():
-    """testJavaRules: runs over all languages (Languages.getWithDemoLanguage())"""
-    ids_to_class_name = {}
-    rule_classes = set()
+    """testJavaRules: runs over all languages (Languages.getWithDemoLanguage()).
+    In Java each language module runs it with its own language and the demo
+    language on the classpath, so the id uniqueness is checked for each
+    language together with the demo language only (rule classes of different
+    language modules may share an id, e.g. RussianSimpleWordRepeatRule, a
+    WordRepeatRule subclass)."""
     problems = []
     for code in LANGUAGES:
-        language = get_language(code)
-        lt = JLanguageTool(language)
-        for rule in lt.get_all_rules():
-            # assertIdAndDescriptionValidity
-            rid = rule.get_id()
-            if not rid.strip():
-                problems.append('Empty rule id: %r, language: %s' % (rid, code))
-            if not rule.get_description().strip():
-                problems.append('Empty rule description for rule: %r, language: %s' % (rid, code))
-            if isinstance(rule, AbstractPatternRule):
-                continue
-            # assertIdUniqueness
-            cls = type(rule)
-            if rid in ids_to_class_name and cls not in rule_classes:
-                problems.append('Rule id occurs more than once: %r, one of them %s, the other one %s, language: %s'
-                                % (rid, cls.__name__, ids_to_class_name[rid], code))
-            ids_to_class_name[rid] = cls.__name__
-            rule_classes.add(cls)
-            # assertIdValidity
-            if not _ID_RE.match(rid):
-                problems.append('Invalid character in rule id: %r, language: %s' % (rid, code))
-            problems.extend(_test_examples(rule, language))
+        ids_to_class_name = {}
+        rule_classes = set()
+        for c in (code, 'xx-XX') if code != 'xx-XX' else (code,):
+            _check_java_rules(c, ids_to_class_name, rule_classes, problems, examples=c == code)
     assert not problems, '\n'.join(problems)
+
+
+def _check_java_rules(code, ids_to_class_name, rule_classes, problems, examples=True):
+    language = get_language(code)
+    lt = JLanguageTool(language)
+    for rule in lt.get_all_rules():
+        # assertIdAndDescriptionValidity
+        rid = rule.get_id()
+        if not rid.strip():
+            problems.append('Empty rule id: %r, language: %s' % (rid, code))
+        if not rule.get_description().strip():
+            problems.append('Empty rule description for rule: %r, language: %s' % (rid, code))
+        if isinstance(rule, AbstractPatternRule):
+            continue
+        # assertIdUniqueness
+        cls = type(rule)
+        if rid in ids_to_class_name and cls not in rule_classes:
+            problems.append('Rule id occurs more than once: %r, one of them %s, the other one %s, language: %s'
+                            % (rid, cls.__name__, ids_to_class_name[rid], code))
+        ids_to_class_name[rid] = cls.__name__
+        rule_classes.add(cls)
+        # assertIdValidity
+        if not _ID_RE.match(rid):
+            problems.append('Invalid character in rule id: %r, language: %s' % (rid, code))
+        if examples:
+            problems.extend(_test_examples(rule, language))
 
 
 _ID_TO_EXPECTED_MATCHES = {
