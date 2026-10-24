@@ -42,6 +42,18 @@ EXTERNAL_FILES = {
         'org/ioperm/morphology/el/analysis.info': 'el/analysis.info',
     },
 }
+# files of the speller (only the misspelling check is ported, see
+# langtool/spelling.py) that the dictionary download provides: names
+# (relative to org/languagetool/resource) from the EXTERNAL jar of the
+# language ('external') and from the language-<code> jar of the
+# LanguageTool release ('module'); the plain text word lists are not part
+# of the package data, see tools/import_data.py
+SPELLER_FILES = {
+    'nl': {
+        'external': ['nl/spelling/nl_NL.dict', 'nl/spelling/nl_NL.info'],
+        'module': ['nl/spelling/spelling.txt', 'nl/spelling/ignore.txt', 'nl/spelling/prohibit.txt'],
+    },
+}
 SKIP_MODULES = {'all', 'sr', 'de-DE-x-simple-language'}
 
 
@@ -68,9 +80,11 @@ def wanted(name):
     return base.endswith('_tags.txt')
 
 
-def entries(jar_path, names=None):
+def entries(jar_path, names=None, extra=()):
     """The dictionary files of a jar; names: mapping of jar paths to names
-    (only those files are taken), see EXTERNAL_FILES"""
+    (only those files are taken), see EXTERNAL_FILES; extra: names of
+    further files (in the org/languagetool/resource layout), see
+    SPELLER_FILES"""
     out = []
     with zipfile.ZipFile(jar_path) as z:
         for info in z.infolist():
@@ -79,11 +93,11 @@ def entries(jar_path, names=None):
                 if n in names:
                     out.append({'path': n, 'name': names[n], 'size': info.file_size})
                 continue
-            if info.is_dir() or not wanted(n):
-                continue
-            if '/resource/' not in n:
+            if info.is_dir() or '/resource/' not in n:
                 continue
             rel = n.split('/resource/', 1)[1]
+            if not wanted(n) and rel not in extra:
+                continue
             out.append({'path': n, 'name': rel, 'size': info.file_size})
     return out
 
@@ -114,11 +128,13 @@ def main():
                 for f in files:
                     if f.endswith('.dict') and 'spell' not in f.lower():
                         in_repo.append(os.path.relpath(os.path.join(root, f), res))
-        if in_repo:
+        speller_files = SPELLER_FILES.get(mod, {})
+        if in_repo or speller_files.get('module'):
             url = jar_url('org.languagetool', 'language-' + mod, LT_RELEASE)
             jar = fetch(url, cache)
-            ents = [e for e in entries(jar) if e['name'].rsplit('.', 1)[0] in
-                    {p.rsplit('.', 1)[0] for p in in_repo}]
+            module_files = set(speller_files.get('module', ()))
+            ents = [e for e in entries(jar, extra=module_files) if e['name'] in module_files or
+                    e['name'].rsplit('.', 1)[0] in {p.rsplit('.', 1)[0] for p in in_repo}]
             # verify identical to the repository versions
             with zipfile.ZipFile(jar) as z:
                 for e in ents:
@@ -133,7 +149,7 @@ def main():
         if mod in EXTERNAL:
             url = jar_url(*EXTERNAL[mod])
             jar = fetch(url, cache)
-            ents = [e for e in entries(jar, EXTERNAL_FILES.get(mod))
+            ents = [e for e in entries(jar, EXTERNAL_FILES.get(mod), speller_files.get('external', ()))
                     if not e['name'].rsplit('/', 1)[-1].startswith('SynthDictionaryBuilder')]
             if ents:  # jars without (non-spelling) dictionaries are not needed
                 sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar), 'files': ents})

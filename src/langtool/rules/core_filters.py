@@ -7,7 +7,8 @@ import regex
 
 from .. import jregex
 from ..tools import (is_punctuation_or_symbol, is_all_uppercase, is_capitalized_word, is_whitespace,
-                     uppercase_first_char, is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test)
+                     uppercase_first_char, is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test,
+                     preserve_case, is_letter, is_punctuation_mark, is_not_word_string)
 from .filters import RuleFilter
 
 _WS = regex.compile(r'\s+')
@@ -464,6 +465,15 @@ class IsEnglishWordFilter(RuleFilter):
         super().__init__(language)
         self._tagger = None
 
+    def _english_unavailable(self):
+        """In Java, English (en-US) is not available in the unit tests of
+        the other language modules (they don't depend on language-en), so
+        that the filter rejects all matches there (the rule examples rely on
+        that). Emulated for the tests (TestHackHelper.isJUnitTest) of a
+        language other than English."""
+        lang = self.language
+        return lang is not None and lang.short_code != 'en' and is_junit_test()
+
     def _get_tagger(self):
         if self._tagger is None:
             from ..api import get_language
@@ -474,6 +484,8 @@ class IsEnglishWordFilter(RuleFilter):
         return self._tagger or None
 
     def accept_rule_match(self, match, args, pattern_token_pos, pattern_tokens, token_positions):
+        if self._english_unavailable():
+            return None
         tagger = self._get_tagger()
         if tagger is None:
             return None
@@ -677,6 +689,373 @@ class AbstractAdvancedSynthesizerFilter(RuleFilter):
         return None
 
 
+class AbstractDateCheckWithSuggestionsFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractDateCheckWithSuggestionsFilter:
+    accepts rule matches if a date doesn't match the accompanying weekday,
+    e.g. if "Monday, 8 November 2003" isn't actually a Monday, and suggests
+    the corrected day of the week, the corrected day of the month, or (if
+    the date fits the weekday in the current year) the current year.
+    Replaces {realDay} with the real day of the date in the rule's message,
+    {day} with the claimed day from the text and {currentYear} with the
+    current year. The arguments are token positions: weekDay, day, month,
+    year (optional), or date (optional, a yyyy-mm-dd token).
+
+    Subclasses implement get_day_of_week(str) (Sunday returns 1, Monday 2,
+    ...), get_day_of_week_name(date) (Java: getDayOfWeek(Calendar)),
+    get_month(str) (January returns 1), get_error_message_wrong_year() and
+    optionally get_day_of_month(str), get_day_str_like_original() and
+    adjust_suggestion(). Java's getCalendar() (a Gregorian calendar in all
+    languages) is not needed. Exceptions: ValueError (Java:
+    IllegalArgumentException, e.g. from Integer.parseInt) is propagated,
+    other errors (Java: RuntimeException, e.g. an unknown day name) discard
+    the match."""
+
+    def get_day_of_week(self, localized_week_day_string):
+        raise NotImplementedError()
+
+    def get_day_of_week_name(self, date):
+        raise NotImplementedError()
+
+    def get_day_of_month(self, localized_day_of_month):
+        return 0
+
+    def get_month(self, localized_month):
+        raise NotImplementedError()
+
+    def get_error_message_wrong_year(self):
+        raise NotImplementedError()
+
+    def accept_rule_match(self, match, args, pattern_token_pos, pattern_tokens, token_positions):
+        from .base import RuleMatch
+        try:
+            day_of_week_pos = self.get_skip_corrected_reference(
+                token_positions, java_parse_int(self.get_required('weekDay', args)))
+            day_of_week_str = pattern_tokens[day_of_week_pos].token.replace('­', '')  # replace soft hyphen
+            is_full_date_token = False
+            full_date_pos = self.get_skip_corrected_reference(
+                token_positions, java_parse_int(self.get_optional('date', args, '-1')))  # format yyyy-mm-dd
+            if full_date_pos > -1:
+                parts = pattern_tokens[full_date_pos].token.split('-')
+                is_full_date_token = True
+                day_pos = month_pos = year_pos = full_date_pos
+                day_str = parts[2]
+                month_str = parts[1]
+                year_str = parts[0]
+            else:
+                day_pos = self.get_skip_corrected_reference(token_positions,
+                                                            java_parse_int(self.get_required('day', args)))
+                month_pos = self.get_skip_corrected_reference(token_positions,
+                                                              java_parse_int(self.get_required('month', args)))
+                year_pos = self.get_skip_corrected_reference(token_positions,
+                                                             java_parse_int(self.get_optional('year', args, '-1')))
+                day_str = pattern_tokens[day_pos].token
+                month_str = pattern_tokens[month_pos].token
+                year_str = pattern_tokens[year_pos].token if year_pos > -1 else None
+            day_of_week_from_string = self.get_day_of_week(day_of_week_str)
+            day = self._get_day_of_month_from_str(day_str)
+            month = self._get_month_from_str(month_str)
+            year = self._get_year_from_str(year_str)
+            day_of_week_from_date = _day_of_week_or_minus_one(year, month, day)
+            if day_of_week_from_date == -1:
+                return None
+            if day_of_week_from_string == day_of_week_from_date:
+                return None
+            date_from_date = CalendarDate.of(year, month, day)
+            cal_from_date_string = CalendarDate(day_of_week=day_of_week_from_string)
+            # suggest changing the year (to current year)
+            current_year = self._get_year_from_str(None)
+            if day_of_week_from_string == _day_of_week_or_minus_one(current_year, month, day):
+                message = self.get_error_message_wrong_year().replace('{currentYear}', str(current_year))
+                rule_match = RuleMatch(match.rule, match.sentence, pattern_tokens[year_pos].start_pos,
+                                       pattern_tokens[year_pos].end_pos, message, match.short_message)
+                rule_match.type = match.type
+                rule_match.url = 'https://www.timeanddate.com/calendar/?year=%d' % current_year
+                if is_full_date_token:
+                    rule_match.set_suggested_replacement('%d-%s-%s' % (current_year, month_str, day_str))
+                else:
+                    rule_match.set_suggested_replacement(str(current_year))
+                return rule_match
+            # suggest changing day of week or day of month
+            message = match.message.replace('{realDay}', self.get_day_of_week_name(date_from_date)) \
+                .replace('{day}', self.get_day_of_week_name(cal_from_date_string)) \
+                .replace('{currentYear}', str(datetime.date.today().year))
+            if day_of_week_pos < day_pos:
+                start_index, end_index = day_of_week_pos, day_pos
+            else:
+                start_index, end_index = day_pos, day_of_week_pos
+            rule_match = RuleMatch(match.rule, match.sentence, pattern_tokens[start_index].start_pos,
+                                   pattern_tokens[end_index].end_pos, message, match.short_message)
+            rule_match.type = match.type
+            rule_match.url = 'https://www.timeanddate.com/calendar/?year=%d' % date_from_date.year
+            # suggest changing day of week
+            suggestion = []
+            for j in range(start_index, end_index + 1):
+                if j > start_index and pattern_tokens[j].whitespace_before:
+                    suggestion.append(' ')
+                if j == day_of_week_pos:
+                    suggestion.append(preserve_case(self.get_day_of_week_name(date_from_date), day_of_week_str))
+                else:
+                    suggestion.append(pattern_tokens[j].token)
+            if ''.join(suggestion):
+                rule_match.set_suggested_replacement(self.adjust_suggestion(''.join(suggestion)))
+            # suggest changing day of month
+            corrected_day_of_month = self._find_new_day_of_month(day, month, year, day_of_week_from_string)
+            if corrected_day_of_month:
+                suggestion = []
+                for j in range(start_index, end_index + 1):
+                    if j > start_index and pattern_tokens[j].whitespace_before:
+                        suggestion.append(' ')
+                    if j == day_pos:
+                        if is_full_date_token:
+                            suggestion.append(year_str + '-' + month_str + '-' + corrected_day_of_month)
+                        else:
+                            suggestion.append(self.get_day_str_like_original(corrected_day_of_month, day_str))
+                    else:
+                        suggestion.append(pattern_tokens[j].token)
+                if ''.join(suggestion):
+                    rule_match.add_suggested_replacement(self.adjust_suggestion(''.join(suggestion)))
+            return rule_match
+        except ValueError:
+            raise
+        except Exception:  # noqa: BLE001 -- Java: catch (RuntimeException e), skipped
+            # this can happen with some special characters which the regex matches but which the code
+            # cannot map to days, e.g. German "Dıenstag" vs "Dienstag"
+            return None
+
+    def _find_new_day_of_month(self, day, month, year, day_of_week_from_string):
+        difference = 1
+        while difference < 7:
+            if day - difference > 0:
+                if day_of_week_from_string == _day_of_week_or_minus_one(year, month, day - difference):
+                    return str(day - difference)
+            if day + difference < 32:
+                if day_of_week_from_string == _day_of_week_or_minus_one(year, month, day + difference):
+                    return str(day + difference)
+            difference += 1
+        return ''
+
+    @staticmethod
+    def _get_year_from_str(year_arg):
+        if year_arg is None and is_junit_test():
+            # Hack for tests of date - weekday match with missing year: in production, we assume
+            # the current year, for xml tests, we use weekdays of the year 2014
+            return 2014
+        if year_arg is None:
+            # assume current year for rule DATUM_WOCHENTAG_OHNE_JAHR etc.
+            return datetime.date.today().year
+        return java_parse_int(year_arg)
+
+    def _get_day_of_month_from_str(self, day_of_month_string):
+        m = _DAY_OF_MONTH_PATTERN.fullmatch(day_of_month_string)
+        if m:
+            # The day of the month is a number, possibly with a suffix such as "22nd"
+            return java_parse_int(m.group(1))
+        # In some languages, the day of the month can also be written with letters rather than with
+        # digits, so parse localized numbers.
+        return self.get_day_of_month(day_of_month_string)
+
+    def _get_month_from_str(self, month_str):
+        if is_numeric(month_str):
+            month = java_parse_int(month_str)
+        else:
+            month = self.get_month(trim_special_characters(month_str))
+        return month - 1
+
+    def get_day_str_like_original(self, day, original):
+        return day
+
+    def adjust_suggestion(self, sugg):
+        """typographical adjustments needed in some languages"""
+        return sugg
+
+
+def _day_of_week_or_minus_one(year, month, day_of_month):
+    """getDate(dayOfMonth, month, year).get(Calendar.DAY_OF_WEEK) on a
+    non-lenient calendar, -1 for invalid dates like '32.8.2014' (Java's
+    IllegalArgumentException, caught in getDayOfWeekFromDate)"""
+    try:
+        return CalendarDate.of(year, month, day_of_month).day_of_week
+    except ValueError:
+        return -1
+
+
+def is_misspelled_with_default_speller(s, language):
+    """isMisspelled(String, Language) of AbstractSuppressMisspelledSuggestionsFilter
+    and MultitokenSpellerFilter: whether one of the tokens of s is
+    misspelled according to the language's default spelling rule (never
+    without a spelling rule)."""
+    speller_rule = language.get_default_spelling_rule()
+    if speller_rule is None:
+        return False
+    for token in language.word_tokenizer.tokenize(s):
+        if speller_rule.is_misspelled(token):
+            return True
+    return False
+
+
+class AbstractSuppressMisspelledSuggestionsFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractSuppressMisspelledSuggestionsFilter:
+    removes the suggestions that are misspelled (according to the
+    misspelling check of the language's default spelling rule, see
+    langtool.spelling; without one, as in Java, no suggestion is
+    misspelled), and
+    the suggestions whose POS tags match SuppressPostag or don't match
+    FilterPostag (optional arguments). Without suggestions left, the match
+    is discarded unless suppressMatch is "false"."""
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        rule_match = match
+        language = match.rule.language
+        tagger = language.tagger
+        replacements = match.suggested_replacements
+        new_replacements = []
+        suppress_match = self.get_required('suppressMatch', arguments)
+        suppress_postag = self.get_optional('SuppressPostag', arguments)
+        filter_postag = self.get_optional('FilterPostag', arguments)
+        check_postag = tagger is not None and (suppress_postag is not None or filter_postag is not None)
+        for replacement in replacements:
+            if not self.is_misspelled(replacement, language):
+                add_replacement = True
+                # Tag only replacements that are not misspelled (the postag is only needed for them).
+                if check_postag:
+                    atr = tagger.tag([replacement])[0]
+                    if suppress_postag is not None and atr.matches_pos_tag_regex(suppress_postag):
+                        add_replacement = False
+                    if filter_postag is not None and not atr.matches_pos_tag_regex(filter_postag):
+                        add_replacement = False
+                if add_replacement:
+                    new_replacements.append(replacement)
+        b_suppress_match = True
+        if suppress_match is not None and suppress_match.lower() == 'false':
+            b_suppress_match = False
+        if not new_replacements and b_suppress_match:
+            return None
+        rule_match.set_suggested_replacements(new_replacements)
+        return rule_match
+
+    def is_misspelled(self, s, language):
+        return is_misspelled_with_default_speller(s, language)
+
+
+_TYPO_PATTERN = jregex.compile('[0-9]')
+
+
+class AbstractNumberInWordFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractNumberInWordFilter: suggests
+    the word (argument 'word') with 0 replaced by o, or without digits, if
+    these are spelled correctly, otherwise the spelling suggestions for the
+    word without digits. Subclasses implement is_misspelled(word) and
+    get_suggestions(word)."""
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        word = arguments.get('word')
+        word_replacing_zero_o = word.replace('0', 'o')
+        word_without_number_character = jregex.java_replace(_TYPO_PATTERN, '', word)
+        replacements = []
+        if not self.is_misspelled(word_replacing_zero_o) and word != word_replacing_zero_o:
+            replacements.append(word_replacing_zero_o)
+        if not self.is_misspelled(word_without_number_character):
+            replacements.append(word_without_number_character)
+        if not replacements:
+            replacements.extend(self.get_suggestions(word_without_number_character))
+        if replacements:
+            rule_match = match.copy()  # new RuleMatch(match)
+            rule_match.set_suggested_replacements(replacements)
+            return rule_match
+        return None
+
+    def is_misspelled(self, word):
+        raise NotImplementedError()
+
+    def get_suggestions(self, word):
+        raise NotImplementedError()
+
+
+_MAX_UNDERLINED_LENGTH = 50
+
+
+class MultitokenSpellerFilter(RuleFilter):
+    """Port of org.languagetool.rules.spelling.multitoken.MultitokenSpellerFilter:
+    provides suggestions for misspelled multitoken expressions, usually
+    proper nouns, with the language's multitoken speller
+    (Language.get_multitoken_speller())."""
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        if all(x.ignored_by_speller for x in pattern_tokens):
+            return None
+        underlined_error = match.original_error_str
+        if self._is_clearly_unsuitable(underlined_error):
+            return None
+        lang = match.rule.language
+        # check the spelling for some languages in a different way
+        are_tokens_accepted_by_speller = False
+        if lang.short_code in ('en', 'de', 'pt', 'nl'):
+            if len(lang.short_code_with_country_and_variant) == 2:
+                # needed in testing
+                lang = lang.default_variant
+            are_tokens_accepted_by_speller = not self.is_misspelled(underlined_error, lang)
+        replacements = lang.get_multitoken_speller().get_suggestions(underlined_error,
+                                                                     are_tokens_accepted_by_speller)
+        if not replacements:
+            return None
+        if len(underlined_error) > 4 and is_all_uppercase(underlined_error):
+            # all upper-case suggestions
+            all_uppercase_replacements = []
+            for replacement in replacements:
+                new_replacement = replacement.upper()
+                if new_replacement not in all_uppercase_replacements and underlined_error != new_replacement:
+                    all_uppercase_replacements.append(new_replacement)
+            replacements = all_uppercase_replacements
+        else:
+            # capitalize suggestion at sentence start
+            words_start_pos = 1
+            # ignore punctuation marks at the sentence start to do the capitalization
+            tokens = match.sentence.non_blank_tokens
+            while words_start_pos < len(tokens) and (is_punctuation_mark(tokens[words_start_pos].token)
+                                                     or is_not_word_string(tokens[words_start_pos].token)):
+                words_start_pos += 1
+            if pattern_token_pos == words_start_pos:
+                capitalized_replacements = []
+                for replacement in replacements:
+                    new_replacement = replacement
+                    if replacement == replacement.lower():
+                        # do not capitalize iPad
+                        new_replacement = uppercase_first_char(replacement)
+                    if new_replacement not in capitalized_replacements and underlined_error != new_replacement:
+                        capitalized_replacements.append(new_replacement)
+                replacements = capitalized_replacements
+        if not replacements:
+            return None
+        match.set_suggested_replacements(replacements)
+        return match
+
+    @staticmethod
+    def _is_clearly_unsuitable(s):
+        """Cheaply discard inputs for which the (expensive) multitoken speller
+        search cannot yield a suggestion."""
+        # (Java string length and Character.isLetter(char): supplementary characters are two
+        # surrogates, which are no letters)
+        if len(s) + sum(1 for c in s if ord(c) > 0xffff) > _MAX_UNDERLINED_LENGTH:
+            return True
+        # a multiword expression needs at least two letters (e.g. the two tokens of a proper noun)
+        letters = sum(1 for c in s if ord(c) <= 0xffff and is_letter(c))
+        return letters < 2
+
+    def is_misspelled(self, s, language):
+        return is_misspelled_with_default_speller(s, language)
+
+
+def _multitoken_speller_filter(language):
+    """MultitokenSpellerFilter for languages with a (ported) multitoken
+    speller; for the others the filter (and so its rule) is not
+    supported."""
+    from ..patterns.loader import UnsupportedFilter
+    if language is not None and language.get_multitoken_speller() is None:
+        raise UnsupportedFilter('org.languagetool.rules.spelling.multitoken.MultitokenSpellerFilter (no multitoken '
+                                'speller for %s)' % language.code)
+    return MultitokenSpellerFilter(language)
+
+
 _tools = {}
 
 
@@ -702,3 +1081,4 @@ def register(ff):
     ff.register(p + 'CheckPostagsInSuggestionFilter', CheckPostagsInSuggestionFilter)
     ff.register(p + 'IsEnglishWordFilter', IsEnglishWordFilter)
     ff.register(p + 'SuppressIfAnyRuleMatchesFilter', SuppressIfAnyRuleMatchesFilter)
+    ff.register(p + 'spelling.multitoken.MultitokenSpellerFilter', _multitoken_speller_filter)

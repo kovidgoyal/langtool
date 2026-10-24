@@ -377,3 +377,129 @@ def test_advanced_synthesizer_filter_composite_postag():
     # no match (or a group that didn't participate): postagReplace unchanged
     assert f.get_composite_postag('V(.*)', '(PP.*)', 'NCMS000', 'PP2CP000', 'V\\a1:\\b1') == 'V\\a1:\\b1'
     assert f.get_composite_postag('V(X)?.*', '(PP.*)', 'VMIS1S0', 'PP2CP000', 'V\\a1:\\b1') == 'V\\a1:PP2CP000'
+
+
+# --- AbstractDateCheckWithSuggestionsFilter ----------------------------------
+
+from langtool.analysis import AnalyzedToken, AnalyzedTokenReadings  # noqa: E402
+from langtool.rules.core_filters import (AbstractDateCheckWithSuggestionsFilter,  # noqa: E402
+                                         AbstractNumberInWordFilter, AbstractSuppressMisspelledSuggestionsFilter,
+                                         IsEnglishWordFilter)
+
+
+class _EnglishDateCheckWithSuggestionsFilter(AbstractDateCheckWithSuggestionsFilter):
+    get_day_of_week = _EnglishDateCheckFilter.get_day_of_week
+    get_day_of_week_name = _EnglishDateCheckFilter.get_day_of_week_name
+    get_month = _EnglishDateCheckFilter.get_month
+    _DAYS = _EnglishDateCheckFilter._DAYS
+    _MONTHS = _EnglishDateCheckFilter._MONTHS
+
+    def get_error_message_wrong_year(self):
+        return 'Wrong year, {currentYear}?'
+
+
+def _tokens(text):
+    out = []
+    pos = 0
+    ws = False
+    for t in text.split(' '):
+        atr = AnalyzedTokenReadings(AnalyzedToken(t, None, None), pos)
+        atr.whitespace_before = ws
+        out.append(atr)
+        pos += len(t) + 1
+        ws = True
+    return out
+
+
+def test_date_check_with_suggestions_filter():
+    f = _EnglishDateCheckWithSuggestionsFilter()
+    tokens = _tokens('Monday 7 October 2015')
+    args = dict(weekDay='1', day='2', month='3', year='4')
+    m = f.accept_rule_match(_date_match(), args, 0, tokens, [1, 1, 1, 1])
+    # 7 October 2015 is a Wednesday; 7 October 2014 (the current year in tests) is a Tuesday
+    assert m.message == 'Monday is really a Wednesday (%d)' % __import__('datetime').date.today().year
+    assert (m.from_pos, m.to_pos) == (0, 8)
+    assert m.suggested_replacements == ['Wednesday 7', 'Monday 5']
+    assert m.url == 'https://www.timeanddate.com/calendar/?year=2015'
+    assert f.accept_rule_match(_date_match(), args, 0, _tokens('Wednesday 7 October 2015'), [1, 1, 1, 1]) is None
+    # the date fits the weekday in the current year (2014 in tests): suggest the year
+    m = f.accept_rule_match(_date_match(), args, 0, _tokens('Tuesday 7 October 2015'), [1, 1, 1, 1])
+    assert m.message == 'Wrong year, 2014?'
+    assert (m.from_pos, m.to_pos) == (18, 22)
+    assert m.suggested_replacements == ['2014']
+    # invalid date, unknown day: no match; parse errors: IllegalArgumentException
+    assert f.accept_rule_match(_date_match(), args, 0, _tokens('Monday 32 October 2015'), [1, 1, 1, 1]) is None
+    assert f.accept_rule_match(_date_match(), args, 0, _tokens('Xyz 7 October 2015'), [1, 1, 1, 1]) is None
+    with pytest.raises(ValueError):
+        f.accept_rule_match(_date_match(), args, 0, _tokens('Monday 7 October 20x5'), [1, 1, 1, 1])
+    # a yyyy-mm-dd token
+    m = f.accept_rule_match(_date_match(), dict(weekDay='1', date='2'), 0, _tokens('Monday 2015-10-07'), [1, 1])
+    assert m.suggested_replacements == ['Wednesday 2015-10-07', 'Monday 2015-10-5']
+
+
+# --- AbstractSuppressMisspelledSuggestionsFilter, AbstractNumberInWordFilter --
+
+def _pattern_rule_match(language, message):
+    rule = PatternRule('ID', language, [], 'desc', message, 'short')
+    return RuleMatch(rule, None, 0, 5, message)
+
+
+def test_suppress_misspelled_suggestions_filter_without_speller():
+    """Without a spelling rule (Language.getDefaultSpellingRule() returns
+    null), no suggestion is misspelled"""
+    lang = get_language('xx')
+    assert lang.get_default_spelling_rule() is None
+    f = AbstractSuppressMisspelledSuggestionsFilter()
+    m = f.accept_rule_match(_pattern_rule_match(lang, '<suggestion>a b</suggestion> <suggestion>c</suggestion>'),
+                            {'suppressMatch': 'true'}, 0, [], [])
+    assert m.suggested_replacements == ['a b', 'c']
+    assert f.accept_rule_match(_pattern_rule_match(lang, 'no suggestions'), {'suppressMatch': 'true'}, 0, [],
+                               []) is None
+    m = f.accept_rule_match(_pattern_rule_match(lang, 'no suggestions'), {'suppressMatch': 'false'}, 0, [], [])
+    assert m.suggested_replacements == []
+    with pytest.raises(ValueError):
+        f.accept_rule_match(_pattern_rule_match(lang, 'x'), {}, 0, [], [])
+
+
+class _NumberInWordFilter(AbstractNumberInWordFilter):
+    words = {'good', 'goed'}
+
+    def is_misspelled(self, word):
+        return word not in self.words
+
+    def get_suggestions(self, word):
+        return ['sugg:' + word]
+
+
+def test_number_in_word_filter():
+    f = _NumberInWordFilter()
+    m = RuleMatch(FakeRule(), None, 0, 5, 'msg')
+    assert f.accept_rule_match(m, {'word': 'g00d'}, 0, [], []).suggested_replacements == ['good']
+    assert f.accept_rule_match(m, {'word': 'go3ed'}, 0, [], []).suggested_replacements == ['goed']
+    assert f.accept_rule_match(m, {'word': 'xy1z'}, 0, [], []).suggested_replacements == ['sugg:xyz']
+
+
+def test_is_english_word_filter_in_tests():
+    """In Java, English is not available in the unit tests of the other
+    language modules: the filter rejects all matches there"""
+    f = IsEnglishWordFilter(get_language('xx'))
+    m = RuleMatch(FakeRule(), None, 0, 5, 'msg')
+    assert f.accept_rule_match(m, {'formPositions': '1'}, 0, [], []) is None
+
+
+# --- MultitokenSpeller -------------------------------------------------------
+
+def test_multitoken_speller(tmp_path):
+    from langtool.rules.multitoken import MultitokenSpeller, convert_to_title_case_iterating_chars
+    p = tmp_path / 'words.txt'
+    p.write_text('# comment\nBritney Spears\nGarcía Márquez\nsingle\nHomo sapiens  # comment\n', encoding='utf-8')
+    speller = MultitokenSpeller(get_language('xx'), [str(p)])
+    assert speller.get_suggestions('britaney speers') == ['Britney Spears']
+    assert speller.get_suggestions('Garcìa Mrquez') == ['García Márquez']
+    assert speller.get_suggestions('Homos Sapiens') == ['Homo sapiens']
+    # accepted tokens: only distance <= 1
+    assert speller.get_suggestions('britaney speers x', True) == []
+    assert speller.get_suggestions('Britney Spears') == []
+    assert speller.get_suggestions('single') == []
+    assert convert_to_title_case_iterating_chars('homo sapiens-x') == 'Homo Sapiens-X'
+    assert get_language('xx').get_multitoken_speller() is None

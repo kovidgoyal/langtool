@@ -241,6 +241,26 @@ class Language:
     def get_default_disabled_rules_for_variant(self):
         return list(self.variant_definition.get('default_disabled_rules', ()))
 
+    def get_default_spelling_rule(self):
+        """Language.getDefaultSpellingRule(), as far as ported: the
+        misspelling check (langtool.spelling.MorfologikMisspellingCheck,
+        no spell checking rule) registered for the language (kind
+        'default_spelling_rule', a factory language -> check), None (Java's
+        null) for the others."""
+        from . import extensions
+        with self._lock:
+            if not hasattr(self, '_default_spelling_rule'):
+                f = extensions.lookup('default_spelling_rule', self.short_code, self.short_code)
+                self._default_spelling_rule = f(self) if f is not None else None
+            return self._default_spelling_rule
+
+    def get_multitoken_speller(self):
+        """Language.getMultitokenSpeller(): the multitoken speller registered
+        for the language (kind 'multitoken_speller'), None by default."""
+        from . import extensions
+        f = extensions.lookup('multitoken_speller', self.short_code, self.short_code)
+        return f(self) if f is not None else None
+
     def get_consistency_rule_prefix(self):
         return 'PREFIXFORCONSISTENCYRULES_'
 
