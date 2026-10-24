@@ -327,21 +327,34 @@ LANGUAGES = {
                R('UppercaseSentenceStartRule'), R('WordRepeatRule'), R('MultipleWhitespaceRule'),
                R('SentenceWhitespaceRule')],
     ),
+    # org.languagetool.language.Spanish and SpanishVoseo (code in
+    # langtool.lang.es); the MorfologikSpanishSpellerRule (after
+    # QuestionMarkRule) is not ported (spell checking), nor is
+    # SpanishConfusionProbabilityRule (language model).
+    # SpanishHybridDisambiguator: the MultiWordChunkers for
+    # spelling_global.txt and es/multiwords.txt, then the XmlRuleDisambiguator
     'es': dict(
         name='Spanish', countries=['ES', '', 'MX', 'GT', 'CR', 'PA', 'DO', 'VE', 'PE', 'AR', 'EC', 'CL', 'UY', 'PY',
                                    'BO', 'SV', 'HN', 'NI', 'PR', 'US', 'CU'], default_variant='es',
+        sentence_tokenizer='srx', quotes=('«', '»', '‘', '’'), advanced_typography=True,
         variants=[V('es', name='Spanish'), V('es-AR', countries=['AR'], name='Spanish (voseo)', disabled=['VOSEO'])],
         tagger=dict(dict='es/es-ES.dict', lowercase_with_uppercase=True, impl='SpanishTagger'),
-        synthesizer=dict(dict='es/es-ES_synth.dict', tags='es/es-ES_tags.txt', impl='SpanishSynthesizer'),
+        synthesizer=dict(dict='es/es-ES_synth.dict', tags='es/es-ES_tags.txt', sor='es/es.sor',
+                         impl='SpanishSynthesizer'),
         word_tokenizer='SpanishWordTokenizer',
         disambiguator=[mw('spelling_global.txt', False, True, False, 'NPCN000'),
                        mw('es/multiwords.txt', True, True, False, remove_previous_tags=True), xml(True)],
-        rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('SpanishUnpairedBracketsRule'),
-               R('QuestionMarkRule'), R('UppercaseSentenceStartRule'), R('SpanishWordRepeatRule'),
-               R('MultipleWhitespaceRule'), R('SpanishWikipediaRule'), R('SpanishWrongWordInContextRule'),
-               R('LongSentenceRule', max_words=60), R('LongParagraphRule'), R('SimpleReplaceRule'),
-               R('SimpleReplaceVerbsRule'), R('SpanishWordRepeatBeginningRule'), R('CompoundRule'),
-               R('SpanishRepeatedWordsRule')],
+        rules=[R('CommaWhitespaceRule',
+                 examples=('En su opinión<marker> ,</marker> no era verdad.',
+                           'En su opinión<marker>,</marker> no era verdad.')),
+               R('DoublePunctuationRule'), R('SpanishUnpairedBracketsRule'), R('QuestionMarkRule'),
+               R('UppercaseSentenceStartRule',
+                 examples=('Venta al público. <marker>ha</marker> subido mucho.',
+                           'Venta al público. <marker>Ha</marker> subido mucho.')),
+               R('SpanishWordRepeatRule'), R('MultipleWhitespaceRule'), R('SpanishWikipediaRule'),
+               R('SpanishWrongWordInContextRule'), R('LongSentenceRule', max_words=60), R('LongParagraphRule'),
+               R('SimpleReplaceRule'), R('SimpleReplaceVerbsRule'), R('SpanishWordRepeatBeginningRule'),
+               R('CompoundRule'), R('SpanishRepeatedWordsRule')],
     ),
     # org.languagetool.language.Persian (code in langtool.lang.fa)
     'fa': dict(
