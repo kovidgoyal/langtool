@@ -247,9 +247,44 @@ class Language:
                     self._pattern_rules = rules
         return self._pattern_rules
 
-    def get_relevant_rules(self, messages, user_config=None):
+    def get_relevant_rules(self, messages, user_config=None, mother_tongue=None):
+        """Language.getRelevantRules: the code based rules, preceded by the
+        pattern rules for speakers of the mother tongue (see
+        get_mother_tongue_rules())"""
         from . import extensions
-        return extensions.create_rules(self, messages, user_config)
+        rules = self.get_mother_tongue_rules(mother_tongue)
+        rules.extend(extensions.create_rules(self, messages, user_config))
+        return rules
+
+    def get_mother_tongue_rules(self, mother_tongue):
+        """The pattern rules that Language.getRelevantRules adds for the
+        user's mother tongue (a language code or Language), e.g. the rules
+        of rules/en/grammar-l2-de.xml for English and German speakers: the
+        definition key 'mother_tongue_rule_files' maps the short codes of
+        the mother tongues to files of the rules directory of the language.
+        The rules are loaded once (a cache in Java)."""
+        if mother_tongue is None:
+            return []
+        files = self.get('mother_tongue_rule_files')
+        if not files:
+            return []
+        code = getattr(mother_tongue, 'short_code', None)
+        if code is None:
+            code = str(mother_tongue).replace('_', '-').split('-')[0].lower()
+        name = files.get(code)
+        if name is None:
+            return []
+        path = os.path.join(self.rules_dir, name)
+        key = (path, self.code)
+        with _mother_tongue_rules_lock:
+            rules = _mother_tongue_rules.get(key)
+            if rules is None:
+                from .patterns.loader import load_pattern_rules
+                from .rules.filters import default_filter_factory
+                from .messages import messages_for
+                rules = _mother_tongue_rules[key] = load_pattern_rules(
+                    path, self, self.resource_root, default_filter_factory(), messages_for(self.short_code))[0]
+        return list(rules)
 
     def get_default_enabled_rules_for_variant(self):
         return list(self.variant_definition.get('default_enabled_rules', ()))
@@ -362,7 +397,8 @@ class Language:
         preserved = []
         offset = 0
         while True:
-            m = _INSIDE_SUGGESTION.search(out, offset)
+            # (Java: the matcher is on the input, not on the output with the replacements)
+            m = _INSIDE_SUGGESTION.search(text, offset)
             if m is None:
                 break
             group = m.group(1)
@@ -404,6 +440,8 @@ class Language:
 
 _dict_cache = {}
 _dict_lock = threading.Lock()
+_mother_tongue_rules = {}
+_mother_tongue_rules_lock = threading.Lock()
 
 
 def _shared_dictionary(path):

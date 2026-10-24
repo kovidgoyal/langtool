@@ -352,3 +352,124 @@ def cs_regex(s):
     """PatternRuleBuilderHelper.csRegex: a case sensitive regular
     expression"""
     return PatternToken(s, True, True, False)
+
+
+def pos(s):
+    """PatternRuleBuilderHelper.pos: a token with the POS tag s"""
+    return PatternTokenBuilder().pos(s).build()
+
+
+def pos_regex(s):
+    """PatternRuleBuilderHelper.posRegex: a token with a POS tag matching the
+    regular expression s"""
+    return PatternTokenBuilder().pos_regex(s).build()
+
+
+class PatternTokenBuilder:
+    """Port of org.languagetool.rules.patterns.PatternTokenBuilder: builds
+    the PatternTokens of the anti-patterns etc. in Java code. Note that, as
+    in Java, pos_regex() also makes the token string a regular
+    expression."""
+
+    def __init__(self):
+        self._token = None
+        self._pos_tag = None
+        self._marker = True
+        self._match_inflected_forms = False
+        self._case_sensitive = False
+        self._regexp = False
+        self._negation = False
+        self._is_white_space_set = False
+        self._is_white_space_before = False
+        self._min_occurrence = 1
+        self._max_occurrence = 1
+        self._skip = 0
+        self._token_exception = None
+
+    def token(self, token):
+        if token is None:
+            raise ValueError('token must not be None')
+        self._token = token
+        return self
+
+    def cs_token(self, token):
+        self.token(token)
+        self._case_sensitive = True
+        return self
+
+    def token_regex(self, token):
+        self.token(token)
+        self._regexp = True
+        return self
+
+    def cs_token_regex(self, token):
+        self.token_regex(token)
+        self._case_sensitive = True
+        return self
+
+    def _pos(self, pos_tag, regexp, token_exception=None):
+        if pos_tag is None:
+            raise ValueError('posTag must not be None')
+        self._pos_tag = pos_tag
+        self._regexp = regexp
+        self._token_exception = token_exception
+        return self
+
+    def pos(self, pos_tag):
+        return self._pos(pos_tag, False)
+
+    def pos_regex(self, pos_tag):
+        return self._pos(pos_tag, True)
+
+    def pos_regex_with_string_exception(self, pos_tag, token_exception_regex):
+        return self._pos(pos_tag, True, token_exception_regex)
+
+    def min(self, val):
+        if val < 0:
+            raise ValueError('minOccurrence must be >= 0: %d' % self._min_occurrence)
+        self._min_occurrence = val
+        return self
+
+    def max(self, val):
+        self._max_occurrence = val
+        return self
+
+    def mark(self, is_marked):
+        self._marker = is_marked
+        return self
+
+    def negate(self):
+        self._negation = True
+        return self
+
+    def set_skip(self, skip):
+        self._skip = skip
+        return self
+
+    def set_is_white_space_before(self, white_space_before):
+        self._is_white_space_before = white_space_before
+        self._is_white_space_set = True
+        return self
+
+    def match_inflected_forms(self):
+        self._match_inflected_forms = True
+        return self
+
+    def build(self):
+        pt = PatternToken(self._token, self._case_sensitive, self._regexp, self._match_inflected_forms)
+        if self._pos_tag is not None:
+            pt.pos_token = PosToken(self._pos_tag, False, regexp=self._regexp)
+        if self._is_white_space_set:
+            pt.set_whitespace_before(self._is_white_space_before)
+        if self._max_occurrence < self._min_occurrence:
+            raise ValueError('minOccurrence must <= maxOccurrence: minOccurrence %d, maxOccurrence %d' % (
+                self._min_occurrence, self._max_occurrence))
+        if self._token_exception is not None:
+            pt.set_string_pos_exception(self._token_exception, True, False, False, False, False, None, False, False,
+                                        False)
+        pt.set_min_occurrence(self._min_occurrence)
+        pt.set_max_occurrence(self._max_occurrence)
+        pt.negation = self._negation
+        pt.set_skip_next(self._skip)
+        pt.inside_marker = self._marker
+        return pt

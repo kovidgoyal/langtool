@@ -29,7 +29,9 @@ Most languages need binary part-of-speech dictionaries (morfologik format).
 They are too large to be bundled and are downloaded from Maven Central the
 first time a language is used (checksums are verified), and cached in the user
 cache directory (`~/.cache/langtool` on Linux, override with
-`LANGTOOL_CACHE_DIR`). To download them ahead of time:
+`LANGTOOL_CACHE_DIR`). The same mechanism provides the word lists of the
+spell checkers and, for English, the OpenNLP models of the chunker. To
+download them ahead of time:
 
     python -m langtool download en de fr
 

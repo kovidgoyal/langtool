@@ -76,3 +76,18 @@ def test_read_plain_text_lines(tmp_path):
         b'woord', b'spaties', b'met', 'één'.encode('utf-8'), b'twee', b'drie']
     assert read_plain_text_lines([str(b)], lambda line: [line, line.upper()]) == [
         'één'.encode('utf-8'), 'ÉÉN'.encode('utf-8'), b'twee', b'TWEE', b'drie', b'DRIE']
+
+
+def test_plain_text_speller_lines(tmp_path):
+    """MorfologikMultiSpeller: the word list of the language variant
+    (getLanguageVariantSpellingFileName) is added to the plain text word
+    lists, with "LanguageTool", but only if there are plain text word
+    lists"""
+    from langtool.spelling import plain_text_speller_lines
+    a = tmp_path / 'a.txt'
+    v = tmp_path / 'v.txt'
+    a.write_text('word\n', encoding='utf-8')
+    v.write_text('colour\n# comment\n', encoding='utf-8')
+    assert plain_text_speller_lines([str(a)]) == [b'word']
+    assert plain_text_speller_lines([str(a)], None, str(v)) == [b'word', b'colour', b'LanguageTool']
+    assert plain_text_speller_lines([], None, str(v)) == []

@@ -17,6 +17,7 @@
 #include <Python.h>
 #include <structmember.h>
 #include <string.h>
+#include <math.h>
 
 #define MAX_MATCH_LENGTH 250
 #define KIND_EQUALS 0
@@ -1557,7 +1558,116 @@ static PyTypeObject FSADictType = {
 
 /* ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------ */
+/* OpenNLP GIS model evaluation (langtool.opennlp.GISModel)                  */
+
+#define GIS_MAX_OUTCOMES 1024
+
+/* Adds the parameters of the context predicates (in their order, like
+ * ArrayMath.sumFeatures) to the sums. pmap maps a predicate to a tuple
+ * (outcome indices, parameters). */
+static int
+gis_add_features(double *sums, Py_ssize_t n, PyObject *pmap, PyObject *context)
+{
+    PyObject *seq = PySequence_Fast(context, "context must be a sequence");
+    if (!seq) return -1;
+    Py_ssize_t len = PySequence_Fast_GET_SIZE(seq);
+    PyObject **items = PySequence_Fast_ITEMS(seq);
+    for (Py_ssize_t i = 0; i < len; i++) {
+        PyObject *e = PyDict_GetItemWithError(pmap, items[i]);
+        if (!e) {
+            if (PyErr_Occurred()) { Py_DECREF(seq); return -1; }
+            continue;
+        }
+        if (!PyTuple_Check(e) || PyTuple_GET_SIZE(e) != 2) {
+            PyErr_SetString(PyExc_TypeError, "pmap values must be (outcomes, parameters) tuples");
+            Py_DECREF(seq); return -1;
+        }
+        PyObject *outs = PyTuple_GET_ITEM(e, 0), *params = PyTuple_GET_ITEM(e, 1);
+        if (!PyTuple_Check(outs) || !PyTuple_Check(params) || PyTuple_GET_SIZE(outs) != PyTuple_GET_SIZE(params)) {
+            PyErr_SetString(PyExc_TypeError, "outcomes and parameters must be tuples of the same length");
+            Py_DECREF(seq); return -1;
+        }
+        Py_ssize_t m = PyTuple_GET_SIZE(outs);
+        for (Py_ssize_t j = 0; j < m; j++) {
+            Py_ssize_t oid = PyLong_AsSsize_t(PyTuple_GET_ITEM(outs, j));
+            if (oid == -1 && PyErr_Occurred()) { Py_DECREF(seq); return -1; }
+            double p = PyFloat_AsDouble(PyTuple_GET_ITEM(params, j));
+            if (p == -1.0 && PyErr_Occurred()) { Py_DECREF(seq); return -1; }
+            if (oid < 0 || oid >= n) {
+                PyErr_SetString(PyExc_IndexError, "outcome index out of range");
+                Py_DECREF(seq); return -1;
+            }
+            sums[oid] += p;
+        }
+    }
+    Py_DECREF(seq);
+    return 0;
+}
+
+static int
+gis_read_prior(PyObject *prior, double *sums, Py_ssize_t *n)
+{
+    if (!PyList_Check(prior)) { PyErr_SetString(PyExc_TypeError, "prior must be a list"); return -1; }
+    *n = PyList_GET_SIZE(prior);
+    if (*n > GIS_MAX_OUTCOMES) { PyErr_SetString(PyExc_ValueError, "too many outcomes"); return -1; }
+    for (Py_ssize_t i = 0; i < *n; i++) {
+        sums[i] = PyFloat_AsDouble(PyList_GET_ITEM(prior, i));
+        if (sums[i] == -1.0 && PyErr_Occurred()) return -1;
+    }
+    return 0;
+}
+
+static PyObject *
+gis_make_list(const double *values, Py_ssize_t n)
+{
+    PyObject *out = PyList_New(n);
+    if (!out) return NULL;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *f = PyFloat_FromDouble(values[i]);
+        if (!f) { Py_DECREF(out); return NULL; }
+        PyList_SET_ITEM(out, i, f);
+    }
+    return out;
+}
+
+/* gis_sum(prior, pmap, context) -> new list: prior plus the parameters of the context predicates */
+static PyObject *
+py_gis_sum(PyObject *self, PyObject *args)
+{
+    PyObject *prior, *pmap, *context;
+    double sums[GIS_MAX_OUTCOMES];
+    Py_ssize_t n;
+    if (!PyArg_ParseTuple(args, "OO!O", &prior, &PyDict_Type, &pmap, &context)) return NULL;
+    if (gis_read_prior(prior, sums, &n) < 0) return NULL;
+    if (gis_add_features(sums, n, pmap, context) < 0) return NULL;
+    return gis_make_list(sums, n);
+}
+
+/* gis_eval(prior, pmap, context) -> the probabilities of GISModel.eval (exp and normalization of the sums), or
+ * None if the sum of the exps is 0 or infinite (the caller handles these cases) */
+static PyObject *
+py_gis_eval(PyObject *self, PyObject *args)
+{
+    PyObject *prior, *pmap, *context;
+    double sums[GIS_MAX_OUTCOMES];
+    Py_ssize_t n;
+    if (!PyArg_ParseTuple(args, "OO!O", &prior, &PyDict_Type, &pmap, &context)) return NULL;
+    if (gis_read_prior(prior, sums, &n) < 0) return NULL;
+    if (gis_add_features(sums, n, pmap, context) < 0) return NULL;
+    double normal = 0.0;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        sums[i] = exp(sums[i]);
+        normal += sums[i];
+    }
+    if (normal == 0.0 || isinf(normal) || isnan(normal)) Py_RETURN_NONE;
+    for (Py_ssize_t i = 0; i < n; i++) sums[i] /= normal;
+    return gis_make_list(sums, n);
+}
+
 static PyMethodDef module_methods[] = {
+    {"gis_sum", py_gis_sum, METH_VARARGS, NULL},
+    {"gis_eval", py_gis_eval, METH_VARARGS, NULL},
     {"pattern_token_is_matched", py_pt_is_matched, METH_VARARGS, NULL},
     {"string_matcher_matches", py_sm_matches, METH_VARARGS, NULL},
     {NULL}

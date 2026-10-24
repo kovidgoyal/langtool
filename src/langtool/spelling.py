@@ -241,16 +241,30 @@ def read_plain_text_lines(paths, prepare_line=None):
     return lines
 
 
+def plain_text_speller_lines(plain_text_paths, prepare_line=None, language_variant_path=None):
+    """The lines of the plain text speller of MorfologikMultiSpeller: the
+    lines of the plain text word lists and (only with word lists) those of
+    the word list of the language variant (getLanguageVariantSpellingFileName,
+    e.g. en/hunspell/spelling_en-US.txt) plus "LanguageTool"."""
+    if not plain_text_paths:
+        return []
+    lines = read_plain_text_lines(plain_text_paths, prepare_line)
+    if language_variant_path is not None:
+        lines.extend(read_plain_text_lines([language_variant_path], prepare_line))
+        lines.append(LANGUAGETOOL.encode('utf-8'))  # adding here so it's also used for suggestions
+    return lines
+
+
 class MorfologikMultiSpeller:
     """MorfologikMultiSpeller.isMisspelled: a word is accepted if one of the
     spellers (the binary dictionary and the plain text word lists, which use
     the metadata of the binary dictionary) accepts it. No user dictionaries
     (UserConfig) are supported."""
 
-    def __init__(self, binary_dict, plain_text_paths=(), prepare_line=None):
+    def __init__(self, binary_dict, plain_text_paths=(), prepare_line=None, language_variant_path=None):
         md = SpellerMetadata(binary_dict.metadata)
         self.spellers = [MorfologikSpeller(_FSAWords(binary_dict.fsa), md)]
-        lines = read_plain_text_lines(plain_text_paths, prepare_line) if plain_text_paths else []
+        lines = plain_text_speller_lines(plain_text_paths, prepare_line, language_variant_path)
         if lines:
             self.spellers.append(MorfologikSpeller(_PlainWords(lines, md.separator), md))
         self._converts_case = md.convert_case
@@ -299,6 +313,8 @@ class MorfologikMisspellingCheck:
 
     check_compound = False
     compound_regex = regex.compile('-')
+    # SpellingCheckRule.ignoreWordsWithLength: words up to this length are ignored (0: none)
+    ignore_words_with_length = 0
 
     def __init__(self, language):
         self.language = language
@@ -320,6 +336,11 @@ class MorfologikMisspellingCheck:
 
     def get_language_variant_spelling_file_name(self):
         return None
+
+    def get_additional_ignore_file_names(self):
+        """Further word lists whose words are ignored (added with
+        addIgnoreWords by the constructors of some Java rules)"""
+        return []
 
     def get_ignore_file_name(self):
         return self.language.short_code + '/hunspell/ignore.txt'
@@ -370,15 +391,13 @@ class MorfologikMisspellingCheck:
                 if p is not None:
                     plain_text.append(p)
             variant = self.resource_file(self.get_language_variant_spelling_file_name())
-            if variant is not None:
-                raise NotImplementedError('language variant spelling files are not supported yet')
             # (the dictionaries are cached statically in Java)
-            key = (id(binary_dict), tuple(plain_text), type(self).prepare_line_for_speller)
+            key = (id(binary_dict), tuple(plain_text), variant, type(self).prepare_line_for_speller)
             with _cache_lock:
                 speller = _multi_speller_cache.get(key)
                 if speller is None or speller[0] is not binary_dict:
                     speller = _multi_speller_cache[key] = (binary_dict, MorfologikMultiSpeller(
-                        binary_dict, plain_text, self.prepare_line_for_speller))
+                        binary_dict, plain_text, self.prepare_line_for_speller, variant))
             self._speller1 = speller[1]
             return self._speller1
 
@@ -389,6 +408,7 @@ class MorfologikMisspellingCheck:
             ignored = set()
             names = [self.get_ignore_file_name(), self.get_spelling_file_name()]
             names.extend(self.get_additional_spelling_file_names())
+            names.extend(self.get_additional_ignore_file_names())
             tokenizer = self.language.word_tokenizer if self.tokenize_new_words() else None
             for name in names:
                 for line in _cached_words(self.resource_file(name)):
@@ -432,11 +452,11 @@ class MorfologikMisspellingCheck:
     def is_ignored_no_case(self, word):
         return (self.is_in_ignored_set(word)
                 or (not is_mixed_case(word) and self.converts_case()
-                    and self.is_in_ignored_set(java_to_lower(word, self.language.short_code))))
+                    and self.is_in_ignored_set(java_to_lower(word, self.language.short_code)))
+                or (self.ignore_words_with_length > 0 and len(word) <= self.ignore_words_with_length))
 
     def ignore_word(self, word):
-        """SpellingCheckRule.ignoreWord(String) (ignore words considered, no
-        ignoreWordsWithLength)"""
+        """SpellingCheckRule.ignoreWord(String) (ignore words considered)"""
         if len(word) > MAX_TOKEN_LENGTH:
             return True
         no_letter = _HAS_NO_LETTER_LATIN if self.is_latin_script() else _HAS_NO_LETTER
@@ -1349,11 +1369,12 @@ class MorfologikSuggestions:
             p = self.resource_file(name)
             if p is not None:
                 plain_text.append(p)
-        key = (id(binary_dict), tuple(plain_text), type(self).prepare_line_for_speller)
+        variant = self.resource_file(self.get_language_variant_spelling_file_name())
+        key = (id(binary_dict), tuple(plain_text), variant, type(self).prepare_line_for_speller)
         with _cache_lock:
             spellers = _suggestion_multi_spellers.get(key)
             if spellers is None or spellers[0] is not binary_dict:
-                lines = read_plain_text_lines(plain_text, self.prepare_line_for_speller) if plain_text else []
+                lines = plain_text_speller_lines(plain_text, self.prepare_line_for_speller, variant)
                 spellers = _suggestion_multi_spellers[key] = (binary_dict, tuple(
                     SuggestionMultiSpeller(binary_dict, lines, distance) for distance in (1, 2, 3)))
         with self._lock:

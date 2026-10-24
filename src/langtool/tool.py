@@ -19,23 +19,35 @@ PARA_ONLYPARA = 'ONLYPARA'
 PARA_ONLYNONPARA = 'ONLYNONPARA'
 
 
+# the characters that are markup in a plain text: the hiddenChars of AnnotatedTextBuilder and the zero width no-break
+# space (or BOM) of JLanguageTool.cleanText
+_HIDDEN_CHARS = frozenset('\u00ad\u202d\u202c\ufeff')
+
+
 class AnnotatedText:
     """Text consisting of plain text and markup parts. Only the plain text is
     checked, positions of matches refer to the original text."""
 
-    def __init__(self, parts=()):
+    def __init__(self, parts=(), global_meta_data=None):
         self.parts = []  # list of (is_markup, text, interpret_as)
         for p in parts:
             self.parts.append(p)
+        # AnnotatedTextBuilder.addGlobalMetaData: key (e.g. 'EmailToAddress', AnnotatedText.MetaDataKey) -> value
+        self.global_meta_data = dict(global_meta_data or {})
         self._build()
+
+    def get_global_meta_data(self, key, default_value=None):
+        """AnnotatedText.getGlobalMetaData(key, defaultValue)"""
+        return self.global_meta_data.get(key, default_value)
 
     @classmethod
     def from_text(cls, text):
+        # AnnotatedTextBuilder.addText: the hidden characters (soft hyphen, U+202D, U+202C) are markup, and
         # like JLanguageTool.cleanText: BOM/zero width non breaking spaces are markup
         parts = []
         buf = []
         for c in text:
-            if c == '﻿':
+            if c in _HIDDEN_CHARS:
                 if buf:
                     parts.append((False, ''.join(buf), None))
                     buf = []
@@ -116,7 +128,7 @@ class JLanguageTool:
             self.builtin_rules = list(rules)
             self.user_rules = []
         else:
-            self.builtin_rules = list(language.get_relevant_rules(self.messages, user_config))
+            self.builtin_rules = list(language.get_relevant_rules(self.messages, user_config, mother_tongue))
             self.user_rules = []
             self._activate_default_pattern_rules()
         self._rule_set_cache = {}

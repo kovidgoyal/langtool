@@ -53,9 +53,29 @@ class PatternRuleTester:
     def add_error(self, rule, msg):
         self.failures.append(RuleFailure(rule, msg))
 
+    def _rules_by_id(self):
+        """The rules of the JLanguageTool by id: id -> [(position, rule)]
+        (rebuilt when rules were added)"""
+        all_rules = self.lt.get_all_rules()
+        key = (len(all_rules), id(all_rules[-1]) if all_rules else None)
+        if getattr(self, '_rule_index_key', None) != key:
+            index = {}
+            for pos, rule in enumerate(all_rules):
+                index.setdefault(rule.get_id(), []).append((pos, rule))
+            self._rule_index = index
+            self._rule_index_key = key
+        return self._rule_index
+
     def rules_by_id_and_sub_id(self, id, sub_id):
         out = []
-        for rule in self.lt.get_all_rules():
+        # the rules whose id is a prefix of id (or id), in the order of lt.get_all_rules()
+        index = self._rules_by_id()
+        candidates = []
+        for k in range(1, len(id) + 1):
+            candidates.extend(index.get(id[:k], ()))
+        candidates.extend(index.get('', ()))
+        candidates.sort(key=lambda x: x[0])
+        for _, rule in candidates:
             if id.startswith(rule.get_id()):
                 if isinstance(rule, ConsistencyPatternRule):
                     out.extend(r for r in rule.rules if r.get_sub_id() == sub_id)

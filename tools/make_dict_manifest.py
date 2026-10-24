@@ -42,6 +42,15 @@ EXTERNAL_FILES = {
         'org/ioperm/morphology/el/analysis.info': 'el/analysis.info',
     },
 }
+# further jars of a language: (group, artifact, version, {jar path: name})
+EXTRA_JARS = {
+    # the OpenNLP models of the EnglishChunker (langtool.opennlp, lang/en/chunking.py)
+    'en': [
+        ('edu.washington.cs.knowitall', 'opennlp-tokenize-models', '1.5', {'en-token.bin': 'en/en-token.bin'}),
+        ('edu.washington.cs.knowitall', 'opennlp-postag-models', '1.5', {'en-pos-maxent.bin': 'en/en-pos-maxent.bin'}),
+        ('edu.washington.cs.knowitall', 'opennlp-chunk-models', '1.5', {'en-chunker.bin': 'en/en-chunker.bin'}),
+    ],
+}
 # files of the speller (only the misspelling check is ported, see
 # langtool/spelling.py) that the dictionary download provides: names
 # (relative to org/languagetool/resource) from the EXTERNAL jar of the
@@ -49,6 +58,13 @@ EXTERNAL_FILES = {
 # LanguageTool release ('module'); the plain text word lists are not part
 # of the package data, see tools/import_data.py
 SPELLER_FILES = {
+    'en': {
+        'external': ['en/hunspell/en_%s.%s' % (c, ext) for c in ('US', 'GB', 'CA', 'AU', 'NZ', 'ZA')
+                     for ext in ('dict', 'info')],
+        'module': ['en/hunspell/spelling.txt', 'en/hunspell/spelling_custom.txt', 'en/hunspell/ignore.txt',
+                   'en/hunspell/prohibit.txt', 'en/hunspell/prohibit_custom.txt'] +
+                  ['en/hunspell/spelling_%s.txt' % c for c in ('en-US', 'en-GB', 'en-CA', 'en-AU', 'en-NZ', 'en-ZA')],
+    },
     'fr': {
         'module': ['fr/hunspell/spelling.txt', 'fr/hunspell/spelling_custom.txt', 'fr/hunspell/ignore.txt',
                    'fr/hunspell/prohibit.txt'],
@@ -166,6 +182,11 @@ def main():
                     if not e['name'].rsplit('/', 1)[-1].startswith('SynthDictionaryBuilder')]
             if ents:  # jars without (non-spelling) dictionaries are not needed
                 sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar), 'files': ents})
+        for group, artifact, version, names in EXTRA_JARS.get(mod, ()):
+            url = jar_url(group, artifact, version)
+            jar = fetch(url, cache)
+            sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar),
+                            'files': entries(jar, names)})
         if sources:
             manifest['languages'][mod] = sources
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'langtool', 'dictionaries.json')

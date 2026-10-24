@@ -1,5 +1,7 @@
 """Port of org.languagetool.rules.patterns.PatternTokenTest"""
 
+import pytest
+
 from langtool.analysis import (AnalyzedToken, SENTENCE_START_TAGNAME, SENTENCE_END_TAGNAME,
                                PARAGRAPH_END_TAGNAME)
 from langtool.patterns.pattern_token import PatternToken, PosToken, UNKNOWN_TAG
@@ -168,3 +170,28 @@ def test_form_hints():
     token = PatternTokenBuilder().token_regex('an|the').build()
     token.set_and_group_element(PatternTokenBuilder().token_regex('foo|an').build())
     assert token.calc_form_hints() == {'an'}
+
+
+def test_pattern_token_builder():
+    """PatternTokenBuilder (and PatternRuleBuilderHelper.pos/posRegex)"""
+    from langtool.patterns.pattern_token import PatternTokenBuilder, pos, pos_regex
+    t = PatternTokenBuilder().cs_token('need').match_inflected_forms().build()
+    assert t.get_string() == 'need' and t.is_case_sensitive() and t.inflected and not t.is_regular_expression()
+    t = PatternTokenBuilder().token_regex('solve(s|d)?').set_skip(3).build()
+    assert t.is_regular_expression() and not t.is_case_sensitive() and t.skip == 3
+    t = PatternTokenBuilder().pos('RB').min(0).build()
+    assert t.get_pos_tag() == 'RB' and not t.is_pos_tag_regular_expression() and t.get_min_occurrence() == 0
+    assert not t.test_string
+    t = pos_regex('VB.*')
+    assert t.get_pos_tag() == 'VB.*' and t.is_pos_tag_regular_expression()
+    # as in Java, posRegex() also makes the (empty) token string a regular expression
+    assert t.is_regular_expression()
+    assert pos('PCT').get_pos_tag() == 'PCT'
+    t = PatternTokenBuilder().token('x').negate().mark(False).set_is_white_space_before(True).build()
+    assert t.negation and not t.inside_marker and t.whitespace_before and t.test_whitespace
+    t = PatternTokenBuilder().pos_regex_with_string_exception('N.*', 'foo|bar').build()
+    assert [e.get_string() for e in t.current_and_next_exceptions] == ['foo|bar']
+    with pytest.raises(ValueError):
+        PatternTokenBuilder().min(-1)
+    with pytest.raises(ValueError):
+        PatternTokenBuilder().token('x').min(2).build()

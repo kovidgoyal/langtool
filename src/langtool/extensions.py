@@ -262,7 +262,10 @@ def create_rules(language, messages, user_config=None):
         examples = kw.get('examples')
         if examples is not None:
             kw = {k: v for k, v in kw.items() if k != 'examples'}
-        cls = CORE_RULES.get(name)
+        # a language specific class with the name of a core rule (e.g. the
+        # LongSentenceRule of org.languagetool.rules.en) replaces the core rule
+        _load_language_modules()
+        cls = None if (('rule', name, language.short_code) in _registry) else CORE_RULES.get(name)
         if cls is not None:
             r = cls(messages, language, **kw)
         else:
