@@ -633,6 +633,31 @@
    {
     "files": [
      {
+      "name": "ru/hunspell/ignore.txt",
+      "path": "org/languagetool/resource/ru/hunspell/ignore.txt",
+      "size": 72
+     },
+     {
+      "name": "ru/hunspell/spelling.txt",
+      "path": "org/languagetool/resource/ru/hunspell/spelling.txt",
+      "size": 39687
+     },
+     {
+      "name": "ru/hunspell/ru_RU.info",
+      "path": "org/languagetool/resource/ru/hunspell/ru_RU.info",
+      "size": 1078
+     },
+     {
+      "name": "ru/hunspell/ru_RU.dict",
+      "path": "org/languagetool/resource/ru/hunspell/ru_RU.dict",
+      "size": 1889147
+     },
+     {
+      "name": "ru/hunspell/prohibit.txt",
+      "path": "org/languagetool/resource/ru/hunspell/prohibit.txt",
+      "size": 868
+     },
+     {
       "name": "ru/russian.info",
       "path": "org/languagetool/resource/ru/russian.info",
       "size": 410

@@ -7806,13 +7806,8 @@
   "skipped": 0
  },
  "ru-RU": {
-  "failed_ids": [
-   "MissingYO[1]",
-   "Punct_PT_oborot[1]",
-   "Punct_PT_oborot_2[1]",
-   "Punct_PT_oborot_2[2]"
-  ],
-  "skipped": 24
+  "failed_ids": [],
+  "skipped": 0
  },
  "sk-SK": {
   "failed_ids": [],

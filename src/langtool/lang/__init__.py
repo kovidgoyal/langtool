@@ -20,6 +20,7 @@ from . import ml  # noqa: F401
 from . import nl  # noqa: F401
 from . import pl  # noqa: F401
 from . import ro  # noqa: F401
+from . import ru  # noqa: F401
 from . import sk  # noqa: F401
 from . import sl  # noqa: F401
 from . import sv  # noqa: F401

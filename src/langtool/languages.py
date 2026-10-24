@@ -17,6 +17,9 @@ Each language has:
                              remove_previous_tags))
      ('multiword2', file, dict(allow_first_capitalized, ...))
      ('custom', name)  -- language specific code
+ chunker: name of the chunker run on the tagged tokens (Language.getChunker())
+ post_disambiguation_chunker: name of the chunker run on the disambiguated
+   tokens (Language.getPostDisambiguationChunker())
  rules: list of (rule class name, kwargs) -- core rules are implemented in
    langtool.rules.core, others are language specific and are looked up in
    the extensions registry.
@@ -533,19 +536,32 @@ LANGUAGES = {
                R('WordRepeatRule'), R('RomanianWordRepeatBeginningRule'), R('SimpleReplaceRule'),
                R('CompoundRule')],
     ),
+    # org.languagetool.language.Russian (code in langtool.lang.ru); its
+    # MorfologikRussianSpellerRule (after UppercaseSentenceStartRule) and
+    # MorfologikRussianYOSpellerRule (after PunctuationMarkAtParagraphEnd2)
+    # are not ported (spell checking). RussianHybridDisambiguator: the
+    # MultiWordChunker, then the XmlRuleDisambiguator
     'ru': dict(
-        name='Russian', countries=['RU'], variants=[V('ru-RU')], ignored_characters_regex='[­́̀]',
+        name='Russian', countries=['RU'], variants=[V('ru-RU')], ignored_characters_regex='[\u00AD\u0301\u0300]',
+        sentence_tokenizer='srx', quotes=('«', '»', '‘', '’'), advanced_typography=True,
         tagger=dict(dict='ru/russian.dict', lowercase_with_uppercase=True, impl='RussianTagger'),
         synthesizer=dict(dict='ru/russian_synth.dict', tags='ru/tags_russian.txt'),
         word_tokenizer='RussianWordTokenizer',
         disambiguator=[mw('ru/multiwords.txt'), xml()],
-        rules=[R('CommaWhitespaceRule'), R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule'),
-               R('SentenceWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'), R('WhiteSpaceAtBeginOfParagraph'),
-               R('LongSentenceRule', max_words=50), R('LongParagraphRule'), R('ParagraphRepeatBeginningRule'),
-               R('RussianFillerWordsRule'), R('PunctuationMarkAtParagraphEnd2'), R('RussianUnpairedBracketsRule'),
-               R('RussianCompoundRule'), R('RussianSimpleReplaceRule'), R('RussianSimpleWordRepeatRule'),
-               R('RussianWordCoherencyRule'), R('RussianWordRepeatRule'), R('RussianWordRootRepeatRule'),
-               R('RussianVerbConjugationRule'), R('RussianDashRule'), R('RussianSpecificCaseRule')],
+        post_disambiguation_chunker='RussianChunker',
+        rules=[R('CommaWhitespaceRule',
+                 examples=('Не род<marker> ,</marker> а ум поставлю в воеводы.',
+                           'Не род<marker>,</marker> а ум поставлю в воеводы.')),
+               R('UppercaseSentenceStartRule',
+                 examples=('Закончилось лето. <marker>дети</marker> снова сели за школьные парты.',
+                           'Закончилось лето. <marker>Дети</marker> снова сели за школьные парты.')),
+               R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'),
+               R('WhiteSpaceAtBeginOfParagraph'), R('LongSentenceRule', max_words=50), R('LongParagraphRule'),
+               R('ParagraphRepeatBeginningRule'), R('RussianFillerWordsRule'), R('PunctuationMarkAtParagraphEnd2'),
+               R('RussianUnpairedBracketsRule'), R('RussianCompoundRule'), R('RussianSimpleReplaceRule'),
+               R('RussianSimpleWordRepeatRule'), R('RussianWordCoherencyRule'), R('RussianWordRepeatRule'),
+               R('RussianWordRootRepeatRule'), R('RussianVerbConjugationRule'), R('RussianDashRule'),
+               R('RussianSpecificCaseRule')],
     ),
     # org.languagetool.language.Slovak (code in langtool.lang.sk); its
     # MorfologikSlovakSpellerRule (after CompoundRule) is not ported (spell
