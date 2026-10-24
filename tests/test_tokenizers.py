@@ -239,3 +239,35 @@ def test_manual_tagger_adapter_multiple_words(adapter_tagger):
     assert len(atrs[0].readings) == 3
     assert atrs[1].token == 'inflectedform3'
     assert len(atrs[1].readings) == 4
+
+
+SRX_CARET = '''<?xml version="1.0" encoding="UTF-8"?>
+<srx xmlns="http://www.lisa.org/srx20" version="2.0">
+<header segmentsubflows="yes" cascade="yes"/>
+<body>
+<languagerules>
+<languagerule languagerulename="Test">
+<rule break="no"><beforebreak>^\\d+\\.\\s</beforebreak><afterbreak>\\p{L}</afterbreak></rule>
+<rule break="no"><beforebreak>\\.\\s</beforebreak><afterbreak>^x</afterbreak></rule>
+<rule break="yes"><beforebreak>\\.\\s</beforebreak><afterbreak></afterbreak></rule>
+</languagerule>
+</languagerules>
+<maprules>
+<languagemap languagepattern="xx.*" languagerulename="Test"/>
+</maprules>
+</body>
+</srx>
+'''
+
+
+def test_srx_caret_in_exception_rules(tmp_path):
+    """The exception (break="no") rules are matched in Java with transparent
+    bounds from the break position: ^ in the before pattern (a lookbehind)
+    matches at the start of the text, ^ in the after pattern at the break
+    position"""
+    path = tmp_path / 'test.srx'
+    path.write_text(SRX_CARET, encoding='utf-8')
+    tokenizer = SRXSentenceTokenizer(types.SimpleNamespace(short_code='xx'), str(path))
+    assert tokenizer.tokenize('1. Uno. Dos.') == ['1. Uno. ', 'Dos.']
+    assert tokenizer.tokenize('Ver 1. Uno.') == ['Ver 1. ', 'Uno.']
+    assert tokenizer.tokenize('Uno. xyz. Dos.') == ['Uno. xyz. ', 'Dos.']

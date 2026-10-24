@@ -90,14 +90,10 @@ def create_tagger(language):
                       spec.get('lowercase_with_uppercase', True))
 
 
-def create_synthesizer(language):
-    from .synthesis import BaseSynthesizer
-    spec = language.get('synthesizer')
-    if not spec:
-        return None
-    f = _custom(language, 'synthesizer', spec.get('impl'))
-    if f is not None:
-        return f(language, spec)
+def synthesizer_resources(language, spec):
+    """The arguments of a BaseSynthesizer for a synthesizer spec of a
+    language definition: (dictionary, tags_path, number_speller,
+    roman_numberer)"""
     tags = spec.get('tags')
     tags_path = language.resource_path(tags) if tags else None
     if tags_path and not os.path.exists(tags_path):
@@ -114,8 +110,20 @@ def create_synthesizer(language):
     sor = spec.get('sor')
     number_speller = load_soros(language.resource_path(sor), language.short_code) if sor else None
     roman_numberer = load_soros(language.resource_path('Roman.sor'), 'Roman')
-    return BaseSynthesizer(language.dictionary(spec['dict']), tags_path, resource_language(language),
-                           resource_dir(language), number_speller, roman_numberer)
+    return language.dictionary(spec['dict']), tags_path, number_speller, roman_numberer
+
+
+def create_synthesizer(language):
+    from .synthesis import BaseSynthesizer
+    spec = language.get('synthesizer')
+    if not spec:
+        return None
+    f = _custom(language, 'synthesizer', spec.get('impl'))
+    if f is not None:
+        return f(language, spec)
+    dictionary, tags_path, number_speller, roman_numberer = synthesizer_resources(language, spec)
+    return BaseSynthesizer(dictionary, tags_path, resource_language(language), resource_dir(language),
+                           number_speller, roman_numberer)
 
 
 def create_word_tokenizer(language):

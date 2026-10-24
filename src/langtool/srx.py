@@ -150,16 +150,20 @@ class RuleManager:
             for rule in doc.language_rules.get(name, ()):
                 if rule.is_break:
                     if exception_parts:
-                        exc = jregex.compile(_caret_to_G('|'.join(exception_parts)), jregex.UNICODE_CHARACTER_CLASS)
+                        exc = jregex.compile('|'.join(exception_parts), jregex.UNICODE_CHARACTER_CLASS)
                     else:
                         exc = None
                     self.break_rules.append(_BreakRule(doc, rule, exc))
                 else:
+                    # (the before pattern is in a lookbehind: with the transparent bounds of the
+                    # exception matcher, Java's lookbehind sets the region start to 0, so ^
+                    # matches at the start of the text there; in the lookahead it matches at the
+                    # break position, the region start)
                     s = '(?:'
                     if rule.before:
                         s += '(?<=' + rule.before + ')'
                     if rule.after:
-                        s += '(?=' + rule.after + ')'
+                        s += '(?=' + _caret_to_G(rule.after) + ')'
                     s += ')'
                     exception_parts.append(s)
 

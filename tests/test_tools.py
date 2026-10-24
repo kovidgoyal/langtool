@@ -186,3 +186,38 @@ def test_trim_special_characters():
 def test_is_junit_test():
     # TestHackHelper.isJUnitTest: true when called from a pytest test
     assert tools.is_junit_test()
+
+
+def test_is_emoji():
+    """StringTools.isEmoji (the length is counted in UTF-16 units, so a
+    single emoji is checked too)"""
+    assert tools.is_emoji('😂')
+    assert tools.is_emoji('🧡🚴')
+    assert tools.is_emoji('✌😂')
+    assert not tools.is_emoji('✌')
+    assert not tools.is_emoji('a')
+    assert not tools.is_emoji('casa')
+    assert not tools.is_emoji('𝐩𝐮𝐛')  # letters outside the BMP
+
+
+def test_java_list_sort():
+    """java.util.List.sort (TimSort) with a comparator that only orders one
+    pair of values (like SpanishSynthesizer's PostagComparator)"""
+    def cmp(a, b):
+        if a == 'X' and b == 'Y':
+            return 150
+        if a == 'Y' and b == 'X':
+            return -150
+        return 0
+    items = ['X', 'Y']
+    tools.java_list_sort(items, cmp)
+    assert items == ['Y', 'X']
+    items = ['X', 'A', 'Y']
+    tools.java_list_sort(items, cmp)
+    assert items == ['X', 'A', 'Y']  # binary insertion: Y vs A is equal, goes after A
+    items = ['Y', 'X', 'A']
+    tools.java_list_sort(items, cmp)
+    assert items == ['Y', 'X', 'A']
+    items = [3, 1, 2, 5, 4]
+    tools.java_list_sort(items, lambda a, b: a - b)
+    assert items == [1, 2, 3, 4, 5]

@@ -1007,7 +1007,10 @@ class GenericUnpairedBracketsRule(CoreTextLevelRule):
     def get_message(self):
         return None
 
-    def get_suggestions(self, full_text, start_pos, end_pos, symbol, other_symbol):
+    def get_suggestions(self, full_text, start_pos, end_pos, symbol, other_symbol, symbol_type=None):
+        """getSuggestions(text, startPos, endPos, Symbol, otherSymbol): the
+        Java Symbol is given as the symbol string and its type ('Opening'
+        or 'Closing')"""
         return None
 
     def prevent_match(self, sentence):
@@ -1043,7 +1046,7 @@ class GenericUnpairedBracketsRule(CoreTextLevelRule):
         if self.prevent_match(sentence):
             return None
         m = RuleMatch(self, sentence, start_pos, start_pos + sl, message)
-        repl = self.get_suggestions(full_text, start_pos, start_pos + sl, symbol, other)
+        repl = self.get_suggestions(full_text, start_pos, start_pos + sl, symbol, other, symbol_type)
         if repl is not None:
             m.set_suggested_replacements(repl)
         return m

@@ -2,13 +2,17 @@
 <filter class="org.languagetool.rules.XXX"> classes)."""
 
 import datetime
+import math
+import struct
+import threading
 
 import regex
 
 from .. import jregex
 from ..tools import (is_punctuation_or_symbol, is_all_uppercase, is_capitalized_word, is_whitespace,
                      uppercase_first_char, is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test,
-                     preserve_case, is_letter, is_punctuation_mark, is_not_word_string)
+                     preserve_case, is_letter, is_punctuation_mark, is_not_word_string,
+                     java_equals_ignore_case, remove_diacritics)
 from .filters import RuleFilter
 
 _WS = regex.compile(r'\s+')
@@ -47,7 +51,7 @@ class AdaptSuggestionsFilter(RuleFilter):
 
 def adapt_suggestion(lang, s, original_error_str):
     from .. import extensions
-    f = extensions.lookup('adapt_suggestion', lang.short_code)
+    f = extensions.lookup('adapt_suggestion', lang.short_code, lang.short_code)
     if f is not None:
         return f(lang, s, original_error_str)
     return s
@@ -1032,6 +1036,537 @@ class AbstractNumberInWordFilter(RuleFilter):
 
     def get_suggestions(self, word):
         raise NotImplementedError()
+
+
+class EditDistance:
+    """Port of org.languagetool.rules.spelling.symspell.implementation.EditDistance
+    (only the Damerau algorithm exists): the optimal string alignment
+    (restricted Damerau-Levenshtein) distance to a base string, with a
+    maximum distance. The work arrays are reused between comparisons, as in
+    Java."""
+
+    def __init__(self, base_string):
+        self.base_string = base_string
+        if not base_string:
+            self.base_string = None
+            return
+        self.v0 = [0] * len(base_string)
+        self.v2 = [0] * len(base_string)  # stores one level further back (offset by +1 position)
+
+    def compare(self, string2, max_distance):
+        """The edit distance (or -1 if max_distance is exceeded)."""
+        return self.damerau_levenshtein_distance(string2, max_distance)
+
+    def damerau_levenshtein_distance(self, string2, max_distance):
+        base = self.base_string
+        if base is None:
+            return 0 if string2 is None else len(string2)
+        if not string2:
+            return len(base)
+        if max_distance == 0:
+            return 0 if base == string2 else -1
+        # if strings of different lengths, ensure shorter string is in string1
+        if len(base) > len(string2):
+            string1 = string2
+            string2 = base
+        else:
+            string1 = base
+        s_len = len(string1)  # this is also the minimum length of the two strings
+        t_len = len(string2)
+        # suffix common to both strings can be ignored
+        while s_len > 0 and string1[s_len - 1] == string2[t_len - 1]:
+            s_len -= 1
+            t_len -= 1
+        start = 0
+        if string1[0] == string2[0] or s_len == 0:
+            # prefix common to both strings can be ignored
+            while start < s_len and string1[start] == string2[start]:
+                start += 1
+            s_len -= start  # length of the part excluding common prefix and suffix
+            t_len -= start
+            # if all of shorter string matches prefix and/or suffix of longer string, then
+            # edit distance is just the delete of additional characters present in longer string
+            if s_len == 0:
+                return t_len
+            string2 = string2[start:start + t_len]
+        len_diff = t_len - s_len
+        if max_distance < 0 or max_distance > t_len:
+            max_distance = t_len
+        elif len_diff > max_distance:
+            return -1
+        if t_len > len(self.v0):
+            self.v0 = [0] * t_len
+            self.v2 = [0] * t_len
+        else:
+            for i in range(t_len):
+                self.v2[i] = 0
+        v0 = self.v0
+        v2 = self.v2
+        for j in range(max_distance):
+            v0[j] = j + 1
+        for j in range(max_distance, t_len):
+            v0[j] = max_distance + 1
+        j_start_offset = max_distance - (t_len - s_len)
+        have_max = max_distance < t_len
+        j_start = 0
+        j_end = max_distance
+        s_char = string1[0]
+        current = 0
+        for i in range(s_len):
+            prevs_char = s_char
+            s_char = string1[start + i]
+            t_char = string2[0]
+            left = i
+            current = left + 1
+            next_trans_cost = 0
+            # no need to look beyond window of lower right diagonal - maxDistance cells (lower right diag is
+            # i - lenDiff) and the upper left diagonal + maxDistance cells (upper left is i)
+            if i > j_start_offset:
+                j_start += 1
+            if j_end < t_len:
+                j_end += 1
+            for j in range(j_start, j_end):
+                above = current
+                this_trans_cost = next_trans_cost
+                next_trans_cost = v2[j]
+                v2[j] = current = left  # cost of diagonal (substitution)
+                left = v0[j]  # left now equals current cost (which will be diagonal at next iteration)
+                prevt_char = t_char
+                t_char = string2[j]
+                if s_char != t_char:
+                    if left < current:
+                        current = left  # insertion
+                    if above < current:
+                        current = above  # deletion
+                    current += 1
+                    if i != 0 and j != 0 and s_char == prevt_char and prevs_char == t_char:
+                        this_trans_cost += 1
+                        if this_trans_cost < current:
+                            current = this_trans_cost  # transposition
+                v0[j] = current
+            if have_max and v0[i + len_diff] > max_distance:
+                return -1
+        return current if current <= max_distance else -1
+
+
+class _StringComparator:
+    """AbstractFindSuggestionsFilter.StringComparator: orders strings by
+    their Damerau edit distance to a word (at most 4, larger distances
+    count as 8)."""
+
+    max_distance = 4
+
+    def __init__(self, word):
+        self.distance = EditDistance(word)
+
+    def key(self, s):
+        d = self.distance.compare(s, self.max_distance)
+        return 2 * self.max_distance if d < 0 else d
+
+
+class AbstractFindSuggestionsFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractFindSuggestionsFilter: finds
+    suggestions for the token wordFrom (a position, or "inmarker" for the
+    marked text) among its spelling suggestions that match desiredPostag
+    (suggestions matching priorityPostag first, suggestions matching
+    removeSuggestionsRegexp removed); without any, the suggestions are
+    synthesized with desiredPostag from the lemmas of the spelling
+    suggestions (if get_synthesizer() gives a synthesizer), ordered by edit
+    distance. The suggestions replace {suggestion}/{Suggestion}/{SUGGESTION}
+    in the rule's suggestions. Mode:diacritics only accepts suggestions that
+    differ in diacritics, suppressMatch:true discards matches without
+    suggestions.
+
+    Subclasses implement get_tagger() and get_spelling_suggestions(atr), and
+    may override get_synthesizer(), is_suggestion_exception(atr),
+    clean_suggestion(s) and pre_process_wrong_word(word). Filters are
+    singletons per class in Java (RuleFilterCreator), so the cache of
+    spelling suggestions is shared per class here too."""
+
+    MAX_SUGGESTIONS = 10
+    _CACHE_SIZE = 10000
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls._spelling_suggestions_cache = {}
+        cls._spelling_suggestions_lock = threading.Lock()
+
+    _spelling_suggestions_cache = {}
+    _spelling_suggestions_lock = threading.Lock()
+
+    def get_tagger(self):
+        raise NotImplementedError()
+
+    def get_spelling_suggestions(self, atr):
+        raise NotImplementedError()
+
+    def get_synthesizer(self):
+        return None
+
+    def is_suggestion_exception(self, analyzed_suggestion):
+        return False
+
+    def clean_suggestion(self, s):
+        return s
+
+    def pre_process_wrong_word(self, word):
+        return word.replace(' ', '')
+
+    def get_spelling_suggestions_cached(self, atr):
+        """Spell suggestions only depend on the token and whether it is
+        tagged, so they are cached by that key."""
+        key = (atr.token, atr.is_tagged())
+        cache = type(self)._spelling_suggestions_cache
+        cached = cache.get(key)
+        if cached is None:
+            cached = list(self.get_spelling_suggestions(atr))
+            with type(self)._spelling_suggestions_lock:
+                if len(cache) >= self._CACHE_SIZE:
+                    cache.clear()
+                cache[key] = cached
+        return cached
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        from ..analysis import AnalyzedToken, AnalyzedTokenReadings
+        from .base import RuleMatch
+        replacements = []
+        replacements2 = []
+        word_from = self.get_required('wordFrom', arguments)
+        desired_postag = self.get_required('desiredPostag', arguments)
+        priority_postag = self.get_optional('priorityPostag', arguments)
+        remove_suggestions_regexp = self.get_optional('removeSuggestionsRegexp', arguments)
+        # suppress match if there are no suggestions
+        b_suppress_match = self.get_optional('suppressMatch', arguments, 'false').lower() == 'true'
+        # diacriticsMode: return only changes in diacritics. If there is none, the match is removed.
+        mode = self.get_optional('Mode', arguments)
+        diacritics_mode = mode is not None and mode == 'diacritics'
+        generate_suggestions = True
+        regexp_pattern = None
+        synth = self.get_synthesizer()
+        used_lemmas = []
+        string_comparator = _StringComparator('')
+        desired = jregex.compile(desired_postag)
+        priority = jregex.compile(priority_postag) if priority_postag is not None else None
+        if word_from is not None and desired_postag is not None:
+            if word_from == 'inmarker':
+                match.set_original_error_str()
+                atr_word = AnalyzedTokenReadings(AnalyzedToken(self.pre_process_wrong_word(match.original_error_str),
+                                                               '', ''))
+            else:
+                atr_word = pattern_tokens[self.get_position(word_from, pattern_tokens, match)]
+            string_comparator = _StringComparator(atr_word.token)
+            is_word_capitalized = is_capitalized_word(atr_word.token)
+            is_word_allupper = is_all_uppercase(atr_word.token)
+            # Check if the original token (before disambiguation) meets the requirements
+            for atr in self.get_tagger().tag([atr_word.token]):
+                if atr.matches_pos_tag_regex(desired):
+                    if diacritics_mode:
+                        return None
+            if generate_suggestions:
+                if remove_suggestions_regexp is not None:
+                    regexp_pattern = jregex.compile(remove_suggestions_regexp)
+                suggestions = self.get_spelling_suggestions_cached(atr_word)
+                used_priority_postag_pos = 0
+                for suggestion in suggestions:
+                    # TODO: do not tag capitalized words with tags for lower case
+                    analyzed_suggestions = self.get_tagger().tag([self.clean_suggestion(suggestion)])
+                    for analyzed_suggestion in analyzed_suggestions:
+                        if self.is_suggestion_exception(analyzed_suggestion):
+                            continue
+                        if len(replacements) >= 2 * self.MAX_SUGGESTIONS:
+                            break
+                        used = False
+                        if suggestion != atr_word.token and analyzed_suggestion.matches_pos_tag_regex(desired):
+                            if (suggestion not in replacements and suggestion.lower() not in replacements
+                                    and (not diacritics_mode
+                                         or self._equal_without_diacritics(suggestion, atr_word.token))):
+                                if regexp_pattern is None or not regexp_pattern.fullmatch(suggestion):
+                                    replacement = suggestion
+                                    if is_word_allupper:
+                                        replacement = replacement.upper()
+                                    if is_word_capitalized:
+                                        replacement = uppercase_first_char(replacement)
+                                    if priority is not None and analyzed_suggestion.matches_pos_tag_regex(priority):
+                                        replacements.insert(used_priority_postag_pos, replacement)
+                                        used_priority_postag_pos += 1
+                                        used = True
+                                    else:
+                                        replacements.append(replacement)
+                                        used = True
+                        # try with the synthesizer
+                        if not used and synth is not None:
+                            synthesized_suggestions = []
+                            for at in analyzed_suggestion:
+                                if at.lemma in used_lemmas:
+                                    continue
+                                synthesized_array = synth.synthesize(at, desired_postag, True) or []
+                                used_lemmas.append(at.lemma)
+                                for synthesized_suggestion in synthesized_array:
+                                    if synthesized_suggestion not in synthesized_suggestions:
+                                        synthesized_suggestions.append(synthesized_suggestion)
+                                for replacement in synthesized_suggestions:
+                                    if is_word_allupper:
+                                        replacement = replacement.upper()
+                                    if is_word_capitalized:
+                                        replacement = uppercase_first_char(replacement)
+                                    replacements2.append(replacement)
+        match_contains_some_finished_suggestion = any('{suggestion}' not in k.lower()
+                                                      for k in match.suggested_replacements)
+        if diacritics_mode and not replacements and not match_contains_some_finished_suggestion:
+            return None
+        if not replacements and not replacements2 and b_suppress_match \
+                and not match_contains_some_finished_suggestion:
+            return None
+        rule_match = RuleMatch(match.rule, match.sentence, match.from_pos, match.to_pos, match.message,
+                               match.short_message)
+        rule_match.type = match.type
+        definitive_replacements = []
+        replacements_used = False
+        if generate_suggestions:
+            for s in match.suggested_replacements:
+                if '{suggestion}' in s or '{Suggestion}' in s or '{SUGGESTION}' in s:
+                    replacements_used = True
+                    for s2 in replacements:
+                        if len(definitive_replacements) >= self.MAX_SUGGESTIONS:
+                            break
+                        if '{suggestion}' in s:
+                            if s2 not in definitive_replacements:
+                                definitive_replacements.append(s.replace('{suggestion}', s2))
+                        elif '{Suggestion}' in s:
+                            if uppercase_first_char(s2) not in definitive_replacements:
+                                definitive_replacements.append(s.replace('{Suggestion}', uppercase_first_char(s2)))
+                        else:
+                            if s2.upper() not in definitive_replacements:
+                                definitive_replacements.append(s.replace('{SUGGESTION}', s2.upper()))
+                else:
+                    if s not in definitive_replacements:
+                        definitive_replacements.append(s)
+            if not replacements_used:
+                if not replacements:
+                    replacements2.sort(key=string_comparator.key)  # stable, like Collections.sort
+                    for replacement in replacements2:
+                        if replacement not in replacements and replacement not in definitive_replacements:
+                            replacements.append(replacement)
+                for replacement in replacements:
+                    if len(definitive_replacements) >= self.MAX_SUGGESTIONS:
+                        break
+                    if replacement not in definitive_replacements:
+                        definitive_replacements.append(replacement)
+        if match.original_error_str in definitive_replacements:
+            definitive_replacements.remove(match.original_error_str)
+        if definitive_replacements:
+            rule_match.set_suggested_replacements(list(dict.fromkeys(definitive_replacements)))
+        return rule_match
+
+    @staticmethod
+    def _equal_without_diacritics(s, t):
+        return java_equals_ignore_case(remove_diacritics(s), remove_diacritics(t))
+
+
+class AbstractNewYearDateFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractNewYearDateFilter: accepts
+    rule matches if we are in the first days of a new year (= it is
+    January) and the user may have entered a date (arguments year, month,
+    day) with the old year (but not a date in December). Replaces {year}
+    and {realYear} in the message. In unit tests it is always January 2014
+    (TestHackHelper.isJUnitTest()).
+
+    Subclasses implement get_month(str) (January returns 1) and optionally
+    get_day_of_month(str). Java's getCalendar() (the calendar of the
+    language's locale) is only used for the current date and to validate
+    the date, which a GregorianCalendar does the same way for all
+    languages, so it is not needed. Invalid dates (Java: the
+    IllegalArgumentException of the non-lenient calendar) discard the
+    match; unparsable years and unknown months raise errors like in
+    Java."""
+
+    def is_january(self):
+        if is_junit_test():
+            return True
+        return datetime.date.today().month == 1
+
+    def get_current_year(self):
+        if is_junit_test():
+            return 2014
+        return datetime.date.today().year
+
+    def get_month(self, localized_month):
+        raise NotImplementedError()
+
+    def get_day_of_month(self, localized_day_of_month):
+        return 0
+
+    def accept_rule_match(self, match, args, pattern_token_pos, pattern_tokens, token_positions):
+        from .base import RuleMatch
+        year = java_parse_int(self.get_required('year', args))
+        month = self._get_month_from_arguments(args)
+        day_of_month = self._get_day_of_month_from_arguments(args)
+        try:
+            date_from_text = CalendarDate.of(year, month, day_of_month)
+        except ValueError:
+            return None  # date is not valid; another rule is responsible
+        month_from_text = date_from_text.month
+        year_from_text = date_from_text.year
+        current_year = self.get_current_year()
+        if self.is_january() and month_from_text != 11 and year_from_text + 1 == current_year:  # 11: December
+            message = match.message.replace('{year}', str(year_from_text)).replace('{realYear}', str(current_year))
+            rule_match = RuleMatch(match.rule, match.sentence, match.from_pos, match.to_pos, message,
+                                   match.short_message)
+            rule_match.type = match.type
+            return rule_match
+        return None
+
+    def _get_day_of_month_from_arguments(self, args):
+        day_of_month_string = self.get_required('day', args).replace('\u00ad', '')  # replace soft hyphen
+        m = _DAY_OF_MONTH_PATTERN.fullmatch(day_of_month_string)
+        if m:
+            # The day of the month is a number, possibly with a suffix such as "22nd"
+            return java_parse_int(m.group(1))
+        # In some languages, the day of the month can also be written with letters rather than with
+        # digits, so parse localized numbers.
+        return self.get_day_of_month(day_of_month_string)
+
+    def _get_month_from_arguments(self, args):
+        month_str = self.get_required('month', args).replace('\u00ad', '')  # replace soft hyphen
+        if is_numeric(month_str):
+            month = java_parse_int(month_str)
+        else:
+            month = self.get_month(month_str)
+        return month - 1
+
+
+def java_float(x):
+    """Rounds a number to a Java float (IEEE 754 single precision)."""
+    try:
+        return struct.unpack('f', struct.pack('f', x))[0]
+    except OverflowError:
+        return math.copysign(math.inf, x)
+
+
+def java_float_to_string(f):
+    """java.lang.Float.toString: the shortest decimal that uniquely
+    distinguishes the float, as plain decimal for 1e-3 <= |f| < 1e7 (with
+    at least one digit after the point), otherwise in computerized
+    scientific notation (like 1.0E10)."""
+    if math.isnan(f):
+        return 'NaN'
+    if math.isinf(f):
+        return 'Infinity' if f > 0 else '-Infinity'
+    if f == 0:
+        return '-0.0' if math.copysign(1, f) < 0 else '0.0'
+    sign = '-' if f < 0 else ''
+    a = abs(f)
+    for p in range(1, 10):
+        s = '%.*e' % (p - 1, a)
+        if java_float(float(s)) == a:
+            break
+    mantissa, exp = s.split('e')
+    digits = mantissa.replace('.', '').rstrip('0') or '0'
+    e = int(exp)
+    if 1e-3 <= a < 1e7:
+        point = e + 1  # position of the decimal point in digits
+        if point <= 0:
+            return sign + '0.' + '0' * (-point) + digits
+        if point >= len(digits):
+            return sign + digits + '0' * (point - len(digits)) + '.0'
+        return sign + digits[:point] + '.' + digits[point:]
+    return sign + digits[0] + '.' + (digits[1:] or '0') + 'E' + str(e)
+
+
+class AbstractTextToNumberFilter(RuleFilter):
+    """Port of org.languagetool.rules.AbstractTextToNumberFilter: adds the
+    number written with words in the marked tokens as a suggestion (with
+    Java float arithmetic), e.g. "tres mil" -> "3000", with a decimal
+    comma (is_comma()) and percentages (is_percentage()).
+
+    Subclasses define the class attributes numbers and multipliers (word ->
+    value) and implement is_comma(s) and is_percentage(pattern_tokens, i),
+    optionally format_result(s) and tokenize(s). In Java numbers and
+    multipliers are static fields of the abstract class, filled by the
+    static initializers of all loaded subclasses (so in a JVM with several
+    languages they are shared); here each subclass has its own."""
+
+    numbers = {}
+    multipliers = {}
+
+    def accept_rule_match(self, match, arguments, pattern_token_pos, pattern_tokens, token_positions):
+        numbers = self.numbers
+        multipliers = self.multipliers
+        f = java_float
+        pos_word = 0
+        total = 0.0
+        current = 0.0
+        total_decimal = 0.0
+        current_decimal = 0.0
+        added_zeros = 0
+        percentage = False
+        decimal = False
+        while pos_word < len(pattern_tokens) and pattern_tokens[pos_word].end_pos <= match.to_pos:
+            # inside <marker>
+            if pattern_tokens[pos_word].start_pos >= match.from_pos and \
+                    pattern_tokens[pos_word].end_pos <= match.to_pos:
+                form = pattern_tokens[pos_word].token.lower()
+                if pos_word > 0 and self.is_percentage(pattern_tokens, pos_word):
+                    percentage = True
+                    break
+                if self.is_comma(form):
+                    decimal = True
+                    pos_word += 1
+                    continue
+                for sub_form in self.tokenize(form):
+                    if not decimal:
+                        if sub_form in numbers:
+                            current = f(current + numbers[sub_form])
+                        elif sub_form in multipliers:
+                            if current == 0:  # mil
+                                current = 1.0
+                            total = f(total + f(current * multipliers[sub_form]))
+                            current = 0.0
+                    else:
+                        if sub_form in numbers:
+                            zeros_to_add = len(self._format(numbers[sub_form], False))
+                            # (float / double, then narrowed by the compound assignment)
+                            current_decimal = f(current_decimal + numbers[sub_form] / math.pow(10, added_zeros +
+                                                                                               zeros_to_add))
+                            added_zeros += 1
+                        # else: multipliers after the decimal comma are not expected
+            pos_word += 1
+        total = f(total + current)
+        total_decimal = f(total_decimal + current_decimal)
+        total = f(total + total_decimal)
+        rule_match = match
+        rule_match.add_suggested_replacement(self._format(total, percentage))
+        return rule_match
+
+    def _format(self, d, percentage):
+        # if (d == (long) d): the cast saturates (NaN becomes 0), the long is compared as a float
+        if math.isnan(d):
+            as_long = 0
+        elif d >= 2 ** 63:
+            as_long = 2 ** 63 - 1
+        elif d <= -2 ** 63:
+            as_long = -2 ** 63
+        else:
+            as_long = int(d)
+        if d == java_float(as_long):
+            result = '%d' % as_long
+        else:
+            result = java_float_to_string(d)
+        if percentage:
+            result = result + '\u202f%'  # narrow non-breaking space + percentage
+        return self.format_result(result)
+
+    def is_comma(self, s):
+        raise NotImplementedError()
+
+    def is_percentage(self, pattern_tokens, i):
+        raise NotImplementedError()
+
+    def format_result(self, s):
+        return s
+
+    def tokenize(self, s):
+        return [s]
 
 
 _MAX_UNDERLINED_LENGTH = 50

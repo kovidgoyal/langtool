@@ -1,6 +1,7 @@
 """Ports of RuleMatchTest, RuleWithMaxFilterTest, SameRuleGroupFilterTest and
 CleanOverlappingFilterTest (languagetool-core/src/test/java/org/languagetool/rules/),
-plus tests of core filters (AbstractDateCheckFilter, AbstractAdvancedSynthesizerFilter)."""
+plus tests of core filters (AbstractDateCheckFilter, AbstractAdvancedSynthesizerFilter,
+AbstractFindSuggestionsFilter with EditDistance, AbstractNewYearDateFilter, AbstractTextToNumberFilter...)."""
 
 import pytest
 
@@ -555,3 +556,221 @@ def test_multitoken_speller(tmp_path):
     assert speller.get_suggestions('single') == []
     assert convert_to_title_case_iterating_chars('homo sapiens-x') == 'Homo Sapiens-X'
     assert get_language('xx').get_multitoken_speller() is None
+
+
+# --- AbstractFindSuggestionsFilter, EditDistance --------------------------------
+
+from langtool.rules.core_filters import (AbstractFindSuggestionsFilter, AbstractNewYearDateFilter,  # noqa: E402
+                                         AbstractTextToNumberFilter, EditDistance, java_float_to_string)
+
+
+def test_edit_distance_damerau():
+    """org.languagetool.rules.spelling.symspell.implementation.EditDistance"""
+    d = EditDistance('casa')
+    assert d.compare('casa', 4) == 0
+    assert d.compare('cosa', 4) == 1
+    assert d.compare('caas', 4) == 1  # transposition
+    assert d.compare('cas', 4) == 1
+    assert d.compare('casas', 4) == 1
+    assert d.compare('xyzw', 4) == 4
+    assert d.compare('xyzwvu', 4) == -1  # more than maxDistance
+    assert d.compare('perro', 1) == -1
+    assert d.compare('', 4) == 4
+    assert d.compare('cosa', 0) == -1
+    assert d.compare('casa', 0) == 0
+    assert EditDistance('').compare('abc', 4) == 3
+    assert EditDistance('abcdef').compare('abdcef', 4) == 1
+    assert EditDistance('ca').compare('abc', 4) == 3  # restricted Damerau (optimal string alignment)
+
+
+class _FakeTagger:
+    def __init__(self, readings):
+        self.readings = readings
+
+    def tag(self, words):
+        out = []
+        for w in words:
+            rs = self.readings.get(w, [(None, None)])
+            out.append(AnalyzedTokenReadings([AnalyzedToken(w, t, lemma) for lemma, t in rs], 0))
+        return out
+
+
+class _FakeSynth:
+    def __init__(self, forms):
+        self.forms = forms
+
+    def synthesize(self, token, pos_tag, pos_tag_regexp=False):
+        return self.forms.get((token.lemma, pos_tag), [])
+
+
+class _FindSuggestionsFilter(AbstractFindSuggestionsFilter):
+    tagger = _FakeTagger({
+        'casa': [('casa', 'NCFS000'), ('casar', 'VMIP3S0')], 'cosa': [('cosa', 'NCFS000')],
+        'caso': [('caso', 'NCMS000')], 'casó': [('casar', 'VMIS3S0')], 'Casa': [('Casa', 'NP00000')],
+        'casas': [('casa', 'NCFP000')], 'cása': [('cása', 'NCFS000')]})
+    suggestions = {'cas': ['casa', 'cosa', 'caso', 'casó', 'Casa'], 'Cas': ['casa', 'caso'],
+                   'casa': ['cosa', 'cása'], 'caso': ['cosa', 'casó', 'cáso']}
+    synth = None
+    calls = 0
+
+    def get_tagger(self):
+        return self.tagger
+
+    def get_spelling_suggestions(self, atr):
+        type(self).calls += 1
+        return self.suggestions.get(atr.token, [])
+
+    def get_synthesizer(self):
+        return self.synth
+
+
+def _find_match(sugg='{suggestion}', message='msg'):
+    m = RuleMatch(FakeRule(), None, 0, 3, message, 'short')
+    m.set_suggested_replacements([sugg] if sugg is not None else [])
+    return m
+
+
+def test_find_suggestions_filter():
+    f = _FindSuggestionsFilter()
+    tokens = _tokens('el cas')
+    m = f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'NC.*'}, 1, tokens, [1, 1])
+    assert m.suggested_replacements == ['casa', 'cosa', 'caso']
+    assert m.short_message == 'short'
+    # priorityPostag first, removeSuggestionsRegexp
+    args = {'wordFrom': '2', 'desiredPostag': 'NC.*', 'priorityPostag': 'NCM.*', 'removeSuggestionsRegexp': 'cos.'}
+    m = f.accept_rule_match(_find_match('x {suggestion}'), args, 1, tokens, [1, 1])
+    assert m.suggested_replacements == ['x caso', 'x casa']
+    # capitalization of the original word, {Suggestion}, {SUGGESTION}
+    m = f.accept_rule_match(_find_match('{SUGGESTION}'), {'wordFrom': '2', 'desiredPostag': 'NC.*'}, 1,
+                            _tokens('el Cas'), [1, 1])
+    assert m.suggested_replacements == ['CASA', 'CASO']
+    # cached per token + isTagged
+    calls = _FindSuggestionsFilter.calls
+    f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'NC.*'}, 1, tokens, [1, 1])
+    assert _FindSuggestionsFilter.calls == calls
+    # no suggestion: the match is kept without suggestions, unless suppressMatch
+    m = f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'Z.*'}, 1, tokens, [1, 1])
+    assert m.suggested_replacements == []
+    assert f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'Z.*', 'suppressMatch': 'true'},
+                               1, tokens, [1, 1]) is None
+    # a finished suggestion keeps the match
+    m = f.accept_rule_match(_find_match('fixed'), {'wordFrom': '2', 'desiredPostag': 'Z.*',
+                                                   'suppressMatch': 'true'}, 1, tokens, [1, 1])
+    assert m.suggested_replacements == ['fixed']
+    # diacritics mode: the original word matches the POS tag -> no match; only diacritic changes
+    assert f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'NC.*', 'Mode': 'diacritics'},
+                               1, _tokens('la casa'), [1, 1]) is None
+    m = f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'VMIS.*', 'Mode': 'diacritics'},
+                            1, _tokens('lo caso'), [1, 1])
+    assert m.suggested_replacements == ['casó']
+    assert f.accept_rule_match(_find_match(), {'wordFrom': '2', 'desiredPostag': 'NCF.*', 'Mode': 'diacritics'},
+                               1, _tokens('lo caso'), [1, 1]) is None
+    with pytest.raises(ValueError):
+        f.accept_rule_match(_find_match(), {'wordFrom': '2'}, 1, tokens, [1, 1])
+
+
+def test_find_suggestions_filter_synthesizer():
+    f = _FindSuggestionsFilter()
+    f.synth = _FakeSynth({('casa', 'NC.P000'): ['casas'], ('casar', 'NC.P000'): [],
+                          ('cosa', 'NC.P000'): ['cosas'], ('caso', 'NC.P000'): ['casos'],
+                          ('Casa', 'NC.P000'): []})
+    tokens = _tokens('las cas')
+    m = f.accept_rule_match(_find_match(None), {'wordFrom': '2', 'desiredPostag': 'NC.P000'}, 1, tokens, [1, 1])
+    # synthesized forms ordered by the edit distance to "cas" (stable: all have distance 2)
+    assert m.suggested_replacements == ['casas', 'cosas', 'casos']
+    m = f.accept_rule_match(_find_match(None), {'wordFrom': '2', 'desiredPostag': 'NC.P000'}, 1,
+                            _tokens('los caos'), [1, 1])
+    assert m.suggested_replacements == []
+
+
+class _InMarkerFilter(_FindSuggestionsFilter):
+    pass
+
+
+def test_find_suggestions_filter_inmarker():
+    f = _InMarkerFilter()
+    from langtool.tool import JLanguageTool
+    sentence = JLanguageTool(get_language('xx')).get_analyzed_sentence('x c as')
+    m = RuleMatch(FakeRule(), sentence, 2, 6, 'msg')
+    m.set_suggested_replacements(['{suggestion}'])
+    m = f.accept_rule_match(m, {'wordFrom': 'inmarker', 'desiredPostag': 'NC.*'}, 1, [], [])
+    assert m.suggested_replacements == ['casa', 'cosa', 'caso']
+
+
+# --- AbstractNewYearDateFilter ------------------------------------------------
+
+class _EnglishNewYearDateFilter(AbstractNewYearDateFilter):
+    get_month = _EnglishDateCheckFilter.get_month
+    _MONTHS = _EnglishDateCheckFilter._MONTHS
+
+
+def test_new_year_date_filter():
+    f = _EnglishNewYearDateFilter()
+    m = f.accept_rule_match(_date_match('{year} or {realYear}?'), dict(year='2013', month='Feb', day='3rd'), 0, [],
+                            [])
+    # in tests it is always January 2014
+    assert m.message == '2013 or 2014?'
+    assert m.short_message == 'short' and m.type == 'Hint'
+    assert f.accept_rule_match(_date_match(), dict(year='2013', month='2', day='3'), 0, [], []) is not None
+    # December, other years, invalid dates: no match
+    assert f.accept_rule_match(_date_match(), dict(year='2013', month='Dec', day='3'), 0, [], []) is None
+    assert f.accept_rule_match(_date_match(), dict(year='2014', month='Feb', day='3'), 0, [], []) is None
+    assert f.accept_rule_match(_date_match(), dict(year='2012', month='Feb', day='3'), 0, [], []) is None
+    assert f.accept_rule_match(_date_match(), dict(year='2013', month='Feb', day='30'), 0, [], []) is None
+    with pytest.raises(ValueError):
+        f.accept_rule_match(_date_match(), dict(year='20x3', month='Feb', day='3'), 0, [], [])
+
+
+def test_new_year_date_filter_outside_tests(monkeypatch):
+    import langtool.rules.core_filters as cf
+    monkeypatch.setattr(cf, 'is_junit_test', lambda: False)
+    import datetime
+    f = _EnglishNewYearDateFilter()
+    today = datetime.date.today()
+    assert f.get_current_year() == today.year
+    assert f.is_january() == (today.month == 1)
+
+
+# --- AbstractTextToNumberFilter -----------------------------------------------
+
+class _SpanishLikeTextToNumberFilter(AbstractTextToNumberFilter):
+    numbers = {'cero': 0.0, 'medio': 0.5, 'un': 1.0, 'dos': 2.0, 'tres': 3.0, 'cinco': 5.0, 'veinte': 20.0,
+               'cien': 100.0, 'ciento': 100.0}
+    multipliers = {'mil': 1000.0, 'millones': 1000000.0, 'billones': 10E12}
+
+    def is_comma(self, s):
+        return s.lower() in ('coma', 'comma')
+
+    def is_percentage(self, pattern_tokens, i):
+        return pattern_tokens[i].token == 'ciento' and pattern_tokens[i - 1].token.lower() == 'por'
+
+
+def _number(text, from_pos=0, to_pos=None):
+    tokens = [t for t in _tokens(text)]
+    m = RuleMatch(FakeRule(), None, from_pos, to_pos if to_pos is not None else len(text), 'msg')
+    return _SpanishLikeTextToNumberFilter().accept_rule_match(m, {}, 0, tokens, []).suggested_replacements
+
+
+def test_text_to_number_filter():
+    assert _number('tres') == ['3']
+    assert _number('dos mil tres') == ['2003']
+    assert _number('mil') == ['1000']
+    assert _number('veinte millones') == ['20000000']
+    assert _number('dos coma cinco') == ['2.5']
+    assert _number('tres coma dos cinco') == ['3.25']
+    assert _number('cinco por ciento') == ['5 %']
+    # Java float arithmetic: (float) 10E12 * 3 (as in Java, a "billón" is 10E12 = 1e13 there)
+    assert _number('tres billones') == ['30000000532480']
+    # only the tokens inside the marker
+    assert _number('dos mil tres', 4) == ['1003']
+
+
+def test_java_float_to_string():
+    """Float.toString"""
+    assert java_float_to_string(0.5) == '0.5'
+    assert java_float_to_string(2.25) == '2.25'
+    assert java_float_to_string(1e10) == '1.0E10'
+    assert java_float_to_string(1.0e-4) == '1.0E-4'
+    assert java_float_to_string(0.001) == '0.001'
+    assert java_float_to_string(-12.5) == '-12.5'
+    assert java_float_to_string(0.0) == '0.0'

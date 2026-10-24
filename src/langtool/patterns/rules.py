@@ -401,3 +401,11 @@ class DisambiguationPatternRule(AbstractTokenBasedRule):
             from .matcher import DisambiguationPatternRuleReplacer
             r = self._replacers.r = DisambiguationPatternRuleReplacer(self)
         return r.replace(sentence)
+
+
+def make_anti_patterns(pattern_list, language):
+    """Rule.makeAntiPatterns: an immunizing DisambiguationPatternRule for
+    every list of pattern tokens (Rule.cacheAntiPatterns memoizes the
+    result, callers keep it)"""
+    return [DisambiguationPatternRule('INTERNAL_ANTIPATTERN', '(no description)', language, list(pattern_tokens),
+                                      None, None, IMMUNIZE) for pattern_tokens in pattern_list]

@@ -327,3 +327,28 @@ class PatternToken(PatternTokenBase):
         if self.current_and_next_exceptions:
             s += '/exceptions=' + repr(list(self.current_and_next_exceptions))
         return s
+
+
+# --- PatternRuleBuilderHelper (the pattern tokens built with
+# PatternTokenBuilder in Java code, e.g. for the anti-patterns of rules) ---
+
+def token(s):
+    """PatternRuleBuilderHelper.token: a case insensitive token"""
+    return PatternToken(s, False, False, False)
+
+
+def cs_token(s):
+    """PatternRuleBuilderHelper.csToken: a case sensitive token"""
+    return PatternToken(s, True, False, False)
+
+
+def token_regex(s):
+    """PatternRuleBuilderHelper.tokenRegex (also regex()): a case
+    insensitive regular expression"""
+    return PatternToken(s, False, True, False)
+
+
+def cs_regex(s):
+    """PatternRuleBuilderHelper.csRegex: a case sensitive regular
+    expression"""
+    return PatternToken(s, True, True, False)

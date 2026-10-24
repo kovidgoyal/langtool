@@ -370,8 +370,9 @@ _WORD_FOR_SPELLER = regex.compile(r'^[\p{L}\d\p{P}\p{Zs}]+$')
 
 def is_emoji(word):
     """StringTools.isEmoji: contains characters outside the BMP and is not a
-    normal word."""
-    if len(word) > 1 and any(ord(c) > 0xffff for c in word):
+    normal word. (Java's word.length() > 1 counts UTF-16 units: a single
+    supplementary character like an emoji is two of them.)"""
+    if any(ord(c) > 0xffff for c in word):
         return _WORD_FOR_SPELLER.match(word) is None
     return False
 
@@ -417,3 +418,42 @@ def is_junit_test():
             return True
         f = f.f_back
     return False
+
+
+def java_list_sort(items, cmp):
+    """List.sort(Comparator) in place, with the same result as Java's TimSort
+    even for comparators that are not consistent (e.g. ones that only order
+    some pairs): lists shorter than 32 elements (TimSort.MIN_MERGE) are
+    sorted like java.util.TimSort does (countRunAndMakeAscending, then
+    binarySort). Longer lists are sorted with Python's (also stable) sort,
+    which gives the same result for consistent comparators."""
+    n = len(items)
+    if n < 2:
+        return
+    if n >= 32:
+        import functools
+        items.sort(key=functools.cmp_to_key(cmp))
+        return
+    # countRunAndMakeAscending
+    run_hi = 1
+    if cmp(items[run_hi], items[0]) < 0:
+        run_hi += 1
+        while run_hi < n and cmp(items[run_hi], items[run_hi - 1]) < 0:
+            run_hi += 1
+        items[0:run_hi] = items[0:run_hi][::-1]
+    else:
+        run_hi += 1
+        while run_hi < n and cmp(items[run_hi], items[run_hi - 1]) >= 0:
+            run_hi += 1
+    # binarySort
+    for start in range(run_hi, n):
+        pivot = items[start]
+        left, right = 0, start
+        while left < right:
+            mid = (left + right) >> 1
+            if cmp(pivot, items[mid]) < 0:
+                right = mid
+            else:
+                left = mid + 1
+        del items[start]
+        items.insert(left, pivot)
