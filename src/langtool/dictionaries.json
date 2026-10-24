@@ -1062,6 +1062,23 @@
    {
     "files": [
      {
+      "name": "uk/hunspell/ignore.txt",
+      "path": "org/languagetool/resource/uk/hunspell/ignore.txt",
+      "size": 512
+     },
+     {
+      "name": "uk/hunspell/spelling.txt",
+      "path": "org/languagetool/resource/uk/hunspell/spelling.txt",
+      "size": 139
+     }
+    ],
+    "sha256": "1658e1e66f41d70fc86335d0f5691171b706ce9af2444fb9a9940bf15f9d5a78",
+    "size": 1253309,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-uk/6.8/language-uk-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "uk/ukrainian.dict",
       "path": "org/languagetool/resource/uk/ukrainian.dict",
       "size": 3340126
@@ -1090,6 +1107,16 @@
       "name": "uk/ukrainian_tags.txt",
       "path": "org/languagetool/resource/uk/ukrainian_tags.txt",
       "size": 220152
+     },
+     {
+      "name": "uk/hunspell/uk_UA.dict",
+      "path": "org/languagetool/resource/uk/hunspell/uk_UA.dict",
+      "size": 2275333
+     },
+     {
+      "name": "uk/hunspell/uk_UA.info",
+      "path": "org/languagetool/resource/uk/hunspell/uk_UA.info",
+      "size": 257
      }
     ],
     "sha256": "4b8a06a731d12047dd91bfb3a63638f258b4477f1591e167fe0b286a4c22c645",

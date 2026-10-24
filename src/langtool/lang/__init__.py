@@ -33,3 +33,4 @@ from . import sl  # noqa: F401
 from . import sv  # noqa: F401
 from . import ta  # noqa: F401
 from . import tl  # noqa: F401
+from . import uk  # noqa: F401

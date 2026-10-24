@@ -702,18 +702,27 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('GenericUnpairedBracketsRule'),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Ukrainian (code in langtool.lang.uk); the
+    # MorfologikUkrainianSpellerRule (after HiddenCharacterRule) is not ported
+    # (spell checking), only its misspelling check and speller suggestions
+    # (the default spelling rule, used by SimpleReplaceRule);
+    # isAdvancedTypographyEnabled() is false
     'uk': dict(
         name='Ukrainian', countries=['UA'], variants=[V('uk-UA')], ignored_characters_regex='[­́]',
+        quotes=('«', '»', '‘', '’'),
         extra_rule_files=['grammar-spelling.xml', 'grammar-grammar.xml', 'grammar-barbarism.xml',
                           'grammar-style.xml', 'grammar-punctuation.xml'],
         tagger=dict(dict='uk/ukrainian.dict', lowercase_with_uppercase=False, impl='UkrainianTagger'),
-        synthesizer=dict(dict='uk/ukrainian_synth.dict', tags='uk/ukrainian_tags.txt'),
+        synthesizer=dict(dict='uk/ukrainian_synth.dict', tags='uk/ukrainian_tags.txt',
+                         impl='UkrainianSynthesizer'),
         word_tokenizer='UkrainianWordTokenizer',
-        disambiguator=[('custom', 'UkrainianPreDisambiguator'),
-                       ('multiword2', 'uk/multiwords.txt', dict(allow_first_capitalized=True,
-                                                                impl='UkrainianMultiwordChunker')),
-                       xml()],
-        rules=[R('UkrainianCommaWhitespaceRule'), R('UkrainianUppercaseSentenceStartRule'),
+        disambiguator=[('custom', 'UkrainianHybridDisambiguator')],
+        rules=[R('UkrainianCommaWhitespaceRule',
+                 examples=('Ми обідали борщем<marker> ,</marker> пловом і салатом,— все смачне.',
+                           'Ми обідали борщем<marker>,</marker> пловом і салатом,— все смачне')),
+               R('UkrainianUppercaseSentenceStartRule',
+                 examples=('<marker>речення</marker> має починатися з великої.',
+                           '<marker>Речення</marker> має починатися з великої')),
                R('MultipleWhitespaceRule'), R('UkrainianWordRepeatRule'), R('TypographyRule'),
                R('HiddenCharacterRule'), R('MissingHyphenRule'), R('TokenAgreementVerbNounRule'),
                R('TokenAgreementNounVerbRule'), R('TokenAgreementAdjNounRule'), R('TokenAgreementPrepNounRule'),
