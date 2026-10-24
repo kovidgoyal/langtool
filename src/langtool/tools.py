@@ -505,3 +505,39 @@ def java_list_sort(items, cmp):
                 left = mid + 1
         del items[start]
         items.insert(left, pivot)
+
+
+def java_string_hash(s):
+    """String.hashCode() (of the UTF-16 code units), as unsigned 32 bit
+    integer"""
+    h = 0
+    for c in s:
+        o = ord(c)
+        if o > 0xffff:
+            o -= 0x10000
+            for u in (0xd800 + (o >> 10), 0xdc00 + (o & 0x3ff)):
+                h = (31 * h + u) & 0xffffffff
+        else:
+            h = (31 * h + o) & 0xffffffff
+    return h
+
+
+def java_hash_set_copy_order(items):
+    """The iteration order of new ArrayList<>(new HashSet<>(items)) for a
+    list of strings (java.util.HashMap buckets; the bucket lists keep the
+    insertion order). The capacity is the one of the HashSet(Collection)
+    constructor: max(c.size() / .75f + 1, 16) (with the duplicates of the
+    collection), rounded up to a power of two by HashMap."""
+    unique = list(dict.fromkeys(items))
+    n = len(items)
+    cap = 1
+    while cap < max(int(n / 0.75) + 1, 16):
+        cap <<= 1
+
+    def bucket(s):
+        if s is None:
+            return 0
+        h = java_string_hash(s)
+        return (h ^ (h >> 16)) & (cap - 1)
+
+    return sorted(unique, key=bucket)  # stable: insertion order in a bucket

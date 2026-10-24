@@ -3,35 +3,14 @@
 import threading
 
 from ... import jregex
-from ...rules.abstract_rules import _java_string_hash
 from ...synthesis import BaseSynthesizer, load_words
-from ...tools import java_split
+from ...tools import java_hash_set_copy_order, java_split
 
 _POTENTIAL_NEGATION_TAG = ':aff'
 _NEGATION_TAG = ':neg'
 _COMP_TAG = 'com'
 _SUP_TAG = 'sup'
 _PATTERN = jregex.compile('.*[a-z]\\.[a-z].*')
-
-
-def _java_hash_set_order(items):
-    """The iteration order of new HashSet<>(items) (java.util.HashMap
-    buckets; the bucket lists keep the insertion order). Unlike
-    abstract_rules.java_hash_set_order, the capacity is the one of the
-    HashSet(Collection) constructor."""
-    unique = list(dict.fromkeys(items))
-    # HashSet(Collection): capacity max(c.size() / .75f + 1, 16) (with the
-    # duplicates of the collection), rounded up to a power of two by HashMap
-    n = len(items)
-    cap = 1
-    while cap < max(int(n / 0.75) + 1, 16):
-        cap <<= 1
-
-    def bucket(s):
-        h = _java_string_hash(s)
-        return (h ^ (h >> 16)) & (cap - 1)
-
-    return sorted(unique, key=bucket)  # stable: insertion order in a bucket
 
 
 class PolishSynthesizer(BaseSynthesizer):
@@ -91,7 +70,7 @@ class PolishSynthesizer(BaseSynthesizer):
                 if p.fullmatch(tag):
                     results.extend(self._get_word_forms(token, tag, is_negated))
         # remove duplicates (in the order of Java's HashSet)
-        return _java_hash_set_order(results)
+        return java_hash_set_copy_order(results)
 
     def get_pos_tag_correction(self, pos_tag):
         if '.' in pos_tag:

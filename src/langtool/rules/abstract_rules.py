@@ -19,7 +19,7 @@ from ..messages import message_format
 from ..tools import (is_all_uppercase, is_capitalized_word, starts_with_uppercase, uppercase_first_char,
                      lowercase_first_char, is_camel_case, is_punctuation_mark, is_not_word_character, is_digit,
                      is_letter, java_trim, java_split, java_equals_ignore_case, is_emoji, is_numeric_space,
-                     is_numeric, preserve_case)
+                     is_numeric, preserve_case, java_string_hash)
 from .base import Rule, RuleMatch, Category
 from .core import CoreRule, CoreTextLevelRule, is_paragraph_end
 
@@ -74,19 +74,6 @@ def to_id(s, language):
     return _TO_ID_NONCHAR.sub('_', s)
 
 
-def _java_string_hash(s):
-    h = 0
-    for c in s:
-        o = ord(c)
-        if o > 0xffff:
-            o -= 0x10000
-            for u in (0xd800 + (o >> 10), 0xdc00 + (o & 0x3ff)):
-                h = (31 * h + u) & 0xffffffff
-        else:
-            h = (31 * h + o) & 0xffffffff
-    return h
-
-
 def java_hash_set_order(items):
     """The iteration order of a java.util.HashSet built from items (with the
     default capacity), used where the Java code depends on it."""
@@ -98,7 +85,7 @@ def java_hash_set_order(items):
     def bucket(x):
         if x is None:
             return 0
-        h = _java_string_hash(x)
+        h = java_string_hash(x)
         return (h ^ (h >> 16)) & (cap - 1)
     return sorted(uniq, key=bucket)  # sorted() is stable: insertion order within a bucket
 
