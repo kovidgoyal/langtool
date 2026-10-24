@@ -300,3 +300,21 @@ def test_no_quotes_around_suggestion(code):
             bad.append('%s rule %s uses quotes around <suggestion>...<suggestion> in its <message>, this should be '
                        'avoided: %r' % (language.name, rule.get_full_id(), message))
     assert not bad, '\n'.join(bad)
+
+
+def test_annotated_text_from_text_hidden_chars():
+    """JLanguageTool.check(String): AnnotatedTextBuilder.addText makes the
+    hidden characters (soft hyphen, U+202D, U+202C) markup, cleanText the
+    zero width no-break space"""
+    text = AnnotatedText.from_text('a‭‬b­c﻿d')
+    assert text.plain_text == 'abcd'
+    assert [p[0] for p in text.parts] == [False, True, True, False, True, False, True, False]
+    assert text.original_position(1) == 3
+    assert text.original_position(3) == 7
+
+
+def test_annotated_text_global_meta_data():
+    """AnnotatedText.getGlobalMetaData"""
+    text = AnnotatedText([(False, 'x', None)], {'EmailToAddress': 'Foo <foo@foo.de>'})
+    assert text.get_global_meta_data('EmailToAddress', '') == 'Foo <foo@foo.de>'
+    assert text.get_global_meta_data('EmailSubject', 'none') == 'none'

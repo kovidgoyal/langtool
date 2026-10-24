@@ -10,6 +10,7 @@ from . import br  # noqa: F401
 from . import crh  # noqa: F401
 from . import da  # noqa: F401
 from . import el  # noqa: F401
+from . import en  # noqa: F401
 from . import eo  # noqa: F401
 from . import es  # noqa: F401
 from . import fa  # noqa: F401

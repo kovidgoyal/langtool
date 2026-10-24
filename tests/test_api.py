@@ -151,7 +151,8 @@ def _line_col(text, offset):
 def test_line_and_column(tool):
     text = 'This is fine.\nHe go to school. And she go home.\n\nSecond  paragraph. It go away.'
     matches = tool.check(text)
-    assert [m.rule_id for m in matches] == ['HE_VERB_AGR', 'HE_VERB_AGR', 'CONSECUTIVE_SPACES', 'IT_VBZ']
+    # (for "she go", CC_NNP_VBP has a higher priority than HE_VERB_AGR)
+    assert [m.rule_id for m in matches] == ['HE_VERB_AGR', 'CC_NNP_VBP', 'CONSECUTIVE_SPACES', 'IT_VBZ']
     for m in matches:
         # sentence level rules: lines start at 0, columns at 1 (like LanguageTool)
         assert (m.line, m.column) == _line_col(text, m.offset), m
@@ -286,7 +287,11 @@ def test_disable_enable_category(fresh_tool):
 def test_unsupported_components(tool):
     u = tool.unsupported_components()
     assert set(u) == {'components', 'skipped_rules'}
-    assert ('tagger', 'EnglishTagger') in u['components']
+    # English is ported completely
+    assert u == {'components': [], 'skipped_rules': []}
+    require_dictionaries('de')
+    u = langtool.LanguageTool('de-DE').unsupported_components()
+    assert ('tagger', 'GermanTagger') in u['components']
 
 
 def test_other_language():
@@ -309,7 +314,11 @@ def test_to_advanced_typography():
     """Language.toAdvancedTypography()"""
     from langtool.api import get_language
     en = get_language('en-US')
-    assert en.to_advanced_typography('Use <suggestion>x</suggestion> here.') == 'Use "x" here.'
+    assert en.to_advanced_typography('Use <suggestion>x</suggestion> here.') == 'Use “x” here.'
+    # the suggestions are found in the input (Java: the matcher is not updated after the replacements), so the
+    # second one is preserved too
+    assert en.to_advanced_typography("Is it <suggestion>a’b</suggestion> or <suggestion>a'b</suggestion>?") == \
+        "Is it “a’b” or “a'b”?"
     be = get_language('be-BY')
     assert be.is_advanced_typography_enabled()
     assert be.to_advanced_typography("Гэта 'x'... і \"y\", <suggestion>z</suggestion>") == \

@@ -238,9 +238,131 @@
    {
     "files": [
      {
+      "name": "en/hunspell/ignore.txt",
+      "path": "org/languagetool/resource/en/hunspell/ignore.txt",
+      "size": 95868
+     },
+     {
+      "name": "en/hunspell/spelling_en-CA.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_en-CA.txt",
+      "size": 513
+     },
+     {
+      "name": "en/hunspell/spelling.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling.txt",
+      "size": 5732
+     },
+     {
+      "name": "en/hunspell/spelling_en-ZA.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_en-ZA.txt",
+      "size": 614
+     },
+     {
+      "name": "en/hunspell/spelling_en-US.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_en-US.txt",
+      "size": 661
+     },
+     {
+      "name": "en/hunspell/spelling_en-AU.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_en-AU.txt",
+      "size": 629
+     },
+     {
+      "name": "en/hunspell/spelling_en-NZ.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_en-NZ.txt",
+      "size": 601
+     },
+     {
+      "name": "en/hunspell/prohibit_custom.txt",
+      "path": "org/languagetool/resource/en/hunspell/prohibit_custom.txt",
+      "size": 112
+     },
+     {
+      "name": "en/hunspell/spelling_custom.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_custom.txt",
+      "size": 104
+     },
+     {
+      "name": "en/hunspell/spelling_en-GB.txt",
+      "path": "org/languagetool/resource/en/hunspell/spelling_en-GB.txt",
+      "size": 771
+     },
+     {
+      "name": "en/hunspell/prohibit.txt",
+      "path": "org/languagetool/resource/en/hunspell/prohibit.txt",
+      "size": 5025
+     }
+    ],
+    "sha256": "69d3fa1020dea45ad38266e3d54c81969f3ba7eef5efd0a83a8b3fd778acddd0",
+    "size": 2844558,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-en/6.8/language-en-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "en/english_synth.info",
       "path": "org/languagetool/resource/en/english_synth.info",
       "size": 98
+     },
+     {
+      "name": "en/hunspell/en_GB.info",
+      "path": "org/languagetool/resource/en/hunspell/en_GB.info",
+      "size": 518
+     },
+     {
+      "name": "en/hunspell/en_AU.info",
+      "path": "org/languagetool/resource/en/hunspell/en_AU.info",
+      "size": 531
+     },
+     {
+      "name": "en/hunspell/en_CA.info",
+      "path": "org/languagetool/resource/en/hunspell/en_CA.info",
+      "size": 436
+     },
+     {
+      "name": "en/hunspell/en_AU.dict",
+      "path": "org/languagetool/resource/en/hunspell/en_AU.dict",
+      "size": 716861
+     },
+     {
+      "name": "en/hunspell/en_US.info",
+      "path": "org/languagetool/resource/en/hunspell/en_US.info",
+      "size": 759
+     },
+     {
+      "name": "en/hunspell/en_NZ.dict",
+      "path": "org/languagetool/resource/en/hunspell/en_NZ.dict",
+      "size": 716647
+     },
+     {
+      "name": "en/hunspell/en_US.dict",
+      "path": "org/languagetool/resource/en/hunspell/en_US.dict",
+      "size": 718075
+     },
+     {
+      "name": "en/hunspell/en_GB.dict",
+      "path": "org/languagetool/resource/en/hunspell/en_GB.dict",
+      "size": 720262
+     },
+     {
+      "name": "en/hunspell/en_ZA.dict",
+      "path": "org/languagetool/resource/en/hunspell/en_ZA.dict",
+      "size": 746599
+     },
+     {
+      "name": "en/hunspell/en_NZ.info",
+      "path": "org/languagetool/resource/en/hunspell/en_NZ.info",
+      "size": 682
+     },
+     {
+      "name": "en/hunspell/en_ZA.info",
+      "path": "org/languagetool/resource/en/hunspell/en_ZA.info",
+      "size": 612
+     },
+     {
+      "name": "en/hunspell/en_CA.dict",
+      "path": "org/languagetool/resource/en/hunspell/en_CA.dict",
+      "size": 718706
      },
      {
       "name": "en/english.dict",
@@ -266,6 +388,42 @@
     "sha256": "2a3e96b49854e5275f8eb7a1bb5b3b85b82f687fed272f3043882ccc0b1634b1",
     "size": 4650617,
     "url": "https://repo1.maven.org/maven2/org/languagetool/english-pos-dict/0.6/english-pos-dict-0.6.jar"
+   },
+   {
+    "files": [
+     {
+      "name": "en/en-token.bin",
+      "path": "en-token.bin",
+      "size": 439890
+     }
+    ],
+    "sha256": "1c10141d547b9ae1de1238d5a9ec69db043289cd6f8caf0d7d2f14bbfcda9502",
+    "size": 442008,
+    "url": "https://repo1.maven.org/maven2/edu/washington/cs/knowitall/opennlp-tokenize-models/1.5/opennlp-tokenize-models-1.5.jar"
+   },
+   {
+    "files": [
+     {
+      "name": "en/en-pos-maxent.bin",
+      "path": "en-pos-maxent.bin",
+      "size": 5696197
+     }
+    ],
+    "sha256": "4d58462b891dbe478a8a68c8a93749af5bedd874af1974596a72f5667fffc8c9",
+    "size": 5699943,
+    "url": "https://repo1.maven.org/maven2/edu/washington/cs/knowitall/opennlp-postag-models/1.5/opennlp-postag-models-1.5.jar"
+   },
+   {
+    "files": [
+     {
+      "name": "en/en-chunker.bin",
+      "path": "en-chunker.bin",
+      "size": 2560304
+     }
+    ],
+    "sha256": "e7090de37093d2b91a0136f9e1e9cf60567bc27f72781cfdd083d86e342d7cb0",
+    "size": 2563111,
+    "url": "https://repo1.maven.org/maven2/edu/washington/cs/knowitall/opennlp-chunk-models/1.5/opennlp-chunk-models-1.5.jar"
    }
   ],
   "es": [

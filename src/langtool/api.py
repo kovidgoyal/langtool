@@ -126,7 +126,9 @@ class LanguageTool:
            or a list of directories/jar files), see langtool.dictionaries
     :param download: whether to download missing dictionaries
     :param mother_tongue: language code of the user's mother tongue (enables
-           false friend rules in the future, currently unused)
+           the rules for speakers of that language, like the English rules
+           for German and French speakers; false friend rules are not
+           supported yet)
     :param picky: enable rules tagged as "picky" (Java: Level.PICKY)
     """
 
