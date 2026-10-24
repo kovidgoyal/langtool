@@ -339,15 +339,15 @@ class DisambiguationRuleTester:
 
 
 def _pre_xml_disambiguate(lt, sentence):
-    """Disambiguator.preDisambiguate: the disambiguation stages that run
-    before the XML rules (e.g. multiword chunkers of hybrid disambiguators)."""
-    from .disambiguation import ChainDisambiguator, XmlRuleDisambiguator
-    d = lt.language.disambiguator
-    if isinstance(d, ChainDisambiguator):
-        for stage in d.stages:
-            if isinstance(stage, XmlRuleDisambiguator):
-                break
-            sentence = stage.disambiguate(sentence)
+    """Disambiguator.preDisambiguate: the identity for the disambiguators of
+    languagetool-core (AbstractDisambiguator) and of the ported languages
+    (in Java only UkrainianHybridDisambiguator overrides it); a
+    disambiguator may define pre_disambiguate(sentence). In particular the
+    multiword chunkers of the hybrid disambiguators do not run before the
+    rules in DisambiguationRuleTest."""
+    f = getattr(lt.language.disambiguator, 'pre_disambiguate', None)
+    if f is not None:
+        return f(sentence)
     return sentence
 
 

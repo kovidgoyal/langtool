@@ -384,10 +384,14 @@ def test_future_date_filter():
     assert f.accept_rule_match(m, dict(day='1', month='1', year='2014'), 0, [], []) is m
     assert f.accept_rule_match(m, dict(day='31', month='Dec', year='2013'), 0, [], []) is None
     assert f.accept_rule_match(m, dict(day='3', month='Mar', year='1999'), 0, [], []) is None
-    # invalid dates: no match (caught by a different rule)
-    assert f.accept_rule_match(m, dict(day='32', month='Aug', year='2014'), 0, [], []) is None
-    assert f.accept_rule_match(m, dict(day='29', month='Feb', year='2015'), 0, [], []) is None
-    assert f.accept_rule_match(m, dict(day='1', month='13', year='2015'), 0, [], []) is None
+    # invalid dates are normalized (Calendar.after compares a lenient clone of the calendar), as checked
+    # with LanguageTool 6.6 (DATE_FUTURE_VERB_PAST_MMDDYYYY with 02/31/2040 and its day argument "/")
+    assert f.accept_rule_match(m, dict(day='32', month='Aug', year='2014'), 0, [], []) is m
+    assert f.accept_rule_match(m, dict(day='29', month='Feb', year='2015'), 0, [], []) is m
+    assert f.accept_rule_match(m, dict(day='1', month='13', year='2015'), 0, [], []) is m
+    assert f.accept_rule_match(m, dict(day='32', month='Dec', year='2013'), 0, [], []) is m  # 2014-01-01
+    assert f.accept_rule_match(m, dict(day='0', month='Jan', year='2014'), 0, [], []) is None  # 2013-12-31
+    assert f.accept_rule_match(m, dict(day='1', month='0', year='2014'), 0, [], []) is None  # 2013-12-01
     # unknown months, invalid years and missing arguments raise errors like in Java
     with pytest.raises(RuntimeError):
         f.accept_rule_match(m, dict(day='1', month='Xyz', year='2015'), 0, [], [])
@@ -395,8 +399,10 @@ def test_future_date_filter():
         f.accept_rule_match(m, dict(day='1', month='Jan', year='20x5'), 0, [], [])
     with pytest.raises(ValueError):
         f.accept_rule_match(m, dict(day='1', month='Jan'), 0, [], [])
-    # the day of the month written with letters (getDayOfMonth, 0 by default: an invalid date)
-    assert f.accept_rule_match(m, dict(day='first', month='Jan', year='2015'), 0, [], []) is None
+    # the day of the month written with letters (getDayOfMonth, 0 by default: the last day of the previous
+    # month)
+    assert f.accept_rule_match(m, dict(day='first', month='Jan', year='2015'), 0, [], []) is m
+    assert f.accept_rule_match(m, dict(day='first', month='Jan', year='2014'), 0, [], []) is None
 
 
 def test_future_date_filter_outside_tests(monkeypatch):
@@ -774,3 +780,22 @@ def test_java_float_to_string():
     assert java_float_to_string(0.001) == '0.001'
     assert java_float_to_string(-12.5) == '-12.5'
     assert java_float_to_string(0.0) == '0.0'
+
+
+# --- YMDDateHelper --------------------------------------------------------------
+
+def test_ymd_date_helper():
+    """YMDDateHelper.parseDate and correctDate"""
+    from langtool.rules.core_filters import YMDDateHelper
+    args = {'date': '2013-10-31', 'weekDay': '1'}
+    parsed = YMDDateHelper.parse_date(args)
+    assert parsed == {'date': '2013-10-31', 'weekDay': '1', 'year': '2013', 'month': '10', 'day': '31'}
+    with pytest.raises(ValueError):
+        YMDDateHelper.parse_date({})
+    with pytest.raises(RuntimeError):
+        YMDDateHelper.parse_date({'date': '2013-10'})
+    m = _date_match()
+    m.message = 'Did you mean {realDate}?'
+    corrected = YMDDateHelper.correct_date(m, parsed)
+    assert corrected.message == 'Did you mean 2014-10-31?'
+    assert (corrected.from_pos, corrected.to_pos) == (m.from_pos, m.to_pos)

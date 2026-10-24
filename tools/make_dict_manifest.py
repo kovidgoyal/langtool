@@ -57,6 +57,11 @@ SPELLER_FILES = {
         'external': ['nl/spelling/nl_NL.dict', 'nl/spelling/nl_NL.info'],
         'module': ['nl/spelling/spelling.txt', 'nl/spelling/ignore.txt', 'nl/spelling/prohibit.txt'],
     },
+    'pt': {
+        'external': ['pt/spelling/pt-BR.dict', 'pt/spelling/pt-BR.info', 'pt/spelling/pt-PT-90.dict',
+                     'pt/spelling/pt-PT-90.info', 'pt/spelling/pt-PT-45.dict', 'pt/spelling/pt-PT-45.info'],
+        'module': ['pt/spelling.txt', 'pt/ignore.txt', 'pt/prohibit.txt'],
+    },
     'ru': {
         'module': ['ru/hunspell/ru_RU.dict', 'ru/hunspell/ru_RU.info', 'ru/hunspell/spelling.txt',
                    'ru/hunspell/ignore.txt', 'ru/hunspell/prohibit.txt'],

@@ -138,3 +138,35 @@ def test_disambiguation_rule_tester(demo_lt):
     from langtool.testing import DisambiguationRuleTester
     failures = DisambiguationRuleTester(demo_lt).run()
     assert not failures, '\n'.join(map(str, failures))
+
+
+def test_disambiguation_rule_tester_pre_disambiguation(demo_lt):
+    """DisambiguationRuleTest.disambiguateUntil calls
+    Disambiguator.preDisambiguate, the identity for the disambiguators of
+    languagetool-core (AbstractDisambiguator): the stages before the XML
+    rules of a chain (e.g. the multiword chunkers of a hybrid disambiguator)
+    do not run; a disambiguator may define pre_disambiguate()"""
+    from langtool.disambiguation import ChainDisambiguator
+    from langtool.testing import DisambiguationRuleTester
+
+    class _Stage:
+        calls = 0
+
+        def disambiguate(self, sentence):
+            _Stage.calls += 1
+            return sentence
+
+    tester = DisambiguationRuleTester(demo_lt)
+    tester.rules = []
+    sentence = demo_lt.get_raw_analyzed_sentence('A test.')
+    language = demo_lt.language
+    saved = language._disambiguator
+    try:
+        language._disambiguator = ChainDisambiguator([_Stage()])
+        assert tester.disambiguate_until('NO_SUCH_RULE', sentence) is not None
+        assert _Stage.calls == 0
+        marker = object()
+        language._disambiguator.pre_disambiguate = lambda s: marker
+        assert tester.disambiguate_until('NO_SUCH_RULE', sentence) is marker
+    finally:
+        language._disambiguator = saved

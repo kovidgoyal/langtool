@@ -12,7 +12,7 @@ from .. import jregex
 from ..tools import (is_punctuation_or_symbol, is_all_uppercase, is_capitalized_word, is_whitespace,
                      uppercase_first_char, is_not_all_lowercase, is_numeric, trim_special_characters, is_junit_test,
                      preserve_case, is_letter, is_punctuation_mark, is_not_word_string,
-                     java_equals_ignore_case, remove_diacritics)
+                     java_equals_ignore_case, remove_diacritics, java_split)
 from .filters import RuleFilter
 
 _WS = regex.compile(r'\s+')
@@ -186,6 +186,20 @@ def _julian_day_number(year, month, day, gregorian):
     return jdn - 32083
 
 
+_GREGORIAN_CUTOVER = _julian_day_number(1582, 10, 15, True)
+
+
+def _lenient_julian_day_number(year, month, day_of_month):
+    """The day (Julian day number) of Calendar.set(year, month, dayOfMonth)
+    on a lenient GregorianCalendar (month 0-based): months and days out of
+    range roll over to the next or previous months and years. The Julian
+    calendar is used before 1582-10-15, as by GregorianCalendar."""
+    year += month // 12
+    month %= 12
+    gregorian = _julian_day_number(year, month + 1, 1, True) + day_of_month - 1 >= _GREGORIAN_CUTOVER
+    return _julian_day_number(year, month + 1, 1, gregorian) + day_of_month - 1
+
+
 class CalendarDate:
     """The fields of a java.util.GregorianCalendar (default cutover:
     Julian calendar before 1582-10-15) used by the date filters. month is
@@ -344,9 +358,12 @@ class AbstractFutureDateFilter(RuleFilter):
     current time, i.e. a date is in the future if it is after today. In
     unit tests the current time is 2014-01-01 00:00:00.000, so that
     2014-01-01 itself is in the future, except when the check happens at a
-    full second (ignored here). Invalid dates such as 32.8.2014 discard the
-    match (they should be caught by a different rule); unparsable years and
-    unknown months raise errors like in Java."""
+    full second (ignored here). The comparison (Calendar.after) computes
+    the time of a lenient clone of the calendar, so that the non-lenient
+    calendar never rejects a date: invalid dates are normalized like
+    32.8.2014 -> 1.9.2014 or day 0 -> the last day of the previous month
+    (the IllegalArgumentException that Java catches never happens).
+    Unparsable years and unknown months raise errors like in Java."""
 
     def get_day_of_month(self, localized_day_of_month):
         return 0
@@ -358,18 +375,13 @@ class AbstractFutureDateFilter(RuleFilter):
         year = java_parse_int(self.get_required('year', arguments))
         month = self._get_month_from_arguments(arguments)
         day_of_month = self._get_day_of_month_from_arguments(arguments)
-        try:
-            CalendarDate.of(year, month, day_of_month)
-        except ValueError:
-            # happens with 'dates' like '32.8.2014' - those should be caught by a different rule
-            return None
-        date = (year, month + 1, day_of_month)
+        date = _lenient_julian_day_number(year, month, day_of_month)
         if is_junit_test():
-            if date >= (2014, 1, 1):
+            if date >= _lenient_julian_day_number(2014, 0, 1):
                 return match
             return None
         today = datetime.date.today()
-        if date > (today.year, today.month, today.day):
+        if date > _lenient_julian_day_number(today.year, today.month - 1, today.day):
             return match
         return None
 
@@ -1433,6 +1445,40 @@ class AbstractNewYearDateFilter(RuleFilter):
         else:
             month = self.get_month(month_str)
         return month - 1
+
+
+class YMDDateHelper:
+    """Port of org.languagetool.rules.YMDDateHelper, used by the
+    YMDDateCheckFilter and YMDNewYearDateFilter of the languages: the
+    'date' argument in the format yyyy-mm-dd."""
+
+    @staticmethod
+    def parse_date(args):
+        """Adds the year, month and day of the 'date' argument to (a copy
+        of) the arguments."""
+        date_string = args.get('date')
+        if date_string is None:
+            raise ValueError("Missing key 'date'")
+        parts = java_split(date_string, '-')
+        if len(parts) != 3:
+            raise RuntimeError("Expected date in format 'yyyy-mm-dd': '" + date_string + "'")
+        args = dict(args)
+        args['year'] = parts[0]
+        args['month'] = parts[1]
+        args['day'] = parts[2]
+        return args
+
+    @staticmethod
+    def correct_date(match, args):
+        """A copy of the match with {realDate} in the message replaced by
+        the date in the next year."""
+        from .base import RuleMatch
+        correct_year = java_parse_int(args.get('year')) + 1
+        correct_date = '%d-%s-%s' % (correct_year, args.get('month'), args.get('day'))
+        message = match.message.replace('{realDate}', correct_date)
+        rule_match = RuleMatch(match.rule, match.sentence, match.from_pos, match.to_pos, message, match.short_message)
+        rule_match.type = match.type
+        return rule_match
 
 
 def java_float(x):

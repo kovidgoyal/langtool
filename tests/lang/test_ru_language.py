@@ -260,8 +260,9 @@ def test_future_date_filter():
     assert f.accept_rule_match(m, {'year': '2015', 'month': 'мая', 'day': '3'}, 0, [], []) is m
     assert f.accept_rule_match(m, {'year': '2013', 'month': 'декабря', 'day': '31'}, 0, [], []) is None
     assert f.accept_rule_match(m, {'year': '2014', 'month': '2', 'day': '1'}, 0, [], []) is m
-    # invalid dates are caught by a different rule
-    assert f.accept_rule_match(m, {'year': '2015', 'month': 'февраля', 'day': '30'}, 0, [], []) is None
+    # invalid dates are normalized like in Java (Calendar.after compares a lenient clone): 30.02.2015 is
+    # 02.03.2015, in the future
+    assert f.accept_rule_match(m, {'year': '2015', 'month': 'февраля', 'day': '30'}, 0, [], []) is m
 
 
 def test_inn_number_filter():
