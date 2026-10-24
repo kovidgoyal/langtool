@@ -799,3 +799,14 @@ def test_ymd_date_helper():
     corrected = YMDDateHelper.correct_date(m, parsed)
     assert corrected.message == 'Did you mean 2014-10-31?'
     assert (corrected.from_pos, corrected.to_pos) == (m.from_pos, m.to_pos)
+
+
+def test_filter_arguments_split_on_java_whitespace_only():
+    """RuleFilterEvaluator.getResolvedArguments splits the args with
+    Pattern.compile("\\s+"), which only matches ASCII whitespace: a
+    whitespace character like U+2006 is part of an argument value (e.g.
+    the whitespaceChar of a WhitespaceCheckFilter)."""
+    from langtool.patterns.matcher import resolve_filter_arguments
+    assert resolve_filter_arguments('whitespaceChar:  position:2', [], 0, []) == {
+        'whitespaceChar': ' ', 'position': '2'}
+    assert resolve_filter_arguments(' a:b\tc:d\n', [], 0, []) == {'a': 'b', 'c': 'd'}

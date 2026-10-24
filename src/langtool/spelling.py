@@ -466,6 +466,49 @@ class MorfologikMisspellingCheck:
             return self.is_ignored_no_case(word[:-1])  # e.g. word at end of sentence
         return self.is_ignored_no_case(word)
 
+    def ignore_potentially_misspelled_word(self, word):
+        """SpellingCheckRule.ignorePotentiallyMisspelledWord"""
+        return False
+
+    def tokenizing_pattern(self):
+        """MorfologikSpellerRule.tokenizingPattern (None: words are not
+        split)"""
+        return None
+
+    def sentence_has_match(self, sentence, ignore_tagged_words=False):
+        """Whether MorfologikSpellerRule.match(sentence) would find a
+        spelling error (spellerRule.match(sentence).length > 0): a token
+        that cannot be ignored (canBeIgnored: sentence start, immunized,
+        ignored by the speller, URL, e-mail, tagged if ignore_tagged_words
+        (setIgnoreTaggedWords) and not prohibited, ignoreWord) that is
+        misspelled or prohibited (and not
+        ignorePotentiallyMisspelledWord). The anti-patterns of multi-word
+        ignore entries (rules with tokenizeNewWords()) are not applied."""
+        from .tokenizers import is_email, is_url
+        for token in sentence.get_tokens_without_whitespace():
+            t = token.token
+            if (token.is_sentence_start or token.immunized or token.ignored_by_speller or is_url(t) or is_email(t)
+                    or (ignore_tagged_words and token.is_tagged() and not self.is_prohibited(t))
+                    or self.ignore_word(t)):
+                continue
+            # if we use token.getToken() we'll get ignored characters inside and speller will choke
+            word = token.readings[0].token
+            pattern = self.tokenizing_pattern()
+            if pattern is None:
+                parts = [word]
+            else:
+                parts = []
+                index = 0
+                for m in pattern.finditer(word):
+                    parts.append(word[index:m.start()])
+                    index = m.end()
+                parts.append(word[index:])
+            for part in parts:
+                if ((self.is_misspelled(part) or self.is_prohibited(part))
+                        and not self.ignore_potentially_misspelled_word(part)):
+                    return True
+        return False
+
 
 # --- spelling suggestions: morfologik's Speller.findReplacements/findSimilarWords ---
 
@@ -1339,6 +1382,26 @@ class SuggestionMultiSpeller:
 
 
 _suggestion_multi_spellers = {}
+
+
+class WeightedStr(str):
+    """A suggestion of the spellers with its weight (SuggestedReplacement
+    with getWeight() in Java; plain strings have no weight)."""
+
+    __slots__ = ('weight',)
+
+    def __new__(cls, s, weight=None):
+        self = super().__new__(cls, s)
+        self.weight = weight
+        return self
+
+
+def suggestion_weight(s):
+    """SuggestedReplacement.getWeight() of a suggestion (None without a
+    weight)"""
+    return getattr(s, 'weight', None)
+
+
 _STARTS_WITH_NUMBERS_BULLETS = regex.compile(r'(\d[\.,\d]*|\P{L}+)(.*)', regex.DOTALL)
 _STARTS_WITH_NUMBERS_BULLETS_EXCEPTIONS = regex.compile(r'([\p{C}\-\$%&]+)(.*)', regex.DOTALL)
 
@@ -1446,13 +1509,17 @@ class MorfologikSuggestions:
         if only_suggestions:
             return list(only_suggestions)
         speller1, speller2, speller3 = self._suggestion_spellers()
-        default_suggestions = [w for w, _ in speller1.get_weighted_suggestions_from_default_dicts(word)]
+        # (convertWeighted: the suggestions of the spellers keep their weights)
+        default_suggestions = [WeightedStr(w, wt)
+                               for w, wt in speller1.get_weighted_suggestions_from_default_dicts(word)]
         only_case_differs = bool(default_suggestions) and java_equals_ignore_case(word, default_suggestions[0])
         if len(word) >= 3 and (only_case_differs or not default_suggestions):
             # speller1 uses a maximum edit distance of 1, it won't find suggestion for "garentee", "greatful" etc.
-            default_suggestions.extend(w for w, _ in speller2.get_weighted_suggestions_from_default_dicts(word))
+            default_suggestions.extend(WeightedStr(w, wt)
+                                       for w, wt in speller2.get_weighted_suggestions_from_default_dicts(word))
             if len(word) >= 5 and not default_suggestions:
-                default_suggestions.extend(w for w, _ in speller3.get_weighted_suggestions_from_default_dicts(word))
+                default_suggestions.extend(WeightedStr(w, wt)
+                                           for w, wt in speller3.get_weighted_suggestions_from_default_dicts(word))
         top_suggestions = []
         if not default_suggestions and '-' in word:
             self.add_hyphen_suggestions(java_split(word, '-'), top_suggestions)

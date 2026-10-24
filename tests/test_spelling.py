@@ -91,3 +91,49 @@ def test_plain_text_speller_lines(tmp_path):
     assert plain_text_speller_lines([str(a)]) == [b'word']
     assert plain_text_speller_lines([str(a)], None, str(v)) == [b'word', b'colour', b'LanguageTool']
     assert plain_text_speller_lines([], None, str(v)) == []
+
+
+def test_weighted_suggestions():
+    """The suggestions of the spellers keep their weights (SuggestedReplacement.getWeight())"""
+    from langtool.spelling import WeightedStr, suggestion_weight
+    s = WeightedStr('casa', 3)
+    assert s == 'casa' and isinstance(s, str) and suggestion_weight(s) == 3
+    assert suggestion_weight('casa') is None
+    assert suggestion_weight(WeightedStr('casa')) is None
+
+
+def test_sentence_has_match():
+    """MorfologikMisspellingCheck.sentence_has_match: whether
+    MorfologikSpellerRule.match(sentence) finds a spelling error (tokens that
+    can be ignored are not checked)"""
+    from langtool.analysis import AnalyzedSentence, AnalyzedToken, AnalyzedTokenReadings
+    from langtool.spelling import MorfologikMisspellingCheck
+
+    class Check(MorfologikMisspellingCheck):
+        def __init__(self):
+            super().__init__(None)
+            self._ignored = frozenset(['ignorat'])
+            self._prohibited = frozenset(['prohibit'])
+
+        def is_misspelled(self, word):
+            return word not in ('bo', 'prohibit')
+
+        def converts_case(self):
+            return False
+
+    def sentence(*words, tagged=()):
+        tokens = [AnalyzedTokenReadings([AnalyzedToken('', 'SENT_START', None)], 0)]
+        pos = 0
+        for w in words:
+            tokens.append(AnalyzedTokenReadings([AnalyzedToken(w, 'X' if w in tagged else None, None)], pos))
+            pos += len(w)
+        return AnalyzedSentence(tokens)
+
+    check = Check()
+    assert not check.sentence_has_match(sentence('bo'))
+    assert check.sentence_has_match(sentence('bo', 'dolent'))
+    assert not check.sentence_has_match(sentence('ignorat', '123', 'http://example.com'))
+    assert check.sentence_has_match(sentence('dolent', tagged=('dolent',)))
+    assert not check.sentence_has_match(sentence('dolent', tagged=('dolent',)), ignore_tagged_words=True)
+    # prohibited words are checked even if they are tagged
+    assert check.sentence_has_match(sentence('prohibit', tagged=('prohibit',)), ignore_tagged_words=True)

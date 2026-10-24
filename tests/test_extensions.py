@@ -71,3 +71,26 @@ def test_language_hooks():
         extensions._registry.pop(('to_advanced_typography', 'xx', 'xx'))
         extensions._registry.pop(('filter_rule_matches', 'xx', 'xx'))
     assert lang.filter_rule_matches(['m1', 'm2'], None, set()) == ['m1', 'm2']
+
+
+def test_filter_rule_matches_after_overlapping_hook():
+    """The 'filter_rule_matches_after_overlapping' extension of a language
+    (Language.filterRuleMatchesAfterOverlapping, e.g. Catalan's), called by
+    the JLanguageTool after the overlapping matches are removed"""
+    from langtool.api import get_language
+    from langtool.tool import JLanguageTool
+    lang = get_language('xx')
+    calls = []
+
+    def after_overlapping(language, matches):
+        calls.append(language)
+        return []
+
+    assert lang.filter_rule_matches_after_overlapping(['m1']) == ['m1']
+    extensions.register('filter_rule_matches_after_overlapping', 'xx', after_overlapping, language='xx')
+    try:
+        assert lang.filter_rule_matches_after_overlapping(['m1']) == []
+        assert JLanguageTool(lang).check('a a a a.') == []
+        assert calls and calls[-1] is lang
+    finally:
+        extensions._registry.pop(('filter_rule_matches_after_overlapping', 'xx', 'xx'))

@@ -32,6 +32,13 @@ class RuleFilter:
         fake = RuleMatch(_Fake(), None, 0, 1, '(internal rule)')
         return self.accept_rule_match(fake, arguments, first_match_token, pattern_tokens, token_positions) is not None
 
+    def get_language_from_rule_match(self, match):
+        """RuleFilter.getLanguageFromRuleMatch: the language set for the
+        filter, otherwise the language of the rule of the match"""
+        if self.language is not None:
+            return self.language
+        return match.rule.language
+
     @staticmethod
     def get_required(key, args):
         v = args.get(key)

@@ -350,7 +350,15 @@ class Language:
         return f(self, matches, annotated_text, enabled_rules)
 
     def filter_rule_matches_after_overlapping(self, matches):
-        return matches
+        """Language.filterRuleMatchesAfterOverlapping(), called after the
+        overlapping matches are removed. Languages override it by
+        registering a 'filter_rule_matches_after_overlapping' extension, a
+        function (language, matches) -> matches."""
+        from . import extensions
+        f = extensions.lookup('filter_rule_matches_after_overlapping', self.short_code, self.short_code)
+        if f is None:
+            return matches
+        return f(self, matches)
 
     # --- typography (Language.getOpeningDoubleQuote() etc.) ---
 

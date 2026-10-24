@@ -17,7 +17,8 @@ from . import rules as R
 from .match import Match, convert_case, INCLUDE_NONE, NONE as CASE_NONE
 
 MISTAKE = '<mistake/>'
-_WS = regex.compile(r'\s+')
+# Pattern.compile("\\s+") of RuleFilterEvaluator (Java's \s is ASCII whitespace only, e.g. not U+2006)
+_WS = regex.compile(r'[ \t\n\x0B\f\r]+')
 PLEASE_SPELL_ME = '<pleasespellme/>'
 
 _ALLOWED_CHARS = '[^<>()]*?'
@@ -612,7 +613,7 @@ def _skip_corrected_reference(positions, ref):
 
 def resolve_filter_arguments(filter_args, pattern_tokens, pattern_token_pos, positions):
     result = {}
-    for arg in _WS.split(filter_args.strip()):
+    for arg in _WS.split(filter_args.strip(' \t\n\x0B\f\r')):
         if not arg:
             continue
         d = arg.find(':')

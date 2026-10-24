@@ -58,6 +58,11 @@ EXTRA_JARS = {
 # LanguageTool release ('module'); the plain text word lists are not part
 # of the package data, see tools/import_data.py
 SPELLER_FILES = {
+    'ca': {
+        'external': ['ca/ca-ES_spelling.dict', 'ca/ca-ES_spelling.info', 'ca/ca-ES_spelling_multitoken.dict',
+                     'ca/ca-ES_spelling_multitoken.info'],
+        'module': ['ca/spelling.txt', 'ca/hunspell/ignore.txt', 'ca/hunspell/prohibit.txt'],
+    },
     'en': {
         'external': ['en/hunspell/en_%s.%s' % (c, ext) for c in ('US', 'GB', 'CA', 'AU', 'NZ', 'ZA')
                      for ext in ('dict', 'info')],
