@@ -365,15 +365,23 @@ LANGUAGES = {
                R('PersianDoublePunctuationRule'), R('PersianWordRepeatBeginningRule'), R('PersianWordRepeatRule'),
                R('SimpleReplaceRule'), R('PersianSpaceBeforeRule'), R('WordCoherencyRule')],
     ),
+    # org.languagetool.language.French, CanadianFrench, SwissFrench and
+    # BelgianFrench (code in langtool.lang.fr); the MorfologikFrenchSpellerRule
+    # (after GenericUnpairedBracketsRule) is not ported (spell checking), nor
+    # are FrenchConfusionProbabilityRule (language model) and GrammalecteRule
+    # (remote server). FrenchHybridDisambiguator: the MultiWordChunkers for
+    # spelling_global.txt and fr/multiwords.txt, then the XmlRuleDisambiguator
     'fr': dict(
         name='French', countries=['FR', '', 'LU', 'MC', 'CM', 'CI', 'HT', 'ML', 'SN', 'CD', 'MA', 'RE'],
-        default_variant='fr', ignored_characters_regex=SOFT_HYPHEN,
+        default_variant='fr', ignored_characters_regex=SOFT_HYPHEN, sentence_tokenizer='srx',
+        quotes=('«', '»', '‘', '’'), advanced_typography=True,
         variants=[V('fr', name='French'), V('fr-CA', countries=['CA'], name='French (Canada)',
                                             disabled=['DOUBLER_UNE_CLASSE']),
                   V('fr-CH', countries=['CH'], name='French (Switzerland)', disabled=['DOUBLER_UNE_CLASSE']),
                   V('fr-BE', countries=['BE'], name='French (Belgium)', disabled=['DOUBLER_UNE_CLASSE'])],
         tagger=dict(dict='fr/french.dict', lowercase_with_uppercase=False, impl='FrenchTagger'),
-        synthesizer=dict(dict='fr/french_synth.dict', tags='fr/french_tags.txt', impl='FrenchSynthesizer'),
+        synthesizer=dict(dict='fr/french_synth.dict', tags='fr/french_tags.txt', sor='fr/fr.sor',
+                         impl='FrenchSynthesizer'),
         word_tokenizer='FrenchWordTokenizer',
         disambiguator=[mw('spelling_global.txt', False, True, False, _NONE, ignore_spelling=True),
                        mw('fr/multiwords.txt', True, True, False, remove_previous_tags=True), xml(True)],

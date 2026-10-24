@@ -306,6 +306,33 @@
    {
     "files": [
      {
+      "name": "fr/hunspell/ignore.txt",
+      "path": "org/languagetool/resource/fr/hunspell/ignore.txt",
+      "size": 17915
+     },
+     {
+      "name": "fr/hunspell/spelling.txt",
+      "path": "org/languagetool/resource/fr/hunspell/spelling.txt",
+      "size": 454321
+     },
+     {
+      "name": "fr/hunspell/spelling_custom.txt",
+      "path": "org/languagetool/resource/fr/hunspell/spelling_custom.txt",
+      "size": 104
+     },
+     {
+      "name": "fr/hunspell/prohibit.txt",
+      "path": "org/languagetool/resource/fr/hunspell/prohibit.txt",
+      "size": 180
+     }
+    ],
+    "sha256": "b3cd16a015405f4138f93187dd1b773c014b02c761b68c6eb03a567e1d2d36ed",
+    "size": 1732846,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-fr/6.8/language-fr-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "fr/french_tags.txt",
       "path": "org/languagetool/resource/fr/french_tags.txt",
       "size": 3744
