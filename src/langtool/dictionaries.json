@@ -71,6 +71,28 @@
    {
     "files": [
      {
+      "name": "ca/hunspell/ignore.txt",
+      "path": "org/languagetool/resource/ca/hunspell/ignore.txt",
+      "size": 58
+     },
+     {
+      "name": "ca/hunspell/prohibit.txt",
+      "path": "org/languagetool/resource/ca/hunspell/prohibit.txt",
+      "size": 158
+     },
+     {
+      "name": "ca/spelling.txt",
+      "path": "org/languagetool/resource/ca/spelling.txt",
+      "size": 19699
+     }
+    ],
+    "sha256": "d9a575bb27016a6f143a45d230575be9534f775c2f29cdd277fafdae543b6126",
+    "size": 2029468,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-ca/6.8/language-ca-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "ca/ca-ES_tags.txt",
       "path": "org/languagetool/resource/ca/ca-ES_tags.txt",
       "size": 4287
@@ -81,14 +103,34 @@
       "size": 100
      },
      {
+      "name": "ca/ca-ES_spelling_multitoken.dict",
+      "path": "org/languagetool/resource/ca/ca-ES_spelling_multitoken.dict",
+      "size": 6504613
+     },
+     {
+      "name": "ca/ca-ES_spelling.dict",
+      "path": "org/languagetool/resource/ca/ca-ES_spelling.dict",
+      "size": 2082380
+     },
+     {
       "name": "ca/ca-ES.dict",
       "path": "org/languagetool/resource/ca/ca-ES.dict",
       "size": 1461925
      },
      {
+      "name": "ca/ca-ES_spelling.info",
+      "path": "org/languagetool/resource/ca/ca-ES_spelling.info",
+      "size": 907
+     },
+     {
       "name": "ca/ca-ES_synth.dict",
       "path": "org/languagetool/resource/ca/ca-ES_synth.dict",
       "size": 1188349
+     },
+     {
+      "name": "ca/ca-ES_spelling_multitoken.info",
+      "path": "org/languagetool/resource/ca/ca-ES_spelling_multitoken.info",
+      "size": 873
      },
      {
       "name": "ca/ca-ES_synth.info",

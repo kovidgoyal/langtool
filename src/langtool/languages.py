@@ -141,16 +141,23 @@ _PT_RULES = [
 ]
 
 _CA_RULES = [
-    R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('CatalanUnpairedBracketsRule'),
-    R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'),
-    R('LongSentenceRule', max_words=60), R('CatalanWordRepeatRule'), R('CatalanPhraseRepeatRule'),
-    R('CatalanUnpairedQuestionMarksRule'), R('CatalanUnpairedExclamationMarksRule'),
-    R('CatalanWrongWordInContextRule'), R('SimpleReplaceVerbsRule'), R('SimpleReplaceBalearicRule'),
-    R('SimpleReplaceRule'), R('SimpleReplaceMultiwordsRule'), R('ReplaceOperationNamesRule'),
-    R('SimpleReplaceDiacriticsIEC'), R('SimpleReplaceAnglicism'), R('PronomFebleDuplicateRule'),
-    R('CheckCaseRule'), R('SimpleReplaceAdverbsMent'), R('CatalanWordRepeatBeginningRule'), R('CompoundRule'),
-    R('SimpleReplaceDNVRule'), R('SimpleReplaceDNVColloquialRule'), R('SimpleReplaceDNVSecondaryRule'),
-    R('WordCoherencyRule'), R('CatalanPunctuationMarkAtParagraphEnd'), R('CatalanSplitLongSentenceRule'),
+    R('CommaWhitespaceRule',
+      examples=('A parer seu<marker> ,</marker> no era veritat.', 'A parer seu<marker>,</marker> no era veritat.')),
+    R('DoublePunctuationRule'), R('CatalanUnpairedBracketsRule'),
+    R('UppercaseSentenceStartRule',
+      examples=('Preus de venda al públic. <marker>han</marker> pujat molt.',
+                'Preus de venda al públic. <marker>Han</marker> pujat molt.')),
+    R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('LongSentenceRule', max_words=60),
+    # specific to Catalan:
+    R('CatalanWordRepeatRule'), R('CatalanPhraseRepeatRule'), R('CatalanUnpairedQuestionMarksRule'),
+    R('CatalanUnpairedExclamationMarksRule'), R('CatalanWrongWordInContextRule'), R('SimpleReplaceVerbsRule'),
+    R('SimpleReplaceBalearicRule'), R('SimpleReplaceRule'), R('SimpleReplaceMultiwordsRule'),
+    R('ReplaceOperationNamesRule'), R('SimpleReplaceDiacriticsIEC'), R('SimpleReplaceAnglicism'),
+    R('PronomFebleDuplicateRule'), R('CheckCaseRule'), R('SimpleReplaceAdverbsMent'),
+    R('CatalanWordRepeatBeginningRule'), R('CompoundRule'), R('SimpleReplaceDNVRule'),
+    R('SimpleReplaceDNVColloquialRule'), R('SimpleReplaceDNVSecondaryRule'), R('WordCoherencyRule'),
+    R('CatalanPunctuationMarkAtParagraphEnd'), R('CatalanSplitLongSentenceRule', max_words=60),
+    R('IgnoreProperNouns'),
 ]
 
 LANGUAGES = {
@@ -207,22 +214,32 @@ LANGUAGES = {
         rules=[R('CommaWhitespaceRule'), R('DoublePunctuationRule'), R('UppercaseSentenceStartRule'),
                R('MultipleWhitespaceRule'), R('SentenceWhitespaceRule'), R('TopoReplaceRule')],
     ),
+    # org.languagetool.language.Catalan, ValencianCatalan and BalearicCatalan
+    # (code in langtool.lang.ca); the MorfologikCatalanSpellerRule (after
+    # CatalanPhraseRepeatRule) is not ported (spell checking), nor is
+    # CatalanRemoteRule (after CatalanPunctuationMarkAtParagraphEnd, a remote
+    # rule). CatalanHybridDisambiguator: the MultiWordChunkers for
+    # spelling_global.txt and ca/multiwords.txt, the XmlRuleDisambiguator of
+    # ca-ES with the global disambiguation rules, then the
+    # CatalanMultitokenDisambiguator
     'ca': dict(
-        name='Catalan', countries=['ES'], default_variant='ca-ES',
+        name='Catalan', countries=['ES'], default_variant='ca-ES', sentence_tokenizer='srx',
+        quotes=('«', '»', '‘', '’'), advanced_typography=True, default_rule_priority_for_style=-50,
         variants=[
             V('ca-ES', name='Catalan'),
-            V('ca-ES-valencia', name='Catalan (Valencian)', variant='valencia',
+            V('ca-ES-valencia', countries=['ES'], name='Catalan (Valencian)', variant='valencia',
               enabled=['EXIGEIX_VERBS_VALENCIANS', 'EXIGEIX_ACCENTUACIO_VALENCIANA', 'EXIGEIX_POSSESSIUS_U',
                        'EXIGEIX_VERBS_EIX', 'EXIGEIX_VERBS_ISC', 'PER_PER_A_INFINITIU', 'FINS_EL_AVL', 'LES_HA_FETES'],
               disabled=['EXIGEIX_VERBS_CENTRAL', 'EXIGEIX_ACCENTUACIO_GENERAL', 'EXIGEIX_POSSESSIUS_V',
                         'EVITA_PRONOMS_VALENCIANS', 'EVITA_DEMOSTRATIUS_EIXE', 'VOCABULARI_VALENCIA', 'EXIGEIX_US',
                         'FINS_EL_GENERAL', 'EVITA_INFINITIUS_INDRE', 'EVITA_DEMOSTRATIUS_ESTE', 'CASTIC_CASTIG'],
               extra_rules=[R('WordCoherencyValencianRule')]),
-            V('ca-ES-balear', name='Catalan (Balearic)', variant='balear', enabled=['EXIGEIX_VERBS_BALEARS'],
-              disabled=['EXIGEIX_VERBS_CENTRAL', 'CA_SIMPLE_REPLACE_BALEARIC']),
+            V('ca-ES-balear', countries=['ES'], name='Catalan (Balearic)', variant='balear',
+              enabled=['EXIGEIX_VERBS_BALEARS'], disabled=['EXIGEIX_VERBS_CENTRAL', 'CA_SIMPLE_REPLACE_BALEARIC']),
         ],
         tagger=dict(dict='ca/ca-ES.dict', lowercase_with_uppercase=False, impl='CatalanTagger'),
-        synthesizer=dict(dict='ca/ca-ES_synth.dict', tags='ca/ca-ES_tags.txt', impl='CatalanSynthesizer'),
+        synthesizer=dict(dict='ca/ca-ES_synth.dict', tags='ca/ca-ES_tags.txt', sor='ca/ca.sor',
+                         impl='CatalanSynthesizer'),
         word_tokenizer='CatalanWordTokenizer',
         disambiguator=[mw('spelling_global.txt', False, True, False, 'NPCN000'),
                        mw('ca/multiwords.txt', True, True, False, remove_previous_tags=True), xml(True),

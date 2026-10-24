@@ -7,6 +7,7 @@ from . import ar  # noqa: F401
 from . import ast  # noqa: F401
 from . import be  # noqa: F401
 from . import br  # noqa: F401
+from . import ca  # noqa: F401
 from . import crh  # noqa: F401
 from . import da  # noqa: F401
 from . import el  # noqa: F401
