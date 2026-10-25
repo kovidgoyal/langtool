@@ -37,8 +37,8 @@ class EnglishSynthesizer(BaseSynthesizer):
                 det = 'the '
             p = jregex.compile(my_pos_tag)
             results = []
-            for tag in self.get_possible_tags():
-                if p.fullmatch(tag) and token.lemma is not None:
+            if token.lemma is not None:
+                for tag in self.tags_matching(p):
                     for result in self.lookup(token.lemma, tag):
                         results.append(det + result)
             return self.remove_exceptions(results)

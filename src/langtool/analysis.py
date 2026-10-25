@@ -7,7 +7,7 @@ AnalyzedSentence.
 import regex
 
 from . import global_config
-from ._base import AnalyzedTokenBase, AnalyzedTokenReadingsBase
+from ._base import AnalyzedTokenBase, AnalyzedTokenReadingsBase, speedups as _speedups
 from .tools import is_whitespace
 
 SENTENCE_START_TAGNAME = 'SENT_START'
@@ -22,6 +22,7 @@ class AnalyzedToken(AnalyzedTokenBase):
 
     __slots__ = ()
 
+    # (with the speedups the C base class implements __init__, see the end of the class)
     def __init__(self, token, pos_tag=None, lemma=None):
         if token is None:
             raise ValueError('token cannot be None')
@@ -41,6 +42,9 @@ class AnalyzedToken(AnalyzedTokenBase):
         if r is None:
             r = self._lemma_or_token_lower = self.lemma_or_token.lower()
         return r
+
+    if _speedups is not None:
+        del __init__
 
     def has_no_tag(self):
         return self.has_no_pos_tag
@@ -92,14 +96,17 @@ class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
     """All readings of a token, plus token level information (position,
     whitespace, chunk tags, immunization...)."""
 
-    __slots__ = ('start_pos', 'pos_fix', 'clean_token', 'whitespace_before_char', 'immunization_source_line',
-                 'historical_annotations', '__weakref__')
+    __slots__ = ('__weakref__',)
 
+    # (with the speedups the C base class implements __init__, using _init_py for unusual readings)
     def __init__(self, readings, start_pos=0):
         if isinstance(readings, AnalyzedToken):
             readings = [readings]
         else:
             readings = list(readings)
+        self._init_py(readings, start_pos)
+
+    def _init_py(self, readings, start_pos):
         self.readings = readings
         self.start_pos = start_pos
         self.pos_fix = 0
@@ -123,6 +130,9 @@ class AnalyzedTokenReadings(AnalyzedTokenReadingsBase):
         self.historical_annotations = ''
         self._set_no_real_pos_tag()
         self.has_same_lemmas = self._are_lemmas_same()
+
+    if _speedups is not None:
+        del __init__
 
     @classmethod
     def from_old(cls, old, new_readings, rule_applied=''):
@@ -416,6 +426,11 @@ def copy_readings(tokens):
     return out
 
 
+_sentence_index = _speedups.sentence_index if _speedups is not None else None
+if _speedups is not None:
+    _speedups.set_fallbacks(is_whitespace, AnalyzedTokenReadings._init_py)
+
+
 class AnalyzedSentence:
     """A sentence, as a list of AnalyzedTokenReadings including whitespace
     tokens."""
@@ -428,6 +443,15 @@ class AnalyzedSentence:
             pre_disambig_tokens = tokens
         self.tokens = tokens
         self.pre_disambig_tokens = pre_disambig_tokens
+        self._text = None
+        self._native = None
+        if _sentence_index is not None:
+            # the same as the code below, in C
+            r = _sentence_index(tokens, pre_disambig_tokens, previous, readings_unchanged)
+            if r is not None:
+                (self.wh_positions, self.non_blank_tokens, self.non_blank_pre_disambig_tokens, self.token_offsets,
+                 self.lemma_offsets, self.pos_tag_set) = r
+                return
         mapping = [0] * (len(tokens) + 1)
         self.wh_positions = mapping
         self.non_blank_tokens = self._non_blank(tokens, mapping)
@@ -440,8 +464,6 @@ class AnalyzedSentence:
         else:
             self.lemma_offsets = _index_lemmas(self.non_blank_tokens)
             self.pos_tag_set = _index_pos_tags(self.non_blank_tokens)
-        self._text = None
-        self._native = None
 
     @staticmethod
     def _non_blank(tokens, mapping):

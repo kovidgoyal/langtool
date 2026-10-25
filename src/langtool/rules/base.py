@@ -2,6 +2,8 @@
 org.languagetool.rules.Rule, Category, RuleMatch and the rule match
 filters (RuleWithMaxFilter, SameRuleGroupFilter, CleanOverlappingFilter)."""
 
+import threading
+
 from ..tools import is_mixed_case, uppercase_first_char, is_all_whitespace
 
 SUGGESTION_START_TAG = '<suggestion>'
@@ -145,10 +147,29 @@ class Rule:
     def get_sentence_with_immunization(self, sentence):
         anti = self.get_anti_patterns()
         if anti:
-            immunized = sentence.copy()
+            # the sentence is only copied when an anti-pattern can match (the immunization modifies the tokens),
+            # if none can the sentence itself is returned
+            c = self.__dict__.get('_immunizer')
+            if c is None or c[0] is not anti or c[1] != len(anti):
+                from ..patterns.ruleset import anti_pattern_selector, anti_pattern_spec
+                c = (anti, len(anti), anti_pattern_selector(anti), threading.local(), anti_pattern_spec(list(anti)))
+                self.__dict__['_immunizer'] = c
+            if c[2] is not None:
+                # the anti-patterns are applied by the speedups (with per thread matchers)
+                table = getattr(c[3], 't', None)
+                if table is None:
+                    from .._base import speedups
+                    table = c[3].t = speedups.MatcherTable(c[1])
+                return c[2].disambiguate(sentence, _copy_sentence, table, c[4])
+            immunized = None
             for ap in anti:
+                if immunized is None:
+                    ignorable = getattr(ap, 'can_be_ignored_for', None)
+                    if ignorable is not None and ignorable(sentence):
+                        continue
+                    immunized = sentence.copy()
                 immunized = ap.replace(immunized)
-            return immunized
+            return sentence if immunized is None else immunized
         return sentence
 
     def to_rule_match_array(self, matches):
@@ -156,6 +177,10 @@ class Rule:
 
     def __repr__(self):
         return '<%s %s>' % (type(self).__name__, self.get_full_id())
+
+
+def _copy_sentence(sentence):
+    return sentence.copy()
 
 
 class TextLevelRule(Rule):

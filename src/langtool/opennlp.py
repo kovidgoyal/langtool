@@ -24,10 +24,12 @@ bit for some values (this only matters for exact ties, which are resolved
 the same way for equal values)."""
 
 import io
+from array import array
 import heapq
 import math
 import operator
 import struct
+import sys
 import threading
 import unicodedata
 import zipfile
@@ -93,6 +95,18 @@ class _DataReader:
         self.pos += 8 * n
         return v
 
+    def read_double_array(self, n):
+        """n doubles as an array('d') (8 bytes per value, a tuple of floats
+        needs 32)"""
+        a = array('d')
+        a.frombytes(self.data[self.pos:self.pos + 8 * n])
+        if len(a) != n:
+            raise struct.error('unpack_from requires a buffer of at least %d bytes' % (self.pos + 8 * n))
+        if sys.byteorder == 'little':
+            a.byteswap()
+        self.pos += 8 * n
+        return a
+
     def read_utf(self):
         n, = struct.unpack_from('>H', self.data, self.pos)
         b = self.data[self.pos + 2:self.pos + 2 + n]
@@ -125,12 +139,17 @@ class _NaNList(list):
 
 class GISModel:
     """opennlp.tools.ml.maxent.GISModel (with the UniformPrior): pmap maps
-    the context predicates to (outcome indices, parameters)"""
+    the context predicates to (outcome indices, parameters) tuples, or (to
+    save memory) to int codes: offset * len(patterns) + pattern index, the
+    outcome indices are patterns[pattern index], the parameters
+    params[offset:offset + number of outcomes] (an array('d'))"""
 
-    def __init__(self, outcome_names, pmap):
+    def __init__(self, outcome_names, pmap, patterns=None, params=None):
         self.outcome_names = outcome_names
         self.num_outcomes = len(outcome_names)
         self.pmap = pmap
+        self.patterns = patterns
+        self.params = params
         # UniformPrior.setLabels: StrictMath.log(1.0 / numOutcomes)
         self.r = math.log(1.0 / self.num_outcomes)
         self._index = {}
@@ -149,8 +168,21 @@ class GISModel:
         for c in context:
             e = pmap.get(c)
             if e is not None:
+                if type(e) is int:
+                    e = self.parameters(c)
                 for oid, p in zip(e[0], e[1]):
                     prior[oid] += p
+
+    def parameters(self, pred):
+        """(outcome indices, parameters) of a context predicate (None if it
+        is not in the model)"""
+        e = self.pmap.get(pred)
+        if type(e) is int:
+            pi = e % len(self.patterns)
+            off = e // len(self.patterns)
+            outcomes = self.patterns[pi]
+            return outcomes, self.params[off:off + len(outcomes)]
+        return e
 
     def normalize(self, prior):
         """The rest of GISModel.eval: exp and normalization"""
@@ -172,7 +204,7 @@ class GISModel:
         (the start of sumFeatures; the rest is added with eval_from)"""
         prior = [self.r] * self.num_outcomes
         if _speedups is not None:
-            return _speedups.gis_sum(prior, self.pmap, context)
+            return _speedups.gis_sum(prior, self.pmap, context, self.patterns, self.params)
         self.sum_features(prior, context)
         return prior
 
@@ -181,7 +213,7 @@ class GISModel:
         prefix_sums: the same additions in the same order, so the result is
         identical"""
         if _speedups is not None:
-            r = _speedups.gis_eval(prefix_sums, self.pmap, context_rest)
+            r = _speedups.gis_eval(prefix_sums, self.pmap, context_rest, self.patterns, self.params)
             if r is not None:
                 return r
         prior = list(prefix_sums)
@@ -219,18 +251,23 @@ def read_gis_model(data):
         outcome_patterns.append([int(x) for x in r.read_utf().split(' ') if x])
     num_preds = r.read_int()
     pred_labels = [r.read_utf() for _ in range(num_preds)]
+    # (the parameters of all predicates are stored in one array('d'), pmap maps the predicates to int codes, see
+    # GISModel)
     pmap = {}
     pid = 0
-    for pattern in outcome_patterns:
-        outcomes = tuple(pattern[1:])
-        n = len(outcomes)
+    patterns = tuple(tuple(pattern[1:]) for pattern in outcome_patterns)
+    npat = len(patterns)
+    params = array('d')
+    for pi, pattern in enumerate(outcome_patterns):
+        n = len(patterns[pi])
         count = pattern[0]
-        values = r.read_doubles(count * n)
+        off = len(params)
+        params.extend(r.read_double_array(count * n))
         for j in range(count):
             # LinkedHashMap.put: a later duplicate predicate replaces the earlier one
-            pmap[pred_labels[pid]] = (outcomes, values[j * n:(j + 1) * n])
+            pmap[pred_labels[pid]] = (off + j * n) * npat + pi
             pid += 1
-    return GISModel(outcome_labels, pmap)
+    return GISModel(outcome_labels, pmap, patterns, params)
 
 
 class ModelPackage:
@@ -371,6 +408,10 @@ class BeamSearch:
         simulated), see _select()."""
         size = self.size
         names = self.model.outcome_names
+        if _speedups is not None:
+            # (the same in C)
+            return _speedups.beam_search(size, num_sequences, length, names if type(names) is list else list(names),
+                                         evaluate, allowed_outcomes, min_sequence_score, _EMPTY_SEQUENCE)
         n_outcomes = self.model.num_outcomes
         all_outcomes = range(n_outcomes)
         size_index = max(0, n_outcomes - size)

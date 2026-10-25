@@ -2,41 +2,16 @@
 LanguageTool), one package per language code (a trailing underscore is added
 when the code is a Python keyword, like ``is_``, and a
 code with dashes gets a valid package name: de_simple for
-de-DE-x-simple-language). Importing this package
-registers the implementations with langtool.extensions."""
+de-DE-x-simple-language). load_all() imports all of them,
+which registers the implementations with langtool.extensions (which
+imports only the package of a language when that is enough)."""
 
-from . import ar  # noqa: F401
-from . import ast  # noqa: F401
-from . import be  # noqa: F401
-from . import br  # noqa: F401
-from . import ca  # noqa: F401
-from . import crh  # noqa: F401
-from . import da  # noqa: F401
-from . import de  # noqa: F401
-from . import de_simple  # noqa: F401 -- de-DE-x-simple-language
-from . import el  # noqa: F401
-from . import en  # noqa: F401
-from . import eo  # noqa: F401
-from . import es  # noqa: F401
-from . import fa  # noqa: F401
-from . import fr  # noqa: F401
-from . import ga  # noqa: F401
-from . import gl  # noqa: F401
-from . import is_  # noqa: F401
-from . import it  # noqa: F401
-from . import ja  # noqa: F401
-from . import km  # noqa: F401
-from . import lt  # noqa: F401
-from . import ml  # noqa: F401
-from . import nl  # noqa: F401
-from . import pl  # noqa: F401
-from . import pt  # noqa: F401
-from . import ro  # noqa: F401
-from . import ru  # noqa: F401
-from . import sk  # noqa: F401
-from . import sl  # noqa: F401
-from . import sv  # noqa: F401
-from . import ta  # noqa: F401
-from . import tl  # noqa: F401
-from . import uk  # noqa: F401
-from . import zh  # noqa: F401
+import importlib
+
+PACKAGES = ('ar', 'ast', 'be', 'br', 'ca', 'crh', 'da', 'de', 'de_simple', 'el', 'en', 'eo', 'es', 'fa', 'fr', 'ga', 'gl', 'is_', 'it', 'ja', 'km', 'lt', 'ml', 'nl', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sv', 'ta', 'tl', 'uk', 'zh')
+
+
+def load_all():
+    """Imports all the language packages"""
+    for p in PACKAGES:
+        importlib.import_module(__name__ + '.' + p)

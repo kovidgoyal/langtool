@@ -95,17 +95,52 @@ class AbstractPatternRulePerformer:
     def _compile(self, check_immunized, element_no):
         """Prepare matching with the C extension, if possible."""
         rule = self.rule
-        if speedups is None or rule.test_unification:
+        if speedups is None:
             return
+        has_refs = False
         for t in rule.pattern_tokens:
             if t.token_reference is not None:
-                return
+                has_refs = True
             if t.and_group:
                 for a in t.and_group:
                     if a.token_reference is not None:
-                        return
+                        has_refs = True
         self._compiled = speedups.CompiledPattern(tuple(rule.pattern_tokens), self.min_occur_correction,
                                                   bool(rule.groups_or_unification), check_immunized, element_no)
+        # the callbacks of CompiledPattern.match (not stored in the CompiledPattern, that would be a reference
+        # cycle)
+        self._c_unify = self._test_unification_lists if rule.test_unification else None
+        self._c_resolver = self._resolve if has_refs else None
+
+    def c_spec(self):
+        """The entry of a speedups.MatcherTable (see there) for the rule"""
+        compiled = self._compiled
+        if compiled is None:
+            return None
+        rule = self.rule
+        anchor = rule.anchor_hint
+        if anchor is None:
+            a_inflected, a_values, a_set, a_index = False, None, None, 0
+        else:
+            a_inflected, a_values, a_set, a_index = (anchor.inflected, anchor.lower_case_values,
+                                                     anchor.lower_case_value_set, anchor.token_index)
+        return (compiled, self._c_on_match, self._c_finish, self._c_unify, self._c_resolver, a_inflected, a_values,
+                a_set, a_index, bool(rule.sent_start), self.is_interpret_pos_tags_pre_disambiguation(),
+                self.pattern_size, self.min_occur_correction)
+
+    def _resolve(self, pattern_token, token):
+        """PatternTokenMatcher.resolve_reference for CompiledPattern"""
+        return pattern_token.compile(token, self.rule.language.synthesizer)
+
+    def _test_unification_lists(self, to_unify, neutral):
+        """test_unification() for CompiledPattern: to_unify / neutral are
+        the readings to unify and the neutral readings as lists, indexed by
+        the (first) index of the pattern token"""
+        pts = self.rule.pattern_tokens
+        self.to_unify = {id(pts[i]): v for i, v in enumerate(to_unify) if v is not None}
+        self.neutral_readings = {id(pts[i]): v for i, v in enumerate(neutral) if v is not None}
+        self.unified_tokens = None
+        return self.test_unification()
 
     def is_interpret_pos_tags_pre_disambiguation(self):
         return isinstance(self.rule, R.PatternRule) and self.rule.interpret_pos_tags_pre_disambiguation
@@ -129,11 +164,11 @@ class AbstractPatternRulePerformer:
                 starts = [ai - ti for ai in anchor_indices if min_start <= ai - ti <= max_start and
                           0 <= ai - ti < limit]
                 if starts:
-                    compiled.match(tokens, starts, consumer)
+                    compiled.match(tokens, starts, consumer, self._c_unify, self._c_resolver)
             else:
                 lo, hi = max(0, min_start), min(limit - 1, max_start)
                 if lo <= hi:
-                    compiled.match(tokens, (lo, hi), consumer)
+                    compiled.match(tokens, (lo, hi), consumer, self._c_unify, self._c_resolver)
             return
         if anchor_indices is not None:
             ti = anchor.token_index
@@ -342,6 +377,17 @@ class PatternRuleMatcher(AbstractPatternRulePerformer):
         super().__init__(rule, unifier_config)
         self.use_list = use_list
         self._compile(True, rule.element_no if use_list and isinstance(rule, R.PatternRule) else None)
+
+    def _c_on_match(self, sentence, tokens, scratch, positions, first, last, first_marker, last_marker):
+        """the consumer of the matches for the speedups.MatcherTable"""
+        return self.create_rule_match(positions, tokens, first, last, first_marker, last_marker, sentence)
+
+    def _c_finish(self, sentence, scratch, matches):
+        """the result of PatternRule.match_unchecked() for the
+        speedups.MatcherTable"""
+        if len(matches) > 1:
+            matches = rule_with_max_filter(matches)
+        return self.rule.apply_anti_patterns(sentence, matches, self)
 
     def match(self, sentence, min_start=0, max_start=2 ** 31):
         if self.is_interpret_pos_tags_pre_disambiguation():
@@ -689,6 +735,10 @@ def match_regex_rule(rule, sentence):
     text = sentence.text
     if len(text) > rule.MAX_SENT_LENGTH:
         return []
+    pattern = rule.pattern
+    m = pattern.search(text)
+    if m is None:
+        return []
     message = rule.message
     sugg_in_msg = _clause_positions(_SUGG_PATTERN, message)
     refs_in_msg = _clause_positions(_MATCH_PATTERN, message)
@@ -697,12 +747,12 @@ def match_regex_rule(rule, sentence):
     refs_in_out = _clause_positions(_MATCH_PATTERN, out_msg)
     matches = []
     start_pos = 0
-    pattern = rule.pattern
     n = len(text)
     while start_pos <= n:
-        m = pattern.search(text, start_pos)
-        if m is None:
-            break
+        if start_pos > 0:
+            m = pattern.search(text, start_pos)
+            if m is None:
+                break
         mark_start, mark_end = m.start(rule.mark_group), m.end(rule.mark_group)
         pmsg = _process_message(rule, m, message, refs_in_msg, sugg_in_msg, rule.suggestion_matches)
         pout = _process_message(rule, m, out_msg, refs_in_out, sugg_in_out, rule.suggestion_matches_out_msg)
@@ -740,28 +790,39 @@ class DisambiguationPatternRuleReplacer(AbstractPatternRulePerformer):
 
     def replace(self, sentence):
         tokens = sentence.non_blank_tokens
-        pre_disambig = sentence.tokens
-        state = {'wh': sentence.tokens, 'changed': False}
-        rule = self.rule
+        scratch = []
 
         def consumer(positions, first, last, first_marker, last_marker):
-            rfrom = tokens[first].start_pos if 0 <= first < len(tokens) else -1
-            rto = tokens[last].end_pos if 0 <= last < len(tokens) else -1
-            matching_tokens = sum(1 for p in positions if p != 0)
-            if self._keep_despite_filter(tokens, positions, first, last) and \
-                    self._keep_by_disambig(sentence, rfrom, rto, first, last):
-                if not state['changed']:
-                    state['wh'] = list(state['wh'])
-                state['wh'] = self.execute_action(sentence, state['wh'], self.unified_tokens, first, last_marker,
-                                                  matching_tokens, positions)
-                state['changed'] = True
+            self._c_on_match(sentence, tokens, scratch, positions, first, last, first_marker, last_marker)
 
         self.do_match(sentence, tokens, consumer)
-        if state['changed']:
-            action = rule.action
+        return self._c_finish(sentence, scratch, None)
+
+    def _c_on_match(self, sentence, tokens, scratch, positions, first, last, first_marker, last_marker):
+        """the consumer of the matches of replace() (also called by the
+        speedups.MatcherTable): scratch is [the new tokens, whether they were
+        changed] (empty at the start)"""
+        if not scratch:
+            scratch.append(sentence.tokens)
+            scratch.append(False)
+        rfrom = tokens[first].start_pos if 0 <= first < len(tokens) else -1
+        rto = tokens[last].end_pos if 0 <= last < len(tokens) else -1
+        matching_tokens = sum(1 for p in positions if p != 0)
+        if self._keep_despite_filter(tokens, positions, first, last) and \
+                self._keep_by_disambig(sentence, rfrom, rto, first, last):
+            if not scratch[1]:
+                scratch[0] = list(scratch[0])
+            scratch[0] = self.execute_action(sentence, scratch[0], self.unified_tokens, first, last_marker,
+                                             matching_tokens, positions)
+            scratch[1] = True
+
+    def _c_finish(self, sentence, scratch, results):
+        """the result of replace()"""
+        if scratch and scratch[1]:
+            action = self.rule.action
             readings_unchanged = action in (R.IMMUNIZE, R.IGNORE_SPELLING)
             previous = None if action == R.ADD else sentence
-            return AnalyzedSentence(state['wh'], pre_disambig, previous, readings_unchanged)
+            return AnalyzedSentence(scratch[0], sentence.tokens, previous, readings_unchanged)
         return sentence
 
     def _keep_by_disambig(self, sentence, rfrom, rto, first, last):

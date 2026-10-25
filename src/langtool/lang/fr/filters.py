@@ -450,9 +450,10 @@ class WordWithDeterminerFilter(RuleFilter):
     @staticmethod
     def _suggestion_has_no_errors(new_suggestion, lt):
         analyzed_sentence = lt.analyze_text(new_suggestion)[0]
-        for r in lt.get_all_active_rules():
+        # (= the rules of lt.get_all_active_rules() with the category or id, in order; the cheap tests first)
+        for r in lt.get_all_rules():
             if ((r.category is not None and r.category.id == _CATEGORY_TO_CHECK)
-                    or r.get_id() in _RULES_TO_CHECK):
+                    or r.get_id() in _RULES_TO_CHECK) and not lt.ignore_rule(r):
                 if r.match(analyzed_sentence):
                     return False
         return True

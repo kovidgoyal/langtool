@@ -41,6 +41,8 @@ import re
 import threading
 from time import perf_counter
 
+from ._base import speedups as _speedups
+
 __all__ = ['Hunspell', 'get_dictionary']
 
 # --- constants (atypes.hxx, csutil.hxx, hunspell.hxx) ---
@@ -3331,6 +3333,14 @@ class Hunspell:
         data = self._sug_data = (units_list, info, by_len)
         return data
 
+    def _ngram_lowered(self, units_list):
+        """the lowercase versions of the entries of _ngram_data (cached)"""
+        c = getattr(self, '_sug_lowered', None)
+        if c is None or c[0] is not units_list:
+            lower_tr = self._lower_tr
+            c = self._sug_lowered = (units_list, [u.translate(lower_tr) for u in units_list])
+        return c[1]
+
     def _leftcommon(self, su1, su2):
         """SuggestMgr::leftcommonsubstring (UTF-16 units)"""
         l1 = len(su1)
@@ -3560,6 +3570,22 @@ class Hunspell:
             # with a time limit: the scan of the dictionary stops at the deadline (or half the limit after its start)
             ng_deadline = max(self._deadline, perf_counter() + self._time_limit / 2)
             positions = _until(positions, ng_deadline)
+        if _speedups is not None and not complexprefixes and not nonbmp:
+            # the loop below in C
+            lowered = self._ngram_lowered(units_list)
+
+            def phon_score(pos, sc):
+                phon = info[pos][3]
+                fu = u8_u16(phon) if utf8 else phon.decode('latin-1')
+                lc2 = self._leftcommon(w_word, fu) if utf8 else self._leftcommon_8bit(word, phon)
+                if low:
+                    fu = fu.translate(lower_tr)
+                sc2 = self._ngram(3, w_word, fu, 1) + lc2
+                return sc2 if sc2 > sc else sc
+
+            lp = _speedups.ng_scan(positions, info, units_list, lowered, w_word, g1, g2, g3,
+                                   captype == NOCAP and ph is None and not de, lower_tr, roots, scores, lp, phon_score)
+            positions = ()
         for pos in positions:
             e, skip, initcap, phon = info[pos]
             if skip or (captype == NOCAP and initcap and ph is None and not de and phon is None):

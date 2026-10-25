@@ -1,7 +1,10 @@
 """Differential test: the C extension (_speedups) must give exactly the same
 results as the pure Python implementation (LANGTOOL_PURE_PYTHON=1). Both are
-run in subprocesses on example sentences of the English and Polish grammar
-rules."""
+run in subprocesses on example sentences of the grammar rules of several
+languages (covering the C paths: the rule selection with the hints, the
+matching of pattern rules with unification and token references, the
+disambiguation and the anti-patterns). The rule matches and the analyzed
+(disambiguated) sentences are compared."""
 
 import html
 import json
@@ -19,14 +22,21 @@ SRC = os.path.join(os.path.dirname(HERE), 'src')
 RULES = os.path.join(SRC, 'langtool', 'data', 'rules')
 
 SENTENCES_PER_LANGUAGE = 300
+SPELL_CHECK_LANGUAGES = ('en-US', 'de-DE')
+SPELL_CHECK_SENTENCES = 25
+LANGUAGES = (('en-US', 'en'), ('pl-PL', 'pl'), ('de-DE', 'de'), ('fr', 'fr'), ('ca-ES', 'ca'), ('es', 'es'),
+             ('pt-PT', 'pt'), ('uk-UA', 'uk'), ('nl', 'nl'))
 
 _EXAMPLE = re.compile(r'<example\b[^>]*>(.*?)</example>', re.S)
 
 
 def example_sentences(lang, n=SENTENCES_PER_LANGUAGE):
-    """Every k-th <example> sentence of rules/<lang>/grammar.xml (n sentences)"""
-    with open(os.path.join(RULES, lang, 'grammar.xml'), encoding='utf-8') as f:
-        xml = f.read()
+    """Every k-th <example> sentence of rules/<lang>/grammar*.xml (n sentences)"""
+    xml = ''
+    for name in sorted(os.listdir(os.path.join(RULES, lang))):
+        if name.startswith('grammar') and name.endswith('.xml'):
+            with open(os.path.join(RULES, lang, name), encoding='utf-8') as f:
+                xml += f.read()
     xml = re.sub(r'<!--.*?-->', '', xml, flags=re.S)
     out = []
     for m in _EXAMPLE.finditer(xml):
@@ -42,10 +52,14 @@ def example_sentences(lang, n=SENTENCES_PER_LANGUAGE):
 
 _RUNNER = r'''
 import json, sys
+SPELL_CHECK_LANGUAGES = %r
+SPELL_CHECK_SENTENCES = %d
 sys.path.insert(0, sys.argv[1])
 import langtool
 data = json.load(sys.stdin)
-result = {'speedups': langtool.have_speedups(), 'results': {}}
+from langtool.tool import JLanguageTool
+from langtool.api import get_language
+result = {'speedups': langtool.have_speedups(), 'results': {}, 'analysis': {}}
 for code, texts in data.items():
     tool = langtool.LanguageTool(code)
     out = []
@@ -53,6 +67,18 @@ for code, texts in data.items():
         out.append([[m.full_rule_id, m.offset, m.length, m.message, m.replacements, m.line, m.column]
                     for m in tool.check(text)])
     result['results'][code] = out
+    lt = JLanguageTool(get_language(code))
+    result['analysis'][code] = [[str(a) for a in lt.analyze_text(text)] for text in texts[:100]]
+    if code in SPELL_CHECK_LANGUAGES:
+        # Hunspell spell checking (the C ngram suggestion search)
+        try:
+            spell_tool = langtool.LanguageTool(code, spell_check=True)
+        except Exception as e:  # (no Hunspell dictionary)
+            result.setdefault('spelling', {})[code] = repr(e)
+        else:
+            result.setdefault('spelling', {})[code] = [
+                [[m.full_rule_id, m.offset, m.length, m.replacements] for m in spell_tool.check(text)]
+                for text in texts[:SPELL_CHECK_SENTENCES]]
 json.dump(result, sys.stdout)
 '''
 
@@ -62,7 +88,7 @@ def _run(texts, pure):
     env.pop('LANGTOOL_PURE_PYTHON', None)
     if pure:
         env['LANGTOOL_PURE_PYTHON'] = '1'
-    p = subprocess.run([sys.executable, '-c', _RUNNER, SRC], input=json.dumps(texts), capture_output=True,
+    p = subprocess.run([sys.executable, '-c', _RUNNER % (SPELL_CHECK_LANGUAGES, SPELL_CHECK_SENTENCES), SRC], input=json.dumps(texts), capture_output=True,
                        text=True, env=env, timeout=1200)
     assert p.returncode == 0, p.stderr[-3000:]
     return json.loads(p.stdout)
@@ -70,10 +96,9 @@ def _run(texts, pure):
 
 @pytest.fixture(scope='module')
 def texts():
-    require_dictionaries('en')
-    require_dictionaries('pl')
     data = {}
-    for code, lang in (('en-US', 'en'), ('pl-PL', 'pl')):
+    for code, lang in LANGUAGES:
+        require_dictionaries(lang)
         sentences = example_sentences(lang)
         assert len(sentences) >= 200
         # also check some multi sentence / multi paragraph texts
@@ -90,12 +115,12 @@ def results(texts):
         pytest.skip('C extension not available')
     py = _run(texts, pure=True)
     assert py['speedups'] is False
-    return c['results'], py['results']
+    return c, py
 
 
-@pytest.mark.parametrize('code', ['en-US', 'pl-PL'])
+@pytest.mark.parametrize('code', [code for code, _ in LANGUAGES])
 def test_c_vs_python(texts, results, code):
-    c, py = results
+    c, py = results[0]['results'], results[1]['results']
     assert len(c[code]) == len(py[code]) == len(texts[code])
     diffs = []
     for text, mc, mp in zip(texts[code], c[code], py[code]):
@@ -104,3 +129,20 @@ def test_c_vs_python(texts, results, code):
     assert not diffs, '%d differences:\n' % len(diffs) + '\n'.join(diffs[:20])
     # sanity check: the example sentences contain errors that are found
     assert sum(1 for m in py[code] if m) > 50
+
+
+@pytest.mark.parametrize('code', [code for code, _ in LANGUAGES])
+def test_c_vs_python_analysis(texts, results, code):
+    c, py = results[0]['analysis'], results[1]['analysis']
+    assert len(c[code]) == len(py[code]) == min(100, len(texts[code]))
+    diffs = []
+    for text, ac, ap in zip(texts[code], c[code], py[code]):
+        if ac != ap:
+            diffs.append('%r:\n  C:      %r\n  Python: %r' % (text, ac, ap))
+    assert not diffs, '%d differences:\n' % len(diffs) + '\n'.join(diffs[:10])
+
+
+@pytest.mark.parametrize('code', SPELL_CHECK_LANGUAGES)
+def test_c_vs_python_spell_check(texts, results, code):
+    c, py = results[0].get('spelling', {}), results[1].get('spelling', {})
+    assert c.get(code) == py.get(code)

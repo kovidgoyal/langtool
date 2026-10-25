@@ -81,9 +81,8 @@ class CatalanSynthesizer(BaseSynthesizer):
 
     def _lookup_matching(self, lemma, p):
         results = []
-        for tag in self.get_possible_tags():
-            if p.fullmatch(tag):
-                results.extend(self.lookup(lemma, tag))
+        for tag in self.tags_matching(p):
+            results.extend(self.lookup(lemma, tag))
         return results
 
     @staticmethod

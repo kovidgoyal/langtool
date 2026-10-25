@@ -126,6 +126,8 @@ def _utf16_key(s):
 
 def _case_insensitive_key(s):
     """sort key of String.CASE_INSENSITIVE_ORDER"""
+    if s.isascii():
+        return s.lower()  # (the same for ASCII strings)
     return ''.join(c.upper().lower() if len(c.upper()) == 1 else c.lower() for c in s)
 
 
@@ -462,7 +464,12 @@ class SpellingCheckRule(Rule):
             return 0
         if case_sensitive:
             if self._ignored_sorted is None:
-                arr = sorted(self.words_to_be_ignored, key=_utf16_key)
+                words = self.words_to_be_ignored
+                if max((max(w) for w in words if w), default='') < '\ud800':
+                    # (the UTF-16 order is the code point order for these strings, and they are all different)
+                    arr = sorted(words)
+                else:
+                    arr = sorted(words, key=_utf16_key)
                 self._ignored_sorted_keys = [_utf16_key(w) for w in arr]
                 self._ignored_sorted = arr
             arr, keys, keyf = self._ignored_sorted, self._ignored_sorted_keys, _utf16_key

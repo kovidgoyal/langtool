@@ -42,9 +42,12 @@ def is_anagram(s1, s2):
     return len(s1) == len(s2) and sorted(s1) == sorted(s2)
 
 
+_SPACE_CHAR = regex.compile(r'[\p{Zs}\p{Zl}\p{Zp}]')
+
+
 def _is_space_char(c):
     # Character.isSpaceChar: Zs, Zl, Zp
-    return regex.match(r'[\p{Zs}\p{Zl}\p{Zp}]', c) is not None
+    return _SPACE_CHAR.match(c) is not None
 
 
 def convert_to_title_case_iterating_chars(text):

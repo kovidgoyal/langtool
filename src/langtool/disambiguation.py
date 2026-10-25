@@ -4,6 +4,8 @@ MultiWordChunker, MultiWordChunker2, XmlRuleDisambiguator and the
 
 import regex
 
+import threading
+
 from .analysis import AnalyzedToken, AnalyzedTokenReadings, AnalyzedSentence
 from .tools import (is_camel_case, uppercase_first_char, all_start_with_lowercase, titlecase_global,
                     java_trim, java_split, is_capitalized_word, lowercase_first_char)
@@ -47,15 +49,20 @@ class MultiWordChunker:
         self.add_ignore_spelling = ignore_spelling
         self.is_remove_previous_tags = remove_previous_tags
         self._initialized = False
+        self._init_lock = threading.Lock()
 
     def _load_words(self):
+        lines, self.separator = self._load_words_and_separator()
+        return lines
+
+    def _load_words_and_separator(self):
         lines = []
-        self.separator = '\t'
+        separator = '\t'
         with open(self.path, encoding='utf-8') as f:
             for line in f:
                 line = java_trim(line.rstrip('\r\n'))
                 if line.startswith('#separatorRegExp='):
-                    self.separator = line.replace('#separatorRegExp=', '')
+                    separator = line.replace('#separatorRegExp=', '')
                 if not line or line[0] == '#':
                     continue
                 if '#' in line:
@@ -72,19 +79,25 @@ class MultiWordChunker:
                         lines.append(base + 'n')
                 else:
                     lines.append(line)
-        return lines
+        return lines, separator
 
     def _lazy_init(self):
         if self._initialized:
             return
-        self.m_start_space = {}
-        self.m_start_no_space = {}
-        self.m_full_space = {}
-        self.m_full_no_space = {}
+        with self._init_lock:
+            if not self._initialized:
+                self._init_maps()
+
+    def _init_maps(self):
+        """(called once, with the lock held; the maps are built before
+        they are published, so other threads never see incomplete maps)"""
+        m_start_space = {}
+        m_start_no_space = {}
+        m_full_space = {}
+        m_full_no_space = {}
         from . import jregex
-        sep = self.separator if hasattr(self, 'separator') else '\t'
-        lines = self._load_words()
-        sep = self.separator
+        lines, sep = self._load_words_and_separator()
+        self.separator = sep
         sep_re = None if sep == '\t' else jregex.compile(sep)
         for line in lines:
             parts = line.split('\t') if sep_re is None else sep_re.split(line)
@@ -99,20 +112,24 @@ class MultiWordChunker:
             tag = self.default_tag if self.default_tag is not None else parts[1]
             contains_space = original.find(' ') > 0
             variants = [original]
-            variants.extend(self._lettercase_variants(original, self.m_full_space if contains_space
-                                                      else self.m_full_no_space))
+            variants.extend(self._lettercase_variants(original, m_full_space if contains_space
+                                                      else m_full_no_space))
             for v in variants:
                 if not contains_space:
                     fc = v[0:1]
-                    if self.m_start_no_space.get(fc, -1) < len(v):
-                        self.m_start_no_space[fc] = len(v)
-                    self.m_full_no_space[v] = AnalyzedToken(v, tag, original)
+                    if m_start_no_space.get(fc, -1) < len(v):
+                        m_start_no_space[fc] = len(v)
+                    m_full_no_space[v] = AnalyzedToken(v, tag, original)
                 else:
                     toks = java_split(v, ' ')
                     first = toks[0]
-                    if self.m_start_space.get(first, -1) < len(toks):
-                        self.m_start_space[first] = len(toks)
-                    self.m_full_space[v] = AnalyzedToken(v, tag, original)
+                    if m_start_space.get(first, -1) < len(toks):
+                        m_start_space[first] = len(toks)
+                    m_full_space[v] = AnalyzedToken(v, tag, original)
+        self.m_start_space = m_start_space
+        self.m_start_no_space = m_start_no_space
+        self.m_full_space = m_full_space
+        self.m_full_no_space = m_full_no_space
         self._initialized = True
 
     def _lettercase_variants(self, original, token_map):
@@ -384,9 +401,8 @@ class XmlRuleDisambiguator:
         self.rule_set = RuleSet(rules, with_lemma_hints=False)
 
     def disambiguate(self, sentence):
-        for rule in self.rule_set.rules_for_sentence(sentence):
-            sentence = rule.replace(sentence)
-        return sentence
+        # for rule in self.rule_set.rules_for_sentence(sentence): sentence = rule.replace(sentence)
+        return self.rule_set.disambiguate(sentence)
 
 
 class ChainDisambiguator:

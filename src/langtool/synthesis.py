@@ -60,6 +60,7 @@ class BaseSynthesizer:
         self.removal_synthesizer = manual('removed.txt')
         self.removal_synthesizer2 = manual('do-not-synthesize.txt')
         self._cache = {}
+        self._tags_matching_cache = None
 
     def lookup(self, lemma, pos_tag):
         key = (lemma, pos_tag)
@@ -89,7 +90,12 @@ class BaseSynthesizer:
     def synthesize(self, token, pos_tag, pos_tag_regexp=False):
         if pos_tag_regexp:
             p = jregex.compile(pos_tag)
-            return self.synthesize_for_pos_tags(token.lemma, lambda tag: p.fullmatch(tag) is not None)
+            # = self.synthesize_for_pos_tags(token.lemma, lambda tag: p.fullmatch(tag) is not None)
+            lemma = token.lemma
+            results = []
+            for tag in self.tags_matching(p):
+                results.extend(self.lookup(lemma, tag))
+            return self.remove_exceptions(results)
         if pos_tag == SPELLNUMBER_TAG:
             return [self.get_spelled_number(token.token)]
         if pos_tag == SPELLNUMBER_FEMININE_TAG:
@@ -104,6 +110,18 @@ class BaseSynthesizer:
             if accept_tag(tag):
                 results.extend(self.lookup(lemma, tag))
         return self.remove_exceptions(results)
+
+    def tags_matching(self, pattern):
+        """The possible tags (in their order) fully matching the compiled
+        regex pattern (cached)."""
+        tags = self.get_possible_tags()
+        cache = getattr(self, '_tags_matching_cache', None)
+        if cache is None or cache[0] is not tags:
+            cache = self._tags_matching_cache = (tags, {})
+        r = cache[1].get(pattern)
+        if r is None:
+            r = cache[1][pattern] = tuple(t for t in tags if pattern.fullmatch(t) is not None)
+        return r
 
     def get_possible_tags(self):
         if self._possible_tags is None:

@@ -815,6 +815,7 @@ def _java_hash_map_int_order(keys):
 # because otherwise negative numbers aren't correctly recognized
 NUMBER_REGEX = '(-?[0-9]{1,32}[0-9,.]{0,32})'
 NUMBER_REGEX_WITH_BOUNDARY = '(-?\\b[0-9]{1,32}[0-9,.]{0,32})'
+_ASCII_DIGIT = jregex.compile('[0-9]')
 
 _DELTA = 1e-2
 _ROUNDING_DELTA = 0.05
@@ -1031,10 +1032,23 @@ class AbstractUnitConversionRule(CoreRule):
                     formatted.append(formatted_str)
         return formatted
 
+    def _unit_patterns_with_metric_flag(self):
+        """[(pattern, unit, unit in self.metric_units)] (cached, the
+        membership test compares units with __eq__, which is slow)"""
+        key = (len(self.unit_patterns), len(self.metric_units))
+        c = getattr(self, '_unit_patterns_cache', None)
+        if c is None or c[0] != key:
+            metric = self.metric_units
+            c = self._unit_patterns_cache = (key, [(p, u, u in metric) for p, u in self.unit_patterns])
+        return c[1]
+
     def _match_units(self, sentence, matches, ignore_ranges, is_metric):
         text = sentence.text
-        for unit_pattern, unit in self.unit_patterns:  # find specific unit through lookup of pattern
-            if (unit in self.metric_units) != is_metric:
+        if _ASCII_DIGIT.search(text) is None:
+            return  # (all unit patterns start with NUMBER_REGEX_WITH_BOUNDARY, see add_unit)
+        # find specific unit through lookup of pattern
+        for unit_pattern, unit, unit_is_metric in self._unit_patterns_with_metric_flag():
+            if unit_is_metric != is_metric:
                 continue
             for unit_matcher in unit_pattern.finditer(text):
                 if not any(unit_matcher.start() >= a and unit_matcher.end() <= b for a, b in ignore_ranges):

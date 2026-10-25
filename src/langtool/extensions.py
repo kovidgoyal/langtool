@@ -14,8 +14,11 @@ from collections import defaultdict
 
 _registry = {}
 _unsupported = defaultdict(set)
-_lock = threading.Lock()
-_loaded = False
+_lock = threading.RLock()
+_loaded = False  # all language packages imported
+_loaded_packages = set()
+# the packages of the language codes that are not package names
+_PACKAGE_NAMES = {'is': 'is_', 'de-DE-x-simple-language': 'de_simple'}
 
 
 def register(kind, name, factory, language=None):
@@ -28,16 +31,44 @@ def register(kind, name, factory, language=None):
     _registry[(kind, name, language)] = factory
 
 
-def _load_language_modules():
+def _load_language_modules(language=None):
+    """Imports the language packages (which register the language specific
+    code): only the package of the language (a short code) if it is given,
+    else all of them."""
     global _loaded
-    if not _loaded:
+    if _loaded:
+        return
+    if language is not None:
+        pkg = _PACKAGE_NAMES.get(language, language)
+        if pkg in _loaded_packages:
+            return
         with _lock:
-            if not _loaded:
-                from . import lang  # noqa: registers language specific code
-                _loaded = True
+            if pkg not in _loaded_packages:
+                import importlib
+                import importlib.util
+                from . import lang
+                if pkg.isidentifier() and importlib.util.find_spec(lang.__name__ + '.' + pkg) is not None:
+                    importlib.import_module(lang.__name__ + '.' + pkg)
+                _loaded_packages.add(pkg)
+        return
+    with _lock:
+        if not _loaded:
+            from . import lang
+            lang.load_all()
+            _loaded = True
 
 
 def lookup(kind, name, language=None):
+    if language is not None and not _loaded:
+        # only the package of the language is needed if the name is found: the names are registered only once,
+        # and the names of a language are registered by its package
+        _load_language_modules(language)
+        f = _registry.get((kind, name, language))
+        if f is None:
+            f = _registry.get((kind, name, None))
+        if f is not None or name == language:
+            # (the hooks of a language (the name is the language) are registered only by its package)
+            return f
     _load_language_modules()
     if language is not None:
         f = _registry.get((kind, name, language))
@@ -283,7 +314,7 @@ def create_rules(language, messages, user_config=None):
             kw = {k: v for k, v in kw.items() if k not in ('examples', 'url')}
         # a language specific class with the name of a core rule (e.g. the
         # LongSentenceRule of org.languagetool.rules.en) replaces the core rule
-        _load_language_modules()
+        _load_language_modules(language.short_code)  # (the rules of a language are registered by its package)
         cls = None if (('rule', name, language.short_code) in _registry) else CORE_RULES.get(name)
         if cls is not None:
             r = cls(messages, language, **kw)

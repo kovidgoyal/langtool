@@ -7,6 +7,17 @@ from .base import TextLevelRule, same_rule_group_filter
 DEFAULT_MAX_DISTANCE_TOKENS = 60
 
 
+def _sentence_matches(self, sentence):
+    """the matches of the rules for the sentence: like
+    for rule in self.rules: sm.extend(rule.match(sentence))
+    (with the fast rule selection and matching of a RuleSet)"""
+    rs = self._rule_set
+    if rs is None:
+        from ..patterns.ruleset import RuleSet
+        rs = self._rule_set = RuleSet(self.rules)
+    return rs.match_sentence(sentence)
+
+
 class RepeatedPatternRule(TextLevelRule):
 
     def __init__(self, rules, language):
@@ -14,6 +25,9 @@ class RepeatedPatternRule(TextLevelRule):
         self.rules = list(rules)
         self.language = language
         self.premium = any(r.premium for r in self.rules)
+        self._rule_set = None
+
+    _sentence_matches = _sentence_matches
 
     def get_id(self):
         return self.rules[0].get_id()
@@ -26,10 +40,7 @@ class RepeatedPatternRule(TextLevelRule):
         offset_chars = offset_tokens = prev_from_token = prev_matches = 0
         distances = []
         for s in sentences:
-            sm = []
-            for rule in self.rules:
-                sm.extend(rule.match(s))
-            sm = same_rule_group_filter(sm)
+            sm = same_rule_group_filter(self._sentence_matches(s))
             nbt = s.non_blank_tokens
             slen = len(nbt)
             for m in sm:
@@ -78,6 +89,9 @@ class ConsistencyPatternRule(TextLevelRule):
         self.rules = list(rules)
         self.language = language
         self.premium = any(r.premium for r in self.rules)
+        self._rule_set = None
+
+    _sentence_matches = _sentence_matches
 
     def get_id(self):
         return _main_rule_id(self.rules[0].get_id())
@@ -90,10 +104,7 @@ class ConsistencyPatternRule(TextLevelRule):
         offset = 0
         matches = []
         for s in sentences:
-            sm = []
-            for rule in self.rules:
-                sm.extend(rule.match(s))
-            sm = same_rule_group_filter(sm)
+            sm = same_rule_group_filter(self._sentence_matches(s))
             for rm in sm:
                 rm.set_sentence_position(rm.from_pos, rm.to_pos)
                 rm.set_offset_position(rm.from_pos + offset, rm.to_pos + offset)

@@ -44,6 +44,9 @@ class AnnotatedText:
     def from_text(cls, text):
         # AnnotatedTextBuilder.addText: the hidden characters (soft hyphen, U+202D, U+202C) are markup, and
         # like JLanguageTool.cleanText: BOM/zero width non breaking spaces are markup
+        if not any(c in text for c in _HIDDEN_CHARS):
+            # (the result of the loop below for a text without hidden characters)
+            return cls([(False, text, None)] if text else [])
         parts = []
         buf = []
         for c in text:
@@ -59,6 +62,12 @@ class AnnotatedText:
         return cls(parts)
 
     def _build(self):
+        if all(not is_markup for is_markup, _, _ in self.parts):
+            # (the result of the loop below if there is no markup)
+            self.plain_text = ''.join(text for _, text, _ in self.parts)
+            self.original_length = len(self.plain_text)
+            self._mapping = list(range(self.original_length + 1))
+            return
         plain = []
         mapping = []  # plain index -> original index
         orig = 0
@@ -188,15 +197,17 @@ class JLanguageTool:
     def ignore_rule(self, rule):
         cat = rule.category
         cat_id = cat.id if cat is not None else None
-        fid = rule.get_full_id()
+        disabled_rules = self.disabled_rules
+        enabled_rules = self.enabled_rules
+        # (the full id is only needed if rules are enabled or disabled)
+        fid = rule.get_full_id() if disabled_rules or enabled_rules else None
         rid = rule.get_id()
         is_cat_disabled = (cat_id in self.disabled_categories or (cat is not None and cat.is_default_off())) and \
             cat_id not in self.enabled_categories
-        is_rule_disabled = fid in self.disabled_rules or rid in self.disabled_rules or \
-            (rule.default_off and not (fid in self.enabled_rules or rid in self.enabled_rules))
         if is_cat_disabled:
-            return not (fid in self.enabled_rules or rid in self.enabled_rules)
-        return is_rule_disabled
+            return not (fid in enabled_rules or rid in enabled_rules)
+        return fid in disabled_rules or rid in disabled_rules or \
+            (rule.default_off and not (fid in enabled_rules or rid in enabled_rules))
 
     def get_all_active_rules(self):
         return [r for r in self.get_all_rules() if not self.ignore_rule(r)]
@@ -433,8 +444,7 @@ class JLanguageTool:
     def _other_rule_matches(self, rule_set, sdata, annotated_text, para_mode):
         out = []
         for sd in sdata:
-            rules = rule_set.rules_for_sentence(sd.analyzed)
-            sm = self.check_analyzed_sentence(para_mode, rules, sd.analyzed)
+            sm = self.check_analyzed_sentence(para_mode, rule_set, sd.analyzed)
             if sm and self._cancelled():
                 break
             for m in sm:
@@ -445,13 +455,16 @@ class JLanguageTool:
     def check_analyzed_sentence(self, para_mode, rules, analyzed):
         if para_mode == PARA_ONLYPARA:
             return []
-        matches = []
-        for rule in rules:
-            if rule.is_text_level_rule():
-                continue
-            if self._cancelled():
-                break
-            matches.extend(rule.match(analyzed))
+        if isinstance(rules, RuleSet):
+            matches = rules.match_sentence(analyzed, self)
+        else:
+            matches = []
+            for rule in rules:
+                if rule.is_text_level_rule():
+                    continue
+                if self._cancelled():
+                    break
+                matches.extend(rule.match(analyzed))
         if not matches:
             return matches
         matches = [m for m in matches if not self.ignore_rule(m.rule)]

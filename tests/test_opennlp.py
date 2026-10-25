@@ -103,7 +103,9 @@ def test_read_gis_model():
             + struct.pack('>d', 1.5) + struct.pack('>2d', -1.0, 2.0))
     model = read_gis_model(data)
     assert model.outcome_names == ['T', 'F']
-    assert model.pmap == {'p=\x00': ((0,), (1.5,)), 'q=😀': ((0, 1), (-1.0, 2.0))}
+    # (the parameters are stored in arrays of doubles)
+    assert {k: (o, tuple(v)) for k, (o, v) in ((k, model.parameters(k)) for k in model.pmap)} == {
+        'p=\x00': ((0,), (1.5,)), 'q=😀': ((0, 1), (-1.0, 2.0))}
     probs = model.eval(['p=\x00', 'unknown', 'q=😀'])
     # log(1/2) + 1.5 - 1.0 and log(1/2) + 2.0
     import math

@@ -18,6 +18,7 @@ with langtool.extensions.register('default_spelling_rule', ...), see
 Language.get_default_spelling_rule().
 """
 
+from array import array
 import os
 import threading
 import unicodedata
@@ -1287,7 +1288,9 @@ class _TrieFSA:
     sorted lines of the plain text word lists (not minimized, which doesn't
     change the accepted sequences or the order of the arcs: by unsigned
     byte label). Nodes and arcs are positive integers, 0 is the terminal
-    node (no outgoing arcs) and the missing arc."""
+    node (no outgoing arcs) and the missing arc. The trie is stored in
+    compact arrays: node -> first arc, node -> end of its arcs, and the
+    label, destination, final and last flags of the arcs."""
 
     def __init__(self, sequences):
         """sequences: sorted (unsigned byte order), without duplicates. The
@@ -1295,27 +1298,37 @@ class _TrieFSA:
         the path of the previous sequence are kept on a stack); a node gets
         its number (and its arcs their numbers) when all its children are
         known."""
-        labels = [0]
-        dests = [0]
-        finals = [False]
-        lasts = [False]
-        first = [0]  # node -> first arc; nodes without arcs are 0
-        arc_maps = [None]  # node -> {label: arc}
+        from ._base import speedups
+        if speedups is not None:
+            # (the same in C)
+            root, first, ends, labels, dests, finals, lasts = speedups.build_trie(sequences)
+            self.root = root
+            self._first = _int_array(first)
+            self._ends = _int_array(ends)
+            self._labels = bytearray(labels)
+            self._dests = _int_array(dests)
+            self._finals = bytearray(finals)
+            self._lasts = bytearray(lasts)
+            return
+        first = array('i', [0])  # node -> first arc; nodes without arcs are 0
+        ends = array('i', [0])  # node -> one past its last arc
+        labels = bytearray(1)
+        dests = array('i', [0])
+        finals = bytearray(1)
+        lasts = bytearray(1)
 
         def finish(arcs):
             if not arcs:
                 return 0
             nid = len(first)
             first.append(len(labels))
-            m = {}
             last = len(arcs) - 1
             for k, (label, child) in enumerate(arcs):
-                m[label] = len(labels)
                 labels.append(label)
                 dests.append(child[0])
                 finals.append(child[1])
                 lasts.append(k == last)
-            arc_maps.append(m)
+            ends.append(len(labels))
             return nid
 
         # a stack entry: [arcs (a list of [label, (child node, child is final)]), final]
@@ -1339,20 +1352,19 @@ class _TrieFSA:
             stack[-1][0][-1][1] = (finish(node[0]), node[1])
         self.root = finish(stack[0][0])
         self._first = first
+        self._ends = ends
         self._labels = labels
         self._dests = dests
         self._finals = finals
         self._lasts = lasts
-        self._arc_maps = arc_maps
 
     def c_arrays(self):
         """The arrays of the trie for the C search (first arc, labels,
         destinations, final and last flags)"""
         r = getattr(self, '_c_arrays', None)
         if r is None:
-            from array import array
-            r = self._c_arrays = (array('i', self._first).tobytes(), bytes(self._labels),
-                                  array('i', self._dests).tobytes(), bytes(self._finals), bytes(self._lasts))
+            r = self._c_arrays = (self._first.tobytes(), bytes(self._labels), self._dests.tobytes(),
+                                  bytes(self._finals), bytes(self._lasts))
         return r
 
     def first_arc(self, node):
@@ -1365,14 +1377,23 @@ class _TrieFSA:
         return self._labels[arc]
 
     def is_final(self, arc):
-        return self._finals[arc]
+        return bool(self._finals[arc])
 
     def destination(self, arc):
         return self._dests[arc]
 
     def get_arc(self, node, lbl):
-        m = self._arc_maps[node]
-        return m.get(lbl, 0) if m is not None else 0
+        if node == 0 or not 0 <= lbl <= 255:
+            return 0
+        # (the labels of the arcs of a node are different)
+        a = self._labels.find(lbl, self._first[node], self._ends[node])
+        return a if a > 0 else 0
+
+
+def _int_array(b):
+    a = array('i')
+    a.frombytes(b)
+    return a
 
 
 class PlainTextDictionary:

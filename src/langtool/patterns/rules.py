@@ -8,7 +8,24 @@ import threading
 from ..rules.base import Rule, TYPE_HINT, TYPE_OTHER
 
 
+_local_lock = threading.Lock()
+
+
+def _thread_local(rule, attr):
+    """the threading.local in the attribute of the rule (created if it is
+    None)"""
+    with _local_lock:
+        loc = getattr(rule, attr)
+        if loc is None:
+            loc = threading.local()
+            setattr(rule, attr, loc)
+        return loc
+
+
 class AbstractPatternRule(Rule):
+
+    # (the attributes of all instances, stored compactly; other attributes are stored in the __dict__)
+    __slots__ = ('category', 'loc_quality_issue_type', 'url', 'default_off', 'default_temp_off', 'premium', 'tags', 'tone_tags', 'goal_specific', 'priority', 'min_prev_matches', 'distance_tokens', 'correct_examples', 'incorrect_examples', 'error_triggering_examples', '_id', 'description', 'language', 'get_unified', 'sub_id', 'start_position_correction', 'end_position_correction', 'suggestion_matches', 'suggestion_matches_out_msg', 'suggestions_out_msg', 'anti_patterns', 'filter', 'filter_args', 'message', 'source_file', 'match_type', 'adjust_suggestion_case', 'xml_line_number', 'pattern_tokens', 'test_unification', 'sent_start', 'groups_or_unification')
 
     def __init__(self, id, description, language, pattern_tokens=None, get_unified=False):
         super().__init__()
@@ -144,6 +161,9 @@ class TokenHint:
 
 class AbstractTokenBasedRule(AbstractPatternRule):
 
+    # (the attributes of all instances, stored compactly; other attributes are stored in the __dict__)
+    __slots__ = ('token_hints', 'anchor_hint', 'pos_hints', 'max_span_tokens', 'min_token_count', '_native_hints')
+
     def __init__(self, id, description, language, pattern_tokens, get_unified):
         super().__init__(id, description, language, pattern_tokens, get_unified)
         self._init_hints()
@@ -228,6 +248,9 @@ def _can_match_sentence_start(t):
 
 class PatternRule(AbstractTokenBasedRule):
 
+    # (the attributes of all instances, stored compactly; other attributes are stored in the __dict__)
+    __slots__ = ('short_message', 'is_member_of_disjunctive_set', 'interpret_pos_tags_pre_disambiguation', 'element_no', 'use_list', '_matchers')
+
     def __init__(self, id, language, pattern_tokens, description, message, short_message, suggestions_out_msg='',
                  is_member=False, interpret_pos_tags_pre_disambiguation=False):
         super().__init__(id, description, language, pattern_tokens, False)
@@ -265,7 +288,7 @@ class PatternRule(AbstractTokenBasedRule):
         self.use_list = use_list
         # the matchers keep state while matching, so every thread gets its
         # own one (Java creates a new PatternRuleMatcher for every match())
-        self._matchers = threading.local()
+        self._matchers = None  # a threading.local, created when needed (they need quite some memory)
 
     def get_short_message(self):
         return self.short_message
@@ -279,20 +302,34 @@ class PatternRule(AbstractTokenBasedRule):
     def match(self, sentence):
         if self.can_be_ignored_for(sentence):
             return []
+        return self.match_unchecked(sentence)
+
+    def match_unchecked(self, sentence):
+        """match() without the can_be_ignored_for() check (done by the
+        caller, see RuleSet)"""
         matcher = self.get_matcher()
-        matches = matcher.match(sentence)
+        return self.apply_anti_patterns(sentence, matcher.match(sentence), matcher)
+
+    def apply_anti_patterns(self, sentence, matches, matcher):
+        """the matches without the ones prevented by the anti-patterns"""
         if matches and self.anti_patterns:
             immunized = self.get_sentence_with_immunization(sentence)
-            for t in immunized.tokens:
-                if t.immunized:
-                    return matcher.match(immunized)
+            # (if no anti-pattern can match, the sentence is returned and matching it again would give the
+            # same matches)
+            if immunized is not sentence:
+                for t in immunized.tokens:
+                    if t.immunized:
+                        return matcher.match(immunized)
         return matches
 
     def get_matcher(self):
-        m = getattr(self._matchers, 'm', None)
+        loc = self._matchers
+        if loc is None:
+            loc = _thread_local(self, '_matchers')
+        m = getattr(loc, 'm', None)
         if m is None:
             from .matcher import PatternRuleMatcher
-            m = self._matchers.m = PatternRuleMatcher(self, self.use_list)
+            m = loc.m = PatternRuleMatcher(self, self.use_list)
         return m
 
     def estimate_context_for_sure_match(self):
@@ -324,6 +361,9 @@ class PatternRule(AbstractTokenBasedRule):
 
 
 class RegexPatternRule(AbstractPatternRule):
+
+    # (the attributes of all instances, stored compactly; other attributes are stored in the __dict__)
+    __slots__ = ('_pattern_src', '_pattern', 'short_message', 'mark_group', 'case_sensitive', 'regex_filter')
 
     MAX_SENT_LENGTH = 2000
 
@@ -371,6 +411,9 @@ DISAMBIGUATOR_ACTIONS = frozenset((ADD, FILTER, REMOVE, REPLACE, UNIFY, IMMUNIZE
 
 class DisambiguationPatternRule(AbstractTokenBasedRule):
 
+    # (the attributes of all instances, stored compactly; other attributes are stored in the __dict__)
+    __slots__ = ('disambiguated_pos', 'match_element', 'action', 'new_token_readings', 'examples', 'untouched_examples', 'unifier_config', '_replacers')
+
     def __init__(self, id, description, language, pattern_tokens, disambiguated_pos, pos_select, action):
         super().__init__(id, description, language, pattern_tokens, True)
         if disambiguated_pos is None and pos_select is None and action not in (
@@ -388,7 +431,7 @@ class DisambiguationPatternRule(AbstractTokenBasedRule):
         # the replacers keep state while matching, so every thread gets its
         # own one (Java creates a new DisambiguationPatternRuleReplacer for
         # every replace())
-        self._replacers = threading.local()
+        self._replacers = None  # a threading.local, created when needed (they need quite some memory)
 
     def set_new_interpretations(self, readings):
         self.new_token_readings = list(readings)
@@ -396,11 +439,22 @@ class DisambiguationPatternRule(AbstractTokenBasedRule):
     def replace(self, sentence):
         if self.can_be_ignored_for(sentence):
             return sentence
-        r = getattr(self._replacers, 'r', None)
+        return self.replace_unchecked(sentence)
+
+    def replace_unchecked(self, sentence):
+        """replace() without the can_be_ignored_for() check (done by the
+        caller, see RuleSet)"""
+        return self.get_replacer().replace(sentence)
+
+    def get_replacer(self):
+        loc = self._replacers
+        if loc is None:
+            loc = _thread_local(self, '_replacers')
+        r = getattr(loc, 'r', None)
         if r is None:
             from .matcher import DisambiguationPatternRuleReplacer
-            r = self._replacers.r = DisambiguationPatternRuleReplacer(self)
-        return r.replace(sentence)
+            r = loc.r = DisambiguationPatternRuleReplacer(self)
+        return r
 
 
 def make_anti_patterns(pattern_list, language):

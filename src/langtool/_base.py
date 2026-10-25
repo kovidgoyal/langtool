@@ -27,7 +27,8 @@ else:
         __slots__ = ('readings', 'token', '_token_lower', 'chunk_tags', 'is_whitespace', 'is_linebreak',
                      'is_sentence_start', 'is_pos_tag_unknown', 'is_sentence_end', 'is_paragraph_end',
                      'whitespace_before', 'immunized', 'has_same_lemmas', 'ignored_by_speller',
-                     'typographic_apostrophe')
+                     'typographic_apostrophe', 'start_pos', 'pos_fix', 'clean_token', 'whitespace_before_char',
+                     'immunization_source_line', 'historical_annotations')
 
     class StringMatcherBase:
         __slots__ = ('pattern', 'value', 'value_lower', 'values', 'compiled', 'cache', 'possible_values', 'kind',

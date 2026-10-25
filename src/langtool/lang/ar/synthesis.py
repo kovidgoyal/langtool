@@ -32,8 +32,8 @@ class ArabicSynthesizer(BaseSynthesizer):
         if pos_tag is not None and pos_tag_regexp:
             p = jregex.compile(self.correct_tag(pos_tag))
             results = []
-            for tag in self.get_possible_tags():
-                if p.fullmatch(tag) and token.lemma is not None:
+            if token.lemma is not None:
+                for tag in self.tags_matching(p):
                     for wd in self.lookup(token.lemma, tag):
                         # adjust some stems according to the original postag
                         results.append(self.correct_stem(wd, pos_tag))

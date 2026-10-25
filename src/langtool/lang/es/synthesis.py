@@ -56,9 +56,8 @@ class SpanishSynthesizer(BaseSynthesizer):
                       + ': ' + str(e), file=sys.stderr)
                 return None
             results = []
-            for tag in self.get_possible_tags():
-                if p.fullmatch(tag):
-                    results.extend(self.lookup(lemma, tag))
+            for tag in self.tags_matching(p):
+                results.extend(self.lookup(lemma, tag))
         else:
             results = self.lookup(lemma, pos_tag)
         return self._add_words_after(results, to_add_after)

@@ -24,11 +24,15 @@
 #define KIND_SET 1
 #define KIND_REGEX 2
 
+static inline int unicode_eq(PyObject *a, PyObject *b);
+
 static PyObject *str_lower = NULL;          /* "lower" */
 static PyObject *str_regex_match = NULL;    /* "_regex_match" */
 static PyObject *str_chunk_tag = NULL;      /* "chunk_tag" */
 static PyObject *str_matches = NULL;        /* "matches" */
 static PyObject *str_is_regexp = NULL;      /* "is_regexp" */
+static PyObject *str_fullmatch = NULL;      /* "fullmatch" */
+static PyObject *str_token = NULL;          /* "token" */
 
 /* ------------------------------------------------------------------------ */
 /* AnalyzedTokenBase */
@@ -83,6 +87,68 @@ static PyMemberDef at_members[] = {
     {NULL}
 };
 
+
+static PyObject *str_strip = NULL;
+static PyObject *str_sent_start = NULL;     /* "SENT_START" */
+static PyObject *str_sent_end = NULL;       /* "SENT_END" */
+static PyObject *str_para_end = NULL;       /* "PARA_END" */
+static PyObject *str_empty = NULL;          /* "" */
+static PyObject *empty_tuple = NULL;
+static PyObject *int_zero = NULL;
+/* Python functions used by the C code (set with set_fallbacks()) */
+static PyObject *fallback_is_whitespace = NULL;  /* tools.is_whitespace */
+static PyObject *fallback_atr_init = NULL;       /* the Python AnalyzedTokenReadings.__init__(self, readings list, start_pos) */
+
+/* o == the interned string s (1, 0 or -1 on error) */
+static inline int
+eq_str(PyObject *o, PyObject *s)
+{
+    if (o == s) return 1;
+    if (o == NULL || o == Py_None) return 0;
+    if (PyUnicode_CheckExact(o)) return unicode_eq(o, s);
+    return PyObject_RichCompareBool(o, s, Py_EQ);
+}
+
+/* AnalyzedToken.__init__(token, pos_tag=None, lemma=None) */
+static int
+at_init(AnalyzedTokenBase *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"token", "pos_tag", "lemma", NULL};
+    PyObject *token, *pos_tag = Py_None, *lemma = Py_None;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO", kwlist, &token, &pos_tag, &lemma)) return -1;
+    if (token == Py_None) {
+        PyErr_SetString(PyExc_ValueError, "token cannot be None");
+        return -1;
+    }
+    Py_INCREF(token);
+    Py_XSETREF(self->token, token);
+    PyObject *pt = Py_None;
+    Py_INCREF(pt);
+    if (pos_tag != Py_None) {
+        Py_DECREF(pt);
+        pt = PyObject_CallMethodNoArgs(pos_tag, str_strip);
+        if (pt == NULL) return -1;
+    }
+    Py_XSETREF(self->pos_tag, pt);
+    Py_INCREF(lemma);
+    Py_XSETREF(self->lemma, lemma);
+    PyObject *lot = lemma == Py_None ? token : lemma;
+    Py_INCREF(lot);
+    Py_XSETREF(self->lemma_or_token, lot);
+    self->whitespace_before = 0;
+    int no_tag = pos_tag == Py_None;
+    if (!no_tag) {
+        no_tag = eq_str(pos_tag, str_sent_end);
+        if (no_tag == 0) no_tag = eq_str(pos_tag, str_para_end);
+        if (no_tag < 0) return -1;
+    }
+    self->has_no_pos_tag = (char)no_tag;
+    Py_INCREF(Py_None); Py_XSETREF(self->lemma_or_token_lower, Py_None);
+    Py_INCREF(Py_None); Py_XSETREF(self->token_lower, Py_None);
+    Py_INCREF(Py_None); Py_XSETREF(self->lemma_lower, Py_None);
+    return 0;
+}
+
 static PyTypeObject AnalyzedTokenBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "langtool._speedups.AnalyzedTokenBase",
@@ -93,6 +159,7 @@ static PyTypeObject AnalyzedTokenBaseType = {
     .tp_traverse = (traverseproc)at_traverse,
     .tp_clear = (inquiry)at_clear,
     .tp_members = at_members,
+    .tp_init = (initproc)at_init,
 };
 
 #define AT(o) ((AnalyzedTokenBase *)(o))
@@ -106,6 +173,8 @@ typedef struct {
     PyObject *token;
     PyObject *token_lower;
     PyObject *chunk_tags; /* tuple */
+    PyObject *start_pos, *pos_fix, *clean_token, *whitespace_before_char, *immunization_source_line,
+        *historical_annotations;
     char is_whitespace;
     char is_linebreak;
     char is_sentence_start;
@@ -123,6 +192,9 @@ static int
 atr_traverse(ATRBase *self, visitproc visit, void *arg)
 {
     Py_VISIT(self->readings); Py_VISIT(self->token); Py_VISIT(self->token_lower); Py_VISIT(self->chunk_tags);
+    Py_VISIT(self->start_pos); Py_VISIT(self->pos_fix); Py_VISIT(self->clean_token);
+    Py_VISIT(self->whitespace_before_char); Py_VISIT(self->immunization_source_line);
+    Py_VISIT(self->historical_annotations);
     return 0;
 }
 
@@ -130,6 +202,9 @@ static int
 atr_clear(ATRBase *self)
 {
     Py_CLEAR(self->readings); Py_CLEAR(self->token); Py_CLEAR(self->token_lower); Py_CLEAR(self->chunk_tags);
+    Py_CLEAR(self->start_pos); Py_CLEAR(self->pos_fix); Py_CLEAR(self->clean_token);
+    Py_CLEAR(self->whitespace_before_char); Py_CLEAR(self->immunization_source_line);
+    Py_CLEAR(self->historical_annotations);
     return 0;
 }
 
@@ -146,6 +221,12 @@ static PyMemberDef atr_members[] = {
     {"token", T_OBJECT, offsetof(ATRBase, token), 0, NULL},
     {"_token_lower", T_OBJECT, offsetof(ATRBase, token_lower), 0, NULL},
     {"chunk_tags", T_OBJECT, offsetof(ATRBase, chunk_tags), 0, NULL},
+    {"start_pos", T_OBJECT, offsetof(ATRBase, start_pos), 0, NULL},
+    {"pos_fix", T_OBJECT, offsetof(ATRBase, pos_fix), 0, NULL},
+    {"clean_token", T_OBJECT, offsetof(ATRBase, clean_token), 0, NULL},
+    {"whitespace_before_char", T_OBJECT, offsetof(ATRBase, whitespace_before_char), 0, NULL},
+    {"immunization_source_line", T_OBJECT, offsetof(ATRBase, immunization_source_line), 0, NULL},
+    {"historical_annotations", T_OBJECT, offsetof(ATRBase, historical_annotations), 0, NULL},
     {"is_whitespace", T_BOOL, offsetof(ATRBase, is_whitespace), 0, NULL},
     {"is_linebreak", T_BOOL, offsetof(ATRBase, is_linebreak), 0, NULL},
     {"is_sentence_start", T_BOOL, offsetof(ATRBase, is_sentence_start), 0, NULL},
@@ -160,6 +241,162 @@ static PyMemberDef atr_members[] = {
     {NULL}
 };
 
+
+/* tools.is_whitespace(s) (1, 0 or -1 on error): the common cases here, the others with the Python function */
+static int
+token_is_whitespace(PyObject *s)
+{
+    if (PyUnicode_Check(s)) {
+        Py_ssize_t n = PyUnicode_GET_LENGTH(s);
+        if (n >= 2 && PyUnicode_READ_CHAR(s, 0) > ' ' && PyUnicode_READ_CHAR(s, n - 1) > ' ') {
+            /* java_trim(s) == s, more than one character */
+            return 0;
+        }
+    }
+    if (fallback_is_whitespace == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "speedups.set_fallbacks() not called");
+        return -1;
+    }
+    PyObject *r = PyObject_CallOneArg(fallback_is_whitespace, s);
+    if (r == NULL) return -1;
+    int t = PyObject_IsTrue(r);
+    Py_DECREF(r);
+    return t;
+}
+
+static int
+is_linebreak_str(PyObject *s)
+{
+    if (!PyUnicode_Check(s)) return 0;
+    Py_ssize_t n = PyUnicode_GET_LENGTH(s);
+    if (n == 1) {
+        Py_UCS4 c = PyUnicode_READ_CHAR(s, 0);
+        return c == '\n' || c == '\r';
+    }
+    if (n == 2) {
+        Py_UCS4 a = PyUnicode_READ_CHAR(s, 0), b = PyUnicode_READ_CHAR(s, 1);
+        return (a == '\r' && b == '\n') || (a == '\n' && b == '\r');
+    }
+    return 0;
+}
+
+#define ATR_SET(f, v) do { PyObject *_v = (v); Py_INCREF(_v); Py_XSETREF(self->f, _v); } while (0)
+
+/* AnalyzedTokenReadings.__init__(readings, start_pos=0) */
+static int
+atr_init(ATRBase *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"readings", "start_pos", NULL};
+    PyObject *readings, *start_pos = int_zero;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O", kwlist, &readings, &start_pos)) return -1;
+    PyObject *list;
+    if (PyObject_TypeCheck(readings, &AnalyzedTokenBaseType)) {
+        list = PyList_New(1);
+        if (list == NULL) return -1;
+        Py_INCREF(readings);
+        PyList_SET_ITEM(list, 0, readings);
+    } else {
+        list = PySequence_List(readings);
+        if (list == NULL) return -1;
+    }
+    Py_ssize_t n = PyList_GET_SIZE(list);
+    int all_tokens = n > 0;
+    for (Py_ssize_t i = 0; i < n && all_tokens; i++) {
+        AnalyzedTokenBase *r = AT(PyList_GET_ITEM(list, i));
+        all_tokens = PyObject_TypeCheck((PyObject *)r, &AnalyzedTokenBaseType) && r->token != NULL;
+    }
+    if (!all_tokens) {
+        /* the Python implementation (raises the same errors) */
+        if (fallback_atr_init == NULL) {
+            Py_DECREF(list);
+            PyErr_SetString(PyExc_RuntimeError, "speedups.set_fallbacks() not called");
+            return -1;
+        }
+        PyObject *r = PyObject_CallFunctionObjArgs(fallback_atr_init, (PyObject *)self, list, start_pos, NULL);
+        Py_DECREF(list);
+        if (r == NULL) return -1;
+        Py_DECREF(r);
+        return 0;
+    }
+    Py_XSETREF(self->readings, list);
+    AnalyzedTokenBase *first = AT(PyList_GET_ITEM(list, 0));
+    ATR_SET(start_pos, start_pos);
+    ATR_SET(pos_fix, int_zero);
+    ATR_SET(token, first->token);
+    ATR_SET(token_lower, Py_None);
+    ATR_SET(clean_token, Py_None);
+    ATR_SET(chunk_tags, empty_tuple);
+    int ws = token_is_whitespace(first->token);
+    if (ws < 0) return -1;
+    self->is_whitespace = (char)ws;
+    self->whitespace_before = first->whitespace_before;
+    int lb = is_linebreak_str(first->token);
+    self->is_linebreak = (char)lb;
+    int r = eq_str(first->pos_tag, str_sent_start);
+    if (r < 0) return -1;
+    self->is_sentence_start = (char)r;
+    int para_end = 0, sent_end = 0;
+    for (Py_ssize_t i = 0; i < n && !para_end; i++) {
+        para_end = eq_str(AT(PyList_GET_ITEM(list, i))->pos_tag, str_para_end);
+        if (para_end < 0) return -1;
+    }
+    for (Py_ssize_t i = 0; i < n && !sent_end; i++) {
+        sent_end = eq_str(AT(PyList_GET_ITEM(list, i))->pos_tag, str_sent_end);
+        if (sent_end < 0) return -1;
+    }
+    self->is_paragraph_end = (char)para_end;
+    self->is_sentence_end = (char)sent_end;
+    self->is_pos_tag_unknown = n == 1 && (first->pos_tag == NULL || first->pos_tag == Py_None);
+    ATR_SET(whitespace_before_char, str_empty);
+    self->typographic_apostrophe = 0;
+    self->immunized = 0;
+    ATR_SET(immunization_source_line, int_zero);
+    self->ignored_by_speller = 0;
+    ATR_SET(historical_annotations, str_empty);
+    /* _set_no_real_pos_tag */
+    int has_no = !lb;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *p = AT(PyList_GET_ITEM(list, i))->pos_tag;
+        int e = eq_str(p, str_para_end);
+        if (e == 0) e = eq_str(p, str_sent_end);
+        if (e < 0) return -1;
+        if (e) continue;
+        if (p != NULL && p != Py_None) { has_no = 0; break; }
+    }
+    for (Py_ssize_t i = 0; i < n; i++) AT(PyList_GET_ITEM(list, i))->has_no_pos_tag = (char)has_no;
+    /* _are_lemmas_same */
+    PyObject *prev = first->lemma;
+    int same = 1;
+    if (prev == NULL || prev == Py_None) {
+        for (Py_ssize_t i = 0; i < n && same; i++) {
+            PyObject *l = AT(PyList_GET_ITEM(list, i))->lemma;
+            if (l != NULL && l != Py_None) same = 0;
+        }
+    } else {
+        for (Py_ssize_t i = 0; i < n && same; i++) {
+            PyObject *l = AT(PyList_GET_ITEM(list, i))->lemma;
+            int ne = PyObject_RichCompareBool(prev, l != NULL ? l : Py_None, Py_NE);
+            if (ne < 0) return -1;
+            if (ne) same = 0;
+        }
+    }
+    self->has_same_lemmas = (char)same;
+    return 0;
+}
+
+#undef ATR_SET
+
+/* set_fallbacks(is_whitespace, atr_init) */
+static PyObject *
+py_set_fallbacks(PyObject *self, PyObject *args)
+{
+    PyObject *iw, *ai;
+    if (!PyArg_ParseTuple(args, "OO", &iw, &ai)) return NULL;
+    Py_INCREF(iw); Py_XSETREF(fallback_is_whitespace, iw);
+    Py_INCREF(ai); Py_XSETREF(fallback_atr_init, ai);
+    Py_RETURN_NONE;
+}
+
 static PyTypeObject ATRBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "langtool._speedups.AnalyzedTokenReadingsBase",
@@ -170,6 +407,7 @@ static PyTypeObject ATRBaseType = {
     .tp_traverse = (traverseproc)atr_traverse,
     .tp_clear = (inquiry)atr_clear,
     .tp_members = atr_members,
+    .tp_init = (initproc)atr_init,
 };
 
 #define ATR(o) ((ATRBase *)(o))
@@ -465,6 +703,16 @@ sm_matches(PyObject *smo, PyObject *s, AnalyzedTokenBase *lower_src, int lower_u
         PyObject *r = PyDict_GetItemWithError(sm->cache, s);
         if (r != NULL) return r == Py_True;
         if (PyErr_Occurred()) return -1;
+        if (PyDict_CheckExact(sm->cache) && sm->compiled != NULL && sm->compiled != Py_None) {
+            /* StringMatcher._regex_match when the pattern is compiled */
+            PyObject *m = PyObject_CallMethodOneArg(sm->compiled, str_fullmatch, s);
+            if (m == NULL) return -1;
+            int ans = m != Py_None;
+            Py_DECREF(m);
+            if (PyDict_GET_SIZE(sm->cache) > 50000) PyDict_Clear(sm->cache);
+            if (PyDict_SetItem(sm->cache, s, ans ? Py_True : Py_False) < 0) return -1;
+            return ans;
+        }
     }
     PyObject *r = PyObject_CallMethodOneArg(smo, str_regex_match, s);
     if (r == NULL) return -1;
@@ -671,14 +919,64 @@ typedef struct {
     int use_list;
     int *element_no;
     Py_ssize_t n_element_no;
+    /* unification: the index of the first pattern token that is the same object (the readings to unify are
+     * collected per pattern token object, like the dicts keyed by id(pattern token) of the Python code) */
+    Py_ssize_t *canon;
+    /* token references (<match no="..."/> in a token): has_refs is set if a pattern token or an AND group member
+     * has a reference. ref_pos[k] is the reference of the pattern token k (REF_NONE if it has none),
+     * and_start[k] the index of its first AND group member in and_ref/resolved_and. resolved[k] /
+     * resolved_and[i] are the pattern tokens resolved for the current match (NULL: the pattern token itself),
+     * like PatternTokenMatcher.pattern_token they are kept between the calls. */
+    int has_refs;
+    long *ref;
+    Py_ssize_t *and_start;
+    long *and_ref;
+    PyObject **resolved;
+    PyObject **resolved_and;
 } CompiledPattern;
+
+#define REF_NONE (-0x7fffffffL - 1)
+
+static void
+cp_free_arrays(CompiledPattern *self)
+{
+    if (self->resolved != NULL) {
+        for (Py_ssize_t i = 0; i < self->n; i++) Py_XDECREF(self->resolved[i]);
+    }
+    if (self->resolved_and != NULL && self->and_start != NULL) {
+        for (Py_ssize_t i = 0; i < self->and_start[self->n]; i++) Py_XDECREF(self->resolved_and[i]);
+    }
+    PyMem_Free(self->element_no); self->element_no = NULL;
+    PyMem_Free(self->canon); self->canon = NULL;
+    PyMem_Free(self->ref); self->ref = NULL;
+    PyMem_Free(self->and_start); self->and_start = NULL;
+    PyMem_Free(self->and_ref); self->and_ref = NULL;
+    PyMem_Free(self->resolved); self->resolved = NULL;
+    PyMem_Free(self->resolved_and); self->resolved_and = NULL;
+}
 
 static void
 cp_dealloc(CompiledPattern *self)
 {
+    cp_free_arrays(self);
     Py_XDECREF(self->tokens_tuple);
-    PyMem_Free(self->element_no);
     Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+/* the token_ref of a pattern token's token_reference (REF_NONE if it has none), -2 on error (with an exception
+ * set) */
+static int
+cp_token_ref(PatternTokenBase *pt, long *out)
+{
+    PyObject *tr = pt->token_reference;
+    if (tr == NULL || tr == Py_None) { *out = REF_NONE; return 0; }
+    PyObject *v = PyObject_GetAttrString(tr, "token_ref");
+    if (v == NULL) return -1;
+    long r = PyLong_AsLong(v);
+    Py_DECREF(v);
+    if (r == -1 && PyErr_Occurred()) return -1;
+    *out = r;
+    return 0;
 }
 
 static int
@@ -689,34 +987,87 @@ cp_init(CompiledPattern *self, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTuple(args, "O!iiiO", &PyTuple_Type, &tokens, &moc, &gou, &ci, &element_no)) return -1;
     Py_ssize_t n = PyTuple_GET_SIZE(tokens);
     for (Py_ssize_t i = 0; i < n; i++) {
-        if (!PyObject_TypeCheck(PyTuple_GET_ITEM(tokens, i), &PatternTokenBaseType)) {
+        PyObject *t = PyTuple_GET_ITEM(tokens, i);
+        if (!PyObject_TypeCheck(t, &PatternTokenBaseType)) {
             PyErr_SetString(PyExc_TypeError, "pattern tokens must be PatternToken instances");
             return -1;
         }
+        PyObject *ag = PT(t)->and_group;
+        if (ag != NULL && ag != Py_None) {
+            if (!PyList_Check(ag)) {
+                PyErr_SetString(PyExc_TypeError, "and_group must be a list");
+                return -1;
+            }
+            for (Py_ssize_t j = 0; j < PyList_GET_SIZE(ag); j++) {
+                if (!PyObject_TypeCheck(PyList_GET_ITEM(ag, j), &PatternTokenBaseType)) {
+                    PyErr_SetString(PyExc_TypeError, "and_group members must be PatternToken instances");
+                    return -1;
+                }
+            }
+        }
     }
-    Py_INCREF(tokens);
-    Py_XSETREF(self->tokens_tuple, tokens);
-    self->n = n;
+    cp_free_arrays(self);
+    self->n = 0;
     self->min_occur_correction = moc;
     self->groups_or_unification = gou;
     self->check_immunized = ci;
     self->use_list = 0;
+    self->n_element_no = 0;
+    self->has_refs = 0;
+    self->canon = PyMem_Calloc(n + 1, sizeof(Py_ssize_t));
+    self->ref = PyMem_Calloc(n + 1, sizeof(long));
+    self->and_start = PyMem_Calloc(n + 1, sizeof(Py_ssize_t));
+    self->resolved = PyMem_Calloc(n + 1, sizeof(PyObject *));
+    if (self->canon == NULL || self->ref == NULL || self->and_start == NULL || self->resolved == NULL) goto nomem;
+    Py_ssize_t nand_total = 0;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PatternTokenBase *pt = PT(PyTuple_GET_ITEM(tokens, i));
+        Py_ssize_t c = i;
+        for (Py_ssize_t j = 0; j < i; j++) {
+            if (PyTuple_GET_ITEM(tokens, j) == (PyObject *)pt) { c = j; break; }
+        }
+        self->canon[i] = c;
+        if (cp_token_ref(pt, &self->ref[i]) < 0) goto error;
+        if (self->ref[i] != REF_NONE) self->has_refs = 1;
+        self->and_start[i] = nand_total;
+        if (pt->and_group != NULL && pt->and_group != Py_None) nand_total += PyList_GET_SIZE(pt->and_group);
+    }
+    self->and_start[n] = nand_total;
+    self->and_ref = PyMem_Calloc(nand_total + 1, sizeof(long));
+    self->resolved_and = PyMem_Calloc(nand_total + 1, sizeof(PyObject *));
+    if (self->and_ref == NULL || self->resolved_and == NULL) goto nomem;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PatternTokenBase *pt = PT(PyTuple_GET_ITEM(tokens, i));
+        for (Py_ssize_t j = self->and_start[i]; j < self->and_start[i + 1]; j++) {
+            PatternTokenBase *m = PT(PyList_GET_ITEM(pt->and_group, j - self->and_start[i]));
+            if (cp_token_ref(m, &self->and_ref[j]) < 0) goto error;
+            if (self->and_ref[j] != REF_NONE) self->has_refs = 1;
+        }
+    }
     if (element_no != Py_None) {
         PyObject *seq = PySequence_Fast(element_no, "element_no must be a sequence");
-        if (seq == NULL) return -1;
+        if (seq == NULL) goto error;
         Py_ssize_t m = PySequence_Fast_GET_SIZE(seq);
         self->element_no = PyMem_Calloc(m + 1, sizeof(int));
-        if (self->element_no == NULL) { Py_DECREF(seq); PyErr_NoMemory(); return -1; }
+        if (self->element_no == NULL) { Py_DECREF(seq); goto nomem; }
         for (Py_ssize_t i = 0; i < m; i++) {
             long v = PyLong_AsLong(PySequence_Fast_GET_ITEM(seq, i));
-            if (v == -1 && PyErr_Occurred()) { Py_DECREF(seq); return -1; }
+            if (v == -1 && PyErr_Occurred()) { Py_DECREF(seq); goto error; }
             self->element_no[i] = (int)v;
         }
         self->n_element_no = m;
         self->use_list = 1;
         Py_DECREF(seq);
     }
+    Py_INCREF(tokens);
+    Py_XSETREF(self->tokens_tuple, tokens);
+    self->n = n;
     return 0;
+nomem:
+    PyErr_NoMemory();
+error:
+    cp_free_arrays(self);
+    return -1;
 }
 
 typedef struct {
@@ -725,6 +1076,10 @@ typedef struct {
     PyObject **tokens;    /* ATRBase */
     Py_ssize_t ntokens;
     int prev_matched;
+    PyObject *resolver;   /* callable(pattern_token, atr) -> resolved pattern token, or NULL */
+    int unify;            /* collect the readings to unify / the neutral readings */
+    PyObject **to_unify;  /* per (canonical) pattern token: list of lists of readings, or NULL */
+    PyObject **neutral;   /* per (canonical) pattern token: list of AnalyzedTokenReadings, or NULL */
 } MatchCtx;
 
 static int
@@ -736,51 +1091,140 @@ translate_element_no(MatchCtx *ctx, int i)
     return j;
 }
 
+/* the current pattern token of the pattern token k (PatternTokenMatcher.pattern_token), borrowed */
+static inline PatternTokenBase *
+cur_pt(MatchCtx *ctx, Py_ssize_t k)
+{
+    PyObject *r = ctx->cp->resolved[k];
+    return PT(r != NULL ? r : ctx->pts[k]);
+}
+
+/* the current pattern token of the AND group member j of the pattern token k, borrowed */
+static inline PatternTokenBase *
+cur_and(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t j)
+{
+    PyObject *r = ctx->cp->resolved_and[ctx->cp->and_start[k] + j];
+    return PT(r != NULL ? r : PyList_GET_ITEM(PT(ctx->pts[k])->and_group, j));
+}
+
+/* PatternTokenMatcher.resolve_reference: *slot = resolver(base, tokens[first_match_token + ref]) if that index
+ * is < the number of tokens (Python indexing, negative indices count from the end) */
+static int
+resolve_one(MatchCtx *ctx, PyObject *base, long ref, long first_match_token, PyObject **slot)
+{
+    if (ref == REF_NONE) return 0;
+    long ref_pos = first_match_token + ref;
+    if (ref_pos >= ctx->ntokens) return 0;
+    if (ref_pos < 0) {
+        ref_pos += ctx->ntokens;
+        if (ref_pos < 0) {
+            PyErr_SetString(PyExc_IndexError, "list index out of range");
+            return -1;
+        }
+    }
+    if (ctx->resolver == NULL) {
+        PyErr_SetString(PyExc_ValueError, "pattern with token references matched without a resolver");
+        return -1;
+    }
+    PyObject *r = PyObject_CallFunctionObjArgs(ctx->resolver, base, ctx->tokens[ref_pos], NULL);
+    if (r == NULL) return -1;
+    if (!PyObject_TypeCheck(r, &PatternTokenBaseType)) {
+        Py_DECREF(r);
+        PyErr_SetString(PyExc_TypeError, "the resolver must return a PatternToken");
+        return -1;
+    }
+    Py_XSETREF(*slot, r);
+    return 0;
+}
+
+static int
+resolve_reference(MatchCtx *ctx, Py_ssize_t k, long first_match_token)
+{
+    return resolve_one(ctx, ctx->pts[k], ctx->cp->ref[k], first_match_token, &ctx->cp->resolved[k]);
+}
+
+/* PatternTokenMatcher.prepare_and_group (the reference resolution part) */
+static int
+prepare_and_group(MatchCtx *ctx, Py_ssize_t k, long first_match_token)
+{
+    CompiledPattern *cp = ctx->cp;
+    PyObject *ag = PT(ctx->pts[k])->and_group;
+    for (Py_ssize_t i = cp->and_start[k]; i < cp->and_start[k + 1]; i++) {
+        if (resolve_one(ctx, PyList_GET_ITEM(ag, i - cp->and_start[k]), cp->and_ref[i], first_match_token,
+                        &cp->resolved_and[i]) < 0)
+            return -1;
+    }
+    return 0;
+}
+
+/* appends item to the list *slot (created if needed) */
+static int
+append_to_slot(PyObject **slot, PyObject *item)
+{
+    if (*slot == NULL) {
+        *slot = PyList_New(0);
+        if (*slot == NULL) return -1;
+    }
+    return PyList_Append(*slot, item);
+}
+
 #define MAX_AND_GROUP 64
 
 /* port of AbstractPatternRulePerformer.testAllReadings (+ the immunization
  * check of PatternRuleMatcher). Returns 1, 0 or -1 on error. */
 static int
-test_all_readings(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, Py_ssize_t token_no, int prev_skip_next)
+test_all_readings(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, Py_ssize_t token_no, long first_match_token,
+                  int prev_skip_next)
 {
     ATRBase *atr = ATR(ctx->tokens[token_no]);
     if (ctx->cp->check_immunized && atr->immunized) return 0;
-    PatternTokenBase *pt = PT(ctx->pts[k]);
+    PatternTokenBase *pt = PT(ctx->pts[k]);          /* matcher.base */
+    if (ctx->cp->has_refs && prepare_and_group(ctx, k, first_match_token) < 0) return -1;
+    PatternTokenBase *cpt = cur_pt(ctx, k);          /* matcher.pattern_token */
     PatternTokenBase *prev = prev_k >= 0 ? PT(ctx->pts[prev_k]) : NULL;
+    PatternTokenBase *prev_cur = prev_k >= 0 ? cur_pt(ctx, prev_k) : NULL;
+    /* keep them alive while Python code is called */
+    Py_INCREF(cpt);
+    Py_XINCREF(prev_cur);
     PyObject *readings = atr->readings;
+    Py_INCREF(readings);
+    PyObject *readings_to_unify = NULL;
     Py_ssize_t nreadings = PyList_GET_SIZE(readings);
     int any_matched = 0;
+    int result = -1;
     int has_and = pt->and_group != NULL && pt->and_group != Py_None;
     Py_ssize_t nand = has_and ? PyList_GET_SIZE(pt->and_group) : 0;
     char and_check[MAX_AND_GROUP + 1];
     if (has_and) {
-        if (nand > MAX_AND_GROUP) {
-            PyErr_SetString(PyExc_ValueError, "AND group too large");
-            return -1;
+        if (nand > MAX_AND_GROUP || ctx->cp->and_start[k + 1] - ctx->cp->and_start[k] != nand) {
+            PyErr_SetString(PyExc_ValueError, "AND group too large or modified");
+            goto done;
         }
         memset(and_check, 0, nand + 1);
     }
     int prev_has_cn = prev != NULL && pt_has_current_or_next_exceptions(prev);
     int gou = ctx->cp->groups_or_unification;
+    int collect = ctx->unify && pt->unification_features != NULL && pt->unification_features != Py_None &&
+        !pt->unification_neutral;
     int r;
-    for (Py_ssize_t i = 0; i < nreadings; i++) {
+    for (Py_ssize_t i = 0; i < nreadings && i < PyList_GET_SIZE(readings); i++) {
         AnalyzedTokenBase *mt = AT(PyList_GET_ITEM(readings, i));
-        if (!ctx->prev_matched && prev_skip_next > 0 && prev != NULL) {
-            r = pt_is_matched_by_scope_next_exception(prev, mt);
-            if (r < 0) return -1;
+        if (!ctx->prev_matched && prev_skip_next > 0 && prev_cur != NULL) {
+            r = pt_is_matched_by_scope_next_exception(prev_cur, mt);
+            if (r < 0) goto done;
             ctx->prev_matched = r;
         }
         if (!ctx->prev_matched && prev_skip_next == 0 && token_no <= ctx->ntokens - 2) {
             ATRBase *nxt = ATR(ctx->tokens[token_no + 1]);
-            r = pt_is_matched_by_scope_next_exception(pt, AT(PyList_GET_ITEM(nxt->readings, 0)));
-            if (r < 0) return -1;
+            r = pt_is_matched_by_scope_next_exception(cpt, AT(PyList_GET_ITEM(nxt->readings, 0)));
+            if (r < 0) goto done;
             ctx->prev_matched = r;
         }
-        if (ctx->prev_matched) return 0;
+        if (ctx->prev_matched) { result = 0; goto done; }
         int reading_tested = 0, reading_matches = 0;
         if (!any_matched) {
-            r = pt_is_matched(pt, mt);
-            if (r < 0) return -1;
+            r = pt_is_matched(cpt, mt);
+            if (r < 0) goto done;
             if (has_and) and_check[0] = and_check[0] || r;
             any_matched = reading_matches = r;
             reading_tested = 1;
@@ -788,28 +1232,32 @@ test_all_readings(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, Py_ssize_t tok
         if (!any_matched && !prev_has_cn) {
             if (!pt_has_pos_tag(pt)) {
                 if (pt->inflected) {
-                    if (atr->has_same_lemmas) return 0;
+                    if (atr->has_same_lemmas) { result = 0; goto done; }
                 } else {
-                    return 0;
+                    result = 0;
+                    goto done;
                 }
             } else if (!pt_pos_negation(pt) && !atr_is_tagged(atr)) {
-                return 0;
+                result = 0;
+                goto done;
             }
         }
         if (gou) {
             if (!reading_tested) {
-                r = pt_is_matched(pt, mt);
-                if (r < 0) return -1;
+                r = pt_is_matched(cpt, mt);
+                if (r < 0) goto done;
                 if (has_and) and_check[0] = and_check[0] || r;
                 reading_matches = r;
             }
-            (void)reading_matches;
             int is_last = i + 1 == nreadings;
+            if (reading_matches && collect) {
+                if (append_to_slot(&readings_to_unify, (PyObject *)mt) < 0) goto done;
+            }
             if (has_and) {
                 for (Py_ssize_t j = 0; j < nand; j++) {
                     if (!and_check[j + 1]) {
-                        r = pt_is_matched(PT(PyList_GET_ITEM(pt->and_group, j)), mt);
-                        if (r < 0) return -1;
+                        r = pt_is_matched(cur_and(ctx, k, j), mt);
+                        if (r < 0) goto done;
                         if (r) and_check[j + 1] = 1;
                     }
                 }
@@ -824,22 +1272,25 @@ test_all_readings(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, Py_ssize_t tok
         }
     }
     if (any_matched) {
-        for (Py_ssize_t i = 0; i < nreadings; i++) {
-            r = pt_is_exception_matched_completely(pt, AT(PyList_GET_ITEM(readings, i)));
-            if (r < 0) return -1;
-            if (r) return 0;
+        for (Py_ssize_t i = 0; i < PyList_GET_SIZE(readings); i++) {
+            r = pt_is_exception_matched_completely(cpt, AT(PyList_GET_ITEM(readings, i)));
+            if (r < 0) goto done;
+            if (r) { result = 0; goto done; }
         }
-        if (token_no > 0 && pt_has_previous_exception(pt)) {
-            r = pt_is_matched_by_previous_exception(pt, ATR(ctx->tokens[token_no - 1]));
-            if (r < 0) return -1;
-            if (r) return 0;
+        if (token_no > 0 && pt_has_previous_exception(cpt)) {
+            r = pt_is_matched_by_previous_exception(cpt, ATR(ctx->tokens[token_no - 1]));
+            if (r < 0) goto done;
+            if (r) { result = 0; goto done; }
+        }
+        if (pt->unification_neutral && ctx->unify) {
+            if (append_to_slot(&ctx->neutral[ctx->cp->canon[k]], (PyObject *)atr) < 0) goto done;
         }
     }
     if (pt->chunk_tag != NULL && pt->chunk_tag != Py_None) {
         int isre = chunk_is_regexp(pt->chunk_tag);
-        if (isre < 0) return -1;
+        if (isre < 0) goto done;
         r = chunk_matches(pt->chunk_tag, atr, isre);
-        if (r < 0) return -1;
+        if (r < 0) goto done;
         any_matched = any_matched && ((r != 0) != (pt->negation != 0));
     }
     if (has_and) {
@@ -847,23 +1298,32 @@ test_all_readings(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, Py_ssize_t tok
             PatternTokenBase *e = PT(PyList_GET_ITEM(pt->and_group, j));
             if (e->chunk_tag != NULL && e->chunk_tag != Py_None) {
                 r = chunk_matches(e->chunk_tag, atr, 0);
-                if (r < 0) return -1;
+                if (r < 0) goto done;
                 any_matched = any_matched && ((r != 0) != (e->negation != 0));
             }
         }
     }
-    return any_matched;
+    if (any_matched && readings_to_unify != NULL) {
+        if (append_to_slot(&ctx->to_unify[ctx->cp->canon[k]], readings_to_unify) < 0) goto done;
+    }
+    result = any_matched;
+done:
+    Py_XDECREF(readings_to_unify);
+    Py_DECREF(readings);
+    Py_DECREF(cpt);
+    Py_XDECREF(prev_cur);
+    return result;
 }
 
 static int
-skip_max_tokens(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, int prev_skip_next, Py_ssize_t m,
-                Py_ssize_t remaining)
+skip_max_tokens(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, long first_match_token, int prev_skip_next,
+                Py_ssize_t m, Py_ssize_t remaining)
 {
     int max_skip = 0;
     int mo = PT(ctx->pts[k])->max_occurrence;
     long long max_occ = mo == -1 ? 0x7fffffffLL : mo;
     for (long long j = 1; j < max_occ && m + j < ctx->ntokens - remaining; j++) {
-        int r = test_all_readings(ctx, k, prev_k, m + j, prev_skip_next);
+        int r = test_all_readings(ctx, k, prev_k, m + j, first_match_token, prev_skip_next);
         if (r < 0) return -1;
         if (r) max_skip++;
         else break;
@@ -871,11 +1331,48 @@ skip_max_tokens(MatchCtx *ctx, Py_ssize_t k, Py_ssize_t prev_k, int prev_skip_ne
     return max_skip;
 }
 
+static void
+clear_unify(MatchCtx *ctx)
+{
+    if (!ctx->unify) return;
+    for (Py_ssize_t i = 0; i < ctx->cp->n; i++) {
+        Py_CLEAR(ctx->to_unify[i]);
+        Py_CLEAR(ctx->neutral[i]);
+    }
+}
+
+/* calls unify(to_unify, neutral) with lists (None for the pattern tokens without readings), returns 1, 0 or -1
+ * on error */
+static int
+call_unify(MatchCtx *ctx, PyObject *unify)
+{
+    Py_ssize_t n = ctx->cp->n;
+    PyObject *tu = PyList_New(n);
+    if (tu == NULL) return -1;
+    PyObject *nl = PyList_New(n);
+    if (nl == NULL) { Py_DECREF(tu); return -1; }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *a = ctx->to_unify[i] != NULL ? ctx->to_unify[i] : Py_None;
+        PyObject *b = ctx->neutral[i] != NULL ? ctx->neutral[i] : Py_None;
+        Py_INCREF(a);
+        Py_INCREF(b);
+        PyList_SET_ITEM(tu, i, a);
+        PyList_SET_ITEM(nl, i, b);
+    }
+    PyObject *r = PyObject_CallFunctionObjArgs(unify, tu, nl, NULL);
+    Py_DECREF(tu);
+    Py_DECREF(nl);
+    if (r == NULL) return -1;
+    int t = PyObject_IsTrue(r);
+    Py_DECREF(r);
+    return t;
+}
+
 /* port of AbstractPatternRulePerformer.matchFrom. Returns 1 if all pattern
  * tokens matched (and fills the output values), 0 if not, -1 on error. */
 static int
-match_from(MatchCtx *ctx, Py_ssize_t start_index, int *positions, int *first_out, int *last_out,
-           int *first_marker_out, int *last_marker_out)
+match_from(MatchCtx *ctx, PyObject *unify, Py_ssize_t start_index, int *positions, int *first_out,
+           int *last_out, int *first_marker_out, int *last_marker_out)
 {
     Py_ssize_t n = ctx->cp->n;
     Py_ssize_t ntokens = ctx->ntokens;
@@ -887,8 +1384,10 @@ match_from(MatchCtx *ctx, Py_ssize_t start_index, int *positions, int *first_out
     long prev_skip_next = 0;
     long min_occur_skip = 0;
     Py_ssize_t prev_k = -1;
+    clear_unify(ctx);
     for (Py_ssize_t k = 0; k < n; k++) {
         if (k > 0) prev_k = k - 1;
+        if (ctx->cp->has_refs && resolve_reference(ctx, k, first_match_token) < 0) return -1;
         PatternTokenBase *pt = PT(ctx->pts[k]);
         long next_pos = (long)start_index + (long)k + skip_shift_total - min_occur_skip;
         ctx->prev_matched = 0;
@@ -899,13 +1398,13 @@ match_from(MatchCtx *ctx, Py_ssize_t start_index, int *positions, int *first_out
         long b = (long)ntokens - ((long)n - (long)k) + moc;
         long max_tok = a < b ? a : b;
         for (long m = next_pos; m <= max_tok; m++) {
-            int r = test_all_readings(ctx, k, prev_k, m, (int)prev_skip_next);
+            int r = test_all_readings(ctx, k, prev_k, m, first_match_token, (int)prev_skip_next);
             if (r < 0) return -1;
             all_match = r;
             if (pt->may_be_omitted) {
                 int found_next = 0;
                 for (Py_ssize_t k2 = k + 1; k2 < n; k2++) {
-                    r = test_all_readings(ctx, k2, k, m, (int)prev_skip_next);
+                    r = test_all_readings(ctx, k2, k, m, first_match_token, (int)prev_skip_next);
                     if (r < 0) return -1;
                     if (r) {
                         all_match = 1;
@@ -920,7 +1419,8 @@ match_from(MatchCtx *ctx, Py_ssize_t start_index, int *positions, int *first_out
                 if (found_next) break;
             }
             if (all_match) {
-                int skip_for_max = skip_max_tokens(ctx, k, prev_k, (int)prev_skip_next, m, n - k - 1);
+                int skip_for_max = skip_max_tokens(ctx, k, prev_k, first_match_token, (int)prev_skip_next, m,
+                                                   n - k - 1);
                 if (skip_for_max < 0) return -1;
                 last_match_token = m + skip_for_max;
                 long skip_shift = last_match_token - next_pos;
@@ -936,6 +1436,10 @@ match_from(MatchCtx *ctx, Py_ssize_t start_index, int *positions, int *first_out
         if (!all_match) break;
     }
     if (all_match && matching_tokens == n) {
+        if (ctx->unify) {
+            int u = call_unify(ctx, unify);
+            if (u <= 0) return u;
+        }
         *first_out = (int)first_match_token;
         *last_out = (int)last_match_token;
         *first_marker_out = (int)first_marker;
@@ -945,16 +1449,111 @@ match_from(MatchCtx *ctx, Py_ssize_t start_index, int *positions, int *first_out
     return 0;
 }
 
-/* CompiledPattern.match(tokens, starts, consumer)
- * tokens: list of AnalyzedTokenReadings
- * starts: list of start indices, or a (from, to) tuple (inclusive range)
- * consumer: called with (positions, first, last, first_marker, last_marker)
- */
-static PyObject *
-cp_match(CompiledPattern *self, PyObject *args)
+/* Runs the pattern on the tokens (an array of AnalyzedTokenReadings, kept
+ * alive by the caller) from the start indices: starts[0..nstarts-1] if starts
+ * is not NULL, else the range from..to (inclusive). For every match
+ * consumer(*prefix, positions, first, last, first_marker, last_marker) is
+ * called (prefix: a tuple or NULL), its results that are not None are appended
+ * to results (if not NULL). *nmatches is incremented for every match. unify
+ * and resolver: see CompiledPattern.match (Py_None if not needed). Returns 0,
+ * or -1 on error. */
+static int
+cp_run(CompiledPattern *self, PyObject **tokens, Py_ssize_t ntokens, const long *starts, Py_ssize_t nstarts,
+       long from, long to, PyObject *consumer, PyObject *prefix, PyObject *results, PyObject *unify,
+       PyObject *resolver, Py_ssize_t *nmatches)
 {
-    PyObject *tokens, *starts, *consumer;
-    if (!PyArg_ParseTuple(args, "O!OO", &PyList_Type, &tokens, &starts, &consumer)) return NULL;
+    /* keep the pattern tokens alive (and the arrays valid) even if the consumer re-initializes the pattern */
+    PyObject *pts = self->tokens_tuple;
+    if (pts == NULL) {
+        PyErr_SetString(PyExc_ValueError, "CompiledPattern not initialized");
+        return -1;
+    }
+    Py_INCREF(pts);
+    Py_INCREF(self);
+    MatchCtx ctx;
+    ctx.cp = self;
+    ctx.pts = &PyTuple_GET_ITEM(pts, 0);
+    ctx.tokens = tokens;
+    ctx.ntokens = ntokens;
+    ctx.prev_matched = 0;
+    ctx.resolver = resolver != Py_None ? resolver : NULL;
+    ctx.unify = unify != Py_None;
+    ctx.to_unify = NULL;
+    ctx.neutral = NULL;
+    Py_ssize_t n = self->n;
+    Py_ssize_t nprefix = prefix != NULL ? PyTuple_GET_SIZE(prefix) : 0;
+    int ret = -1;
+    int *positions = PyMem_Calloc(n + 1, sizeof(int));
+    if (positions == NULL) { PyErr_NoMemory(); goto done; }
+    if (ctx.unify) {
+        ctx.to_unify = PyMem_Calloc(n + 1, sizeof(PyObject *));
+        ctx.neutral = PyMem_Calloc(n + 1, sizeof(PyObject *));
+        if (ctx.to_unify == NULL || ctx.neutral == NULL) { PyErr_NoMemory(); goto done; }
+    }
+    if (starts != NULL) { from = 0; to = (long)nstarts - 1; }
+    for (long idx = from; idx <= to; idx++) {
+        long start = starts != NULL ? starts[idx] : idx;
+        int first, last, fm, lm;
+        if (self->n != n || self->tokens_tuple != pts) {
+            PyErr_SetString(PyExc_RuntimeError, "CompiledPattern modified while matching");
+            goto done;
+        }
+        int r = match_from(&ctx, unify, start, positions, &first, &last, &fm, &lm);
+        if (r < 0) goto done;
+        if (r) {
+            (*nmatches)++;
+            PyObject *cargs = PyTuple_New(nprefix + 5);
+            if (cargs == NULL) goto done;
+            for (Py_ssize_t i = 0; i < nprefix; i++) {
+                PyObject *o = PyTuple_GET_ITEM(prefix, i);
+                Py_INCREF(o);
+                PyTuple_SET_ITEM(cargs, i, o);
+            }
+            PyObject *pl = PyList_New(n);
+            if (pl == NULL) { Py_DECREF(cargs); goto done; }
+            PyTuple_SET_ITEM(cargs, nprefix, pl);
+            for (Py_ssize_t i = 0; i < n; i++) {
+                PyObject *v = PyLong_FromLong(positions[i]);
+                if (v == NULL) { Py_DECREF(cargs); goto done; }
+                PyList_SET_ITEM(pl, i, v);
+            }
+            int vals[4];
+            vals[0] = first; vals[1] = last; vals[2] = fm; vals[3] = lm;
+            for (int i = 0; i < 4; i++) {
+                PyObject *v = PyLong_FromLong(vals[i]);
+                if (v == NULL) { Py_DECREF(cargs); goto done; }
+                PyTuple_SET_ITEM(cargs, nprefix + 1 + i, v);
+            }
+            PyObject *res = PyObject_Call(consumer, cargs, NULL);
+            Py_DECREF(cargs);
+            if (res == NULL) goto done;
+            if (results != NULL && res != Py_None && PyList_Append(results, res) < 0) {
+                Py_DECREF(res);
+                goto done;
+            }
+            Py_DECREF(res);
+        }
+    }
+    ret = 0;
+done:
+    if (ctx.unify && ctx.to_unify != NULL && ctx.neutral != NULL) clear_unify(&ctx);
+    PyMem_Free(positions);
+    PyMem_Free(ctx.to_unify);
+    PyMem_Free(ctx.neutral);
+    Py_DECREF(pts);
+    Py_DECREF(self);
+    return ret;
+}
+
+/* checks that all items of the list are AnalyzedTokenReadings and returns a copy (a new reference), NULL on
+ * error */
+static PyObject *
+checked_tokens_copy(PyObject *tokens)
+{
+    if (!PyList_Check(tokens)) {
+        PyErr_SetString(PyExc_TypeError, "tokens must be a list");
+        return NULL;
+    }
     Py_ssize_t ntokens = PyList_GET_SIZE(tokens);
     for (Py_ssize_t i = 0; i < ntokens; i++) {
         if (!PyObject_TypeCheck(PyList_GET_ITEM(tokens, i), &ATRBaseType)) {
@@ -962,61 +1561,58 @@ cp_match(CompiledPattern *self, PyObject *args)
             return NULL;
         }
     }
+    return PyList_GetSlice(tokens, 0, ntokens);
+}
+
+/* CompiledPattern.match(tokens, starts, consumer, unify=None, resolver=None)
+ * tokens: list of AnalyzedTokenReadings
+ * starts: list of start indices, or a (from, to) tuple (inclusive range)
+ * consumer: called with (positions, first, last, first_marker, last_marker)
+ * unify: for patterns with unification, called with (to_unify, neutral) when
+ *   all tokens matched, the match is only accepted if it returns true.
+ *   to_unify[k] is the list of the lists of readings to unify of the pattern
+ *   token k, neutral[k] the list of the neutral tokens (None if empty; the
+ *   entries are stored at the first index of the same pattern token object)
+ * resolver: for patterns with token references, called with (pattern token,
+ *   token) to get the resolved pattern token (PatternToken.compile)
+ */
+static PyObject *
+cp_match(CompiledPattern *self, PyObject *args)
+{
+    PyObject *tokens, *starts, *consumer, *unify = Py_None, *resolver = Py_None;
+    if (!PyArg_ParseTuple(args, "O!OO|OO", &PyList_Type, &tokens, &starts, &consumer, &unify, &resolver))
+        return NULL;
     /* keep the tokens alive even if the consumer modifies the list */
-    PyObject *tokens_copy = PyList_GetSlice(tokens, 0, ntokens);
+    PyObject *tokens_copy = checked_tokens_copy(tokens);
     if (tokens_copy == NULL) return NULL;
-    MatchCtx ctx;
-    ctx.cp = self;
-    ctx.pts = &PyTuple_GET_ITEM(self->tokens_tuple, 0);
-    ctx.tokens = &PyList_GET_ITEM(tokens_copy, 0);
-    ctx.ntokens = ntokens;
-    ctx.prev_matched = 0;
-    Py_ssize_t n = self->n;
-    int *positions = PyMem_Calloc(n + 1, sizeof(int));
-    if (positions == NULL) { Py_DECREF(tokens_copy); return PyErr_NoMemory(); }
     PyObject *seq = NULL;
+    long *arr = NULL;
+    Py_ssize_t narr = 0;
     long from = 0, to = -1;
-    int use_seq = 0;
     if (PyTuple_Check(starts)) {
         if (!PyArg_ParseTuple(starts, "ll", &from, &to)) goto error;
     } else {
         seq = PySequence_Fast(starts, "starts must be a sequence");
         if (seq == NULL) goto error;
-        use_seq = 1;
-        from = 0;
-        to = (long)PySequence_Fast_GET_SIZE(seq) - 1;
-    }
-    for (long idx = from; idx <= to; idx++) {
-        long start;
-        if (use_seq) {
-            start = PyLong_AsLong(PySequence_Fast_GET_ITEM(seq, idx));
-            if (start == -1 && PyErr_Occurred()) goto error;
-        } else {
-            start = idx;
-        }
-        int first, last, fm, lm;
-        int r = match_from(&ctx, start, positions, &first, &last, &fm, &lm);
-        if (r < 0) goto error;
-        if (r) {
-            PyObject *pl = PyList_New(n);
-            if (pl == NULL) goto error;
-            for (Py_ssize_t i = 0; i < n; i++) {
-                PyObject *v = PyLong_FromLong(positions[i]);
-                if (v == NULL) { Py_DECREF(pl); goto error; }
-                PyList_SET_ITEM(pl, i, v);
-            }
-            PyObject *res = PyObject_CallFunction(consumer, "Niiii", pl, first, last, fm, lm);
-            if (res == NULL) goto error;
-            Py_DECREF(res);
+        narr = PySequence_Fast_GET_SIZE(seq);
+        arr = PyMem_Calloc(narr + 1, sizeof(long));
+        if (arr == NULL) { PyErr_NoMemory(); goto error; }
+        for (Py_ssize_t i = 0; i < narr; i++) {
+            arr[i] = PyLong_AsLong(PySequence_Fast_GET_ITEM(seq, i));
+            if (arr[i] == -1 && PyErr_Occurred()) goto error;
         }
     }
+    Py_ssize_t nm = 0;
+    if (cp_run(self, &PyList_GET_ITEM(tokens_copy, 0), PyList_GET_SIZE(tokens_copy), seq != NULL ? arr : NULL,
+               narr, from, to, consumer, NULL, NULL, unify, resolver, &nm) < 0)
+        goto error;
     Py_XDECREF(seq);
-    PyMem_Free(positions);
+    PyMem_Free(arr);
     Py_DECREF(tokens_copy);
     Py_RETURN_NONE;
 error:
     Py_XDECREF(seq);
-    PyMem_Free(positions);
+    PyMem_Free(arr);
     Py_DECREF(tokens_copy);
     return NULL;
 }
@@ -1068,6 +1664,7 @@ typedef struct {
     long min_token_count;
     PyObject *hints;       /* tuple of (inflected, values tuple, values frozenset) */
     PyObject *pos_hints;   /* tuple of frozensets or None */
+    PyObject *pos_tuples;  /* the pos hints as tuples (or None) */
 } RuleHints;
 
 static void
@@ -1075,6 +1672,7 @@ rh_dealloc(RuleHints *self)
 {
     Py_XDECREF(self->hints);
     Py_XDECREF(self->pos_hints);
+    Py_XDECREF(self->pos_tuples);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -1088,9 +1686,38 @@ rh_init(RuleHints *self, PyObject *args, PyObject *kwds)
         PyErr_SetString(PyExc_TypeError, "pos_hints must be a tuple or None");
         return -1;
     }
+    Py_ssize_t nh = PyTuple_GET_SIZE(hints);
+    for (Py_ssize_t i = 0; i < nh; i++) {
+        PyObject *h = PyTuple_GET_ITEM(hints, i);
+        if (!PyTuple_Check(h) || PyTuple_GET_SIZE(h) != 3 || !PyTuple_Check(PyTuple_GET_ITEM(h, 1)) ||
+                !PyAnySet_Check(PyTuple_GET_ITEM(h, 2))) {
+            PyErr_SetString(PyExc_TypeError, "hints must be (inflected, values tuple, values set) tuples");
+            return -1;
+        }
+    }
+    PyObject *pos_tuples = Py_None;
+    Py_INCREF(pos_tuples);
+    if (pos_hints != Py_None) {
+        Py_ssize_t np = PyTuple_GET_SIZE(pos_hints);
+        Py_DECREF(pos_tuples);
+        pos_tuples = PyTuple_New(np);
+        if (pos_tuples == NULL) return -1;
+        for (Py_ssize_t i = 0; i < np; i++) {
+            PyObject *ph = PyTuple_GET_ITEM(pos_hints, i);
+            if (!PyAnySet_Check(ph)) {
+                PyErr_SetString(PyExc_TypeError, "pos hints must be sets");
+                Py_DECREF(pos_tuples);
+                return -1;
+            }
+            PyObject *t = PySequence_Tuple(ph);
+            if (t == NULL) { Py_DECREF(pos_tuples); return -1; }
+            PyTuple_SET_ITEM(pos_tuples, i, t);
+        }
+    }
     self->min_token_count = mtc;
     Py_INCREF(hints); Py_XSETREF(self->hints, hints);
     Py_INCREF(pos_hints); Py_XSETREF(self->pos_hints, pos_hints);
+    Py_XSETREF(self->pos_tuples, pos_tuples);
     return 0;
 }
 
@@ -1116,6 +1743,59 @@ hint_ignorable(PyObject *values, PyObject *value_set, PyObject *offsets)
     return 1;
 }
 
+/* port of AbstractTokenBasedRule.canBeIgnoredFor: returns 1 if the rule can be
+ * ignored for the sentence, 0 if not, -1 on error */
+static int
+rh_check(RuleHints *self, long nnb, PyObject *to, PyObject *lo, PyObject *tags, int check_pos)
+{
+    if (nnb < self->min_token_count) return 1;
+    Py_ssize_t nh = PyTuple_GET_SIZE(self->hints);
+    for (Py_ssize_t i = 0; i < nh; i++) {
+        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
+        int inflected = PyObject_IsTrue(PyTuple_GET_ITEM(h, 0));
+        if (inflected < 0) return -1;
+        int r = hint_ignorable(PyTuple_GET_ITEM(h, 1), PyTuple_GET_ITEM(h, 2), inflected ? lo : to);
+        if (r != 0) return r;
+    }
+    if (check_pos && self->pos_hints != Py_None) {
+        if (!PyAnySet_Check(tags)) {
+            PyErr_SetString(PyExc_TypeError, "pos_tag_set must be a set");
+            return -1;
+        }
+        Py_ssize_t np = PyTuple_GET_SIZE(self->pos_hints);
+        for (Py_ssize_t i = 0; i < np; i++) {
+            PyObject *ph = PyTuple_GET_ITEM(self->pos_hints, i);
+            int found = 0;
+            if (PySet_GET_SIZE(ph) <= PySet_GET_SIZE(tags)) {
+                PyObject *pt = PyTuple_GET_ITEM(self->pos_tuples, i);
+                Py_ssize_t m = PyTuple_GET_SIZE(pt);
+                for (Py_ssize_t j = 0; j < m; j++) {
+                    int r = PySet_Contains(tags, PyTuple_GET_ITEM(pt, j));
+                    if (r < 0) return -1;
+                    if (r) { found = 1; break; }
+                }
+                if (!found) return 1;
+                continue;
+            }
+            /* iterate the smaller set */
+            PyObject *small = tags, *big = ph;
+            PyObject *it = PyObject_GetIter(small);
+            if (it == NULL) return -1;
+            PyObject *item;
+            while ((item = PyIter_Next(it)) != NULL) {
+                int r = PySet_Contains(big, item);
+                Py_DECREF(item);
+                if (r < 0) { Py_DECREF(it); return -1; }
+                if (r) { found = 1; break; }
+            }
+            Py_DECREF(it);
+            if (PyErr_Occurred()) return -1;
+            if (!found) return 1;
+        }
+    }
+    return 0;
+}
+
 /* ignorable(n_nonblank, token_offsets, lemma_offsets, pos_tag_set, check_pos) */
 static PyObject *
 rh_ignorable(RuleHints *self, PyObject *args)
@@ -1125,38 +1805,9 @@ rh_ignorable(RuleHints *self, PyObject *args)
     int check_pos;
     if (!PyArg_ParseTuple(args, "lO!O!Op", &nnb, &PyDict_Type, &to, &PyDict_Type, &lo, &tags, &check_pos))
         return NULL;
-    if (nnb < self->min_token_count) Py_RETURN_TRUE;
-    Py_ssize_t nh = PyTuple_GET_SIZE(self->hints);
-    for (Py_ssize_t i = 0; i < nh; i++) {
-        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
-        int inflected = PyObject_IsTrue(PyTuple_GET_ITEM(h, 0));
-        int r = hint_ignorable(PyTuple_GET_ITEM(h, 1), PyTuple_GET_ITEM(h, 2), inflected ? lo : to);
-        if (r < 0) return NULL;
-        if (r) Py_RETURN_TRUE;
-    }
-    if (check_pos && self->pos_hints != Py_None) {
-        Py_ssize_t np = PyTuple_GET_SIZE(self->pos_hints);
-        for (Py_ssize_t i = 0; i < np; i++) {
-            PyObject *ph = PyTuple_GET_ITEM(self->pos_hints, i);
-            int found = 0;
-            /* iterate the smaller set */
-            PyObject *small = ph, *big = tags;
-            if (PySet_GET_SIZE(tags) < PySet_GET_SIZE(ph)) { small = tags; big = ph; }
-            PyObject *it = PyObject_GetIter(small);
-            if (it == NULL) return NULL;
-            PyObject *item;
-            while ((item = PyIter_Next(it)) != NULL) {
-                int r = PySet_Contains(big, item);
-                Py_DECREF(item);
-                if (r < 0) { Py_DECREF(it); return NULL; }
-                if (r) { found = 1; break; }
-            }
-            Py_DECREF(it);
-            if (PyErr_Occurred()) return NULL;
-            if (!found) Py_RETURN_TRUE;
-        }
-    }
-    Py_RETURN_FALSE;
+    int r = rh_check(self, nnb, to, lo, tags, check_pos);
+    if (r < 0) return NULL;
+    return PyBool_FromLong(r);
 }
 
 static PyMethodDef rh_methods[] = {
@@ -1173,6 +1824,793 @@ static PyTypeObject RuleHintsType = {
     .tp_init = (initproc)rh_init,
     .tp_dealloc = (destructor)rh_dealloc,
     .tp_methods = rh_methods,
+};
+
+/* ------------------------------------------------------------------------ */
+/* RuleSelector: port of RuleSet.rules_for_sentence plus the canBeIgnoredFor
+ * check of the selected rules, and the rule loop of XmlRuleDisambiguator. */
+
+static PyObject *str_non_blank_tokens = NULL;
+static PyObject *str_token_offsets = NULL;
+static PyObject *str_lemma_offsets = NULL;
+static PyObject *str_pos_tag_set = NULL;
+
+typedef struct {
+    PyObject_HEAD
+    Py_ssize_t n;
+    PyObject *by_token;      /* dict: str -> list/tuple of rule indices */
+    PyObject *by_lemma;      /* dict or None */
+    PyObject *items;         /* tuple of n objects (returned by select / called by disambiguate) */
+    PyObject *hints;         /* tuple of n RuleHints or None */
+    Py_ssize_t *unclassified;
+    Py_ssize_t n_unclassified;
+    char *check_pos;
+} RuleSelector;
+
+/* the attributes of an AnalyzedSentence needed for the hint checks */
+typedef struct {
+    PyObject *sentence;      /* borrowed */
+    long nnb;
+    PyObject *to, *lo, *tags;  /* new references */
+} SentenceHints;
+
+static void
+shints_clear(SentenceHints *sh)
+{
+    Py_CLEAR(sh->to);
+    Py_CLEAR(sh->lo);
+    Py_CLEAR(sh->tags);
+    sh->sentence = NULL;
+}
+
+static int
+shints_load(SentenceHints *sh, PyObject *sentence)
+{
+    if (sh->sentence == sentence) return 0;
+    shints_clear(sh);
+    PyObject *nb = PyObject_GetAttr(sentence, str_non_blank_tokens);
+    if (nb == NULL) return -1;
+    Py_ssize_t nnb = PyObject_Length(nb);
+    Py_DECREF(nb);
+    if (nnb < 0) return -1;
+    sh->to = PyObject_GetAttr(sentence, str_token_offsets);
+    if (sh->to == NULL) goto error;
+    sh->lo = PyObject_GetAttr(sentence, str_lemma_offsets);
+    if (sh->lo == NULL) goto error;
+    sh->tags = PyObject_GetAttr(sentence, str_pos_tag_set);
+    if (sh->tags == NULL) goto error;
+    if (!PyDict_Check(sh->to) || !PyDict_Check(sh->lo)) {
+        PyErr_SetString(PyExc_TypeError, "token_offsets and lemma_offsets must be dicts");
+        goto error;
+    }
+    sh->nnb = (long)nnb;
+    sh->sentence = sentence;
+    return 0;
+error:
+    shints_clear(sh);
+    return -1;
+}
+
+static int
+rs_traverse(RuleSelector *self, visitproc visit, void *arg)
+{
+    Py_VISIT(self->by_token);
+    Py_VISIT(self->by_lemma);
+    Py_VISIT(self->items);
+    Py_VISIT(self->hints);
+    return 0;
+}
+
+static int
+rs_clear(RuleSelector *self)
+{
+    Py_CLEAR(self->by_token);
+    Py_CLEAR(self->by_lemma);
+    Py_CLEAR(self->items);
+    Py_CLEAR(self->hints);
+    return 0;
+}
+
+static void
+rs_dealloc(RuleSelector *self)
+{
+    PyObject_GC_UnTrack(self);
+    rs_clear(self);
+    PyMem_Free(self->unclassified);
+    PyMem_Free(self->check_pos);
+    Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+/* RuleSelector(by_token, by_lemma, unclassified, items, hints, check_pos) */
+static int
+rs_init(RuleSelector *self, PyObject *args, PyObject *kwds)
+{
+    PyObject *by_token, *by_lemma, *unclassified, *items, *hints, *check_pos;
+    if (!PyArg_ParseTuple(args, "O!OOO!O!O", &PyDict_Type, &by_token, &by_lemma, &unclassified, &PyTuple_Type,
+                          &items, &PyTuple_Type, &hints, &check_pos))
+        return -1;
+    if (by_lemma != Py_None && !PyDict_Check(by_lemma)) {
+        PyErr_SetString(PyExc_TypeError, "by_lemma must be a dict or None");
+        return -1;
+    }
+    Py_ssize_t n = PyTuple_GET_SIZE(items);
+    if (PyTuple_GET_SIZE(hints) != n) {
+        PyErr_SetString(PyExc_ValueError, "items and hints must have the same length");
+        return -1;
+    }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *h = PyTuple_GET_ITEM(hints, i);
+        if (h != Py_None && !PyObject_TypeCheck(h, &RuleHintsType)) {
+            PyErr_SetString(PyExc_TypeError, "hints must be RuleHints or None");
+            return -1;
+        }
+    }
+    PyObject *cp = PySequence_Fast(check_pos, "check_pos must be a sequence");
+    if (cp == NULL) return -1;
+    if (PySequence_Fast_GET_SIZE(cp) != n) {
+        Py_DECREF(cp);
+        PyErr_SetString(PyExc_ValueError, "check_pos must have the length of items");
+        return -1;
+    }
+    char *cpos = PyMem_Calloc(n + 1, 1);
+    if (cpos == NULL) { Py_DECREF(cp); PyErr_NoMemory(); return -1; }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        int t = PyObject_IsTrue(PySequence_Fast_GET_ITEM(cp, i));
+        if (t < 0) { Py_DECREF(cp); PyMem_Free(cpos); return -1; }
+        cpos[i] = (char)t;
+    }
+    Py_DECREF(cp);
+    PyObject *uc = PySequence_Fast(unclassified, "unclassified must be a sequence");
+    if (uc == NULL) { PyMem_Free(cpos); return -1; }
+    Py_ssize_t nu = PySequence_Fast_GET_SIZE(uc);
+    Py_ssize_t *ucl = PyMem_Calloc(nu + 1, sizeof(Py_ssize_t));
+    if (ucl == NULL) { Py_DECREF(uc); PyMem_Free(cpos); PyErr_NoMemory(); return -1; }
+    for (Py_ssize_t i = 0; i < nu; i++) {
+        Py_ssize_t v = PyLong_AsSsize_t(PySequence_Fast_GET_ITEM(uc, i));
+        if (v == -1 && PyErr_Occurred()) { Py_DECREF(uc); PyMem_Free(cpos); PyMem_Free(ucl); return -1; }
+        if (v < 0 || v >= n) {
+            Py_DECREF(uc); PyMem_Free(cpos); PyMem_Free(ucl);
+            PyErr_SetString(PyExc_IndexError, "rule index out of range");
+            return -1;
+        }
+        ucl[i] = v;
+    }
+    Py_DECREF(uc);
+    Py_INCREF(by_token); Py_XSETREF(self->by_token, by_token);
+    Py_INCREF(by_lemma); Py_XSETREF(self->by_lemma, by_lemma);
+    Py_INCREF(items); Py_XSETREF(self->items, items);
+    Py_INCREF(hints); Py_XSETREF(self->hints, hints);
+    PyMem_Free(self->unclassified);
+    self->unclassified = ucl;
+    self->n_unclassified = nu;
+    PyMem_Free(self->check_pos);
+    self->check_pos = cpos;
+    self->n = n;
+    return 0;
+}
+
+/* marks the rules of index (str -> rule indices) for the keys of offsets */
+static int
+rs_mark(RuleSelector *self, char *mark, PyObject *index, PyObject *offsets)
+{
+    if (!PyDict_Check(offsets)) {
+        PyErr_SetString(PyExc_TypeError, "offsets must be a dict");
+        return -1;
+    }
+    Py_ssize_t pos = 0;
+    PyObject *key, *value;
+    while (PyDict_Next(offsets, &pos, &key, &value)) {
+        PyObject *idx = PyDict_GetItemWithError(index, key);
+        if (idx == NULL) {
+            if (PyErr_Occurred()) return -1;
+            continue;
+        }
+        if (!PyList_Check(idx) && !PyTuple_Check(idx)) {
+            PyErr_SetString(PyExc_TypeError, "rule indices must be a list or tuple");
+            return -1;
+        }
+        Py_ssize_t m = PySequence_Fast_GET_SIZE(idx);
+        PyObject **it = PySequence_Fast_ITEMS(idx);
+        for (Py_ssize_t j = 0; j < m; j++) {
+            Py_ssize_t v = PyLong_AsSsize_t(it[j]);
+            if (v == -1 && PyErr_Occurred()) return -1;
+            if (v < 0 || v >= self->n) {
+                PyErr_SetString(PyExc_IndexError, "rule index out of range");
+                return -1;
+            }
+            mark[v] = 1;
+        }
+    }
+    return 0;
+}
+
+/* the marks of the rules selected by the tokens (and lemmas) of the
+ * sentence. Returns a new buffer (PyMem) or NULL on error. */
+static char *
+rs_select_marks(RuleSelector *self, PyObject *sentence)
+{
+    char *mark = PyMem_Calloc(self->n + 1, 1);
+    if (mark == NULL) { PyErr_NoMemory(); return NULL; }
+    for (Py_ssize_t i = 0; i < self->n_unclassified; i++) mark[self->unclassified[i]] = 1;
+    if (self->by_lemma != Py_None && PyDict_GET_SIZE(self->by_lemma) > 0) {
+        PyObject *lo = PyObject_GetAttr(sentence, str_lemma_offsets);
+        if (lo == NULL) goto error;
+        int r = rs_mark(self, mark, self->by_lemma, lo);
+        Py_DECREF(lo);
+        if (r < 0) goto error;
+    }
+    PyObject *to = PyObject_GetAttr(sentence, str_token_offsets);
+    if (to == NULL) goto error;
+    int r = rs_mark(self, mark, self->by_token, to);
+    Py_DECREF(to);
+    if (r < 0) goto error;
+    return mark;
+error:
+    PyMem_Free(mark);
+    return NULL;
+}
+
+/* select(sentence, use_hints): the items (that are not None) of the rules
+ * selected for the sentence (in rule order); with use_hints, without the rules whose hints
+ * show that they can be ignored for the sentence. */
+static PyObject *
+rs_select(RuleSelector *self, PyObject *args)
+{
+    PyObject *sentence;
+    int use_hints;
+    if (!PyArg_ParseTuple(args, "Op", &sentence, &use_hints)) return NULL;
+    char *mark = rs_select_marks(self, sentence);
+    if (mark == NULL) return NULL;
+    SentenceHints sh = {NULL, 0, NULL, NULL, NULL};
+    PyObject *out = PyList_New(0);
+    if (out == NULL) goto error;
+    for (Py_ssize_t i = 0; i < self->n; i++) {
+        if (!mark[i]) continue;
+        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
+        if (use_hints && h != Py_None) {
+            if (shints_load(&sh, sentence) < 0) goto error;
+            int r = rh_check((RuleHints *)h, sh.nnb, sh.to, sh.lo, sh.tags, self->check_pos[i]);
+            if (r < 0) goto error;
+            if (r) continue;
+        }
+        PyObject *item = PyTuple_GET_ITEM(self->items, i);
+        if (item == Py_None) continue;
+        if (PyList_Append(out, item) < 0) goto error;
+    }
+    shints_clear(&sh);
+    PyMem_Free(mark);
+    return out;
+error:
+    shints_clear(&sh);
+    PyMem_Free(mark);
+    Py_XDECREF(out);
+    return NULL;
+}
+
+/* ------------------------------------------------------------------------ */
+/* MatcherTable: the per thread matchers of the rules of a RuleSelector, for
+ * matching the pattern rules (applying the disambiguation rules) without
+ * calling Python code for every rule. The entries are initialized lazily by
+ * calling init(i), which returns None (the rule's item is called) or the
+ * tuple (compiled pattern, on_match, finish, unify, resolver,
+ * anchor_inflected, anchor_values, anchor_value_set, anchor_index, sent_start,
+ * pre_disambig, pattern_size, min_occur_correction):
+ *   - the tokens are sentence.non_blank_pre_disambig_tokens if pre_disambig,
+ *     else sentence.non_blank_tokens
+ *   - the start positions: like AbstractPatternRulePerformer.do_match (the
+ *     anchor hint is not used if anchor_values is None or pre_disambig)
+ *   - on_match(sentence, tokens, scratch, positions, first, last,
+ *     first_marker, last_marker) is called for each match (scratch: a list,
+ *     the same for the matches of one sentence), the results that are not None
+ *     are collected
+ *   - if there was a match, finish(sentence, scratch, results) gives the
+ *     result: the list of rule matches (match_sentence), the new sentence
+ *     (disambiguate). */
+
+typedef struct {
+    char state;            /* 0: not initialized, 1: matched here, 2: the item is called */
+    char anchor_inflected;
+    char sent_start;
+    char pre_disambig;
+    PyObject *compiled, *on_match, *finish, *unify, *resolver, *anchor_values, *anchor_value_set;
+    long anchor_index, pattern_size, moc;
+} MTEntry;
+
+typedef struct {
+    PyObject_HEAD
+    Py_ssize_t n;
+    MTEntry *entries;
+} MatcherTable;
+
+static void
+mte_clear(MTEntry *e)
+{
+    Py_CLEAR(e->compiled);
+    Py_CLEAR(e->on_match);
+    Py_CLEAR(e->finish);
+    Py_CLEAR(e->unify);
+    Py_CLEAR(e->resolver);
+    Py_CLEAR(e->anchor_values);
+    Py_CLEAR(e->anchor_value_set);
+    e->state = 0;
+}
+
+static int
+mt_traverse(MatcherTable *self, visitproc visit, void *arg)
+{
+    if (self->entries != NULL) {
+        for (Py_ssize_t i = 0; i < self->n; i++) {
+            MTEntry *e = &self->entries[i];
+            Py_VISIT(e->compiled);
+            Py_VISIT(e->on_match);
+            Py_VISIT(e->finish);
+            Py_VISIT(e->unify);
+            Py_VISIT(e->resolver);
+            Py_VISIT(e->anchor_values);
+            Py_VISIT(e->anchor_value_set);
+        }
+    }
+    return 0;
+}
+
+static int
+mt_clear(MatcherTable *self)
+{
+    if (self->entries != NULL) {
+        for (Py_ssize_t i = 0; i < self->n; i++) mte_clear(&self->entries[i]);
+    }
+    return 0;
+}
+
+static void
+mt_dealloc(MatcherTable *self)
+{
+    PyObject_GC_UnTrack(self);
+    mt_clear(self);
+    PyMem_Free(self->entries);
+    Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+/* MatcherTable(n) */
+static int
+mt_init(MatcherTable *self, PyObject *args, PyObject *kwds)
+{
+    Py_ssize_t n;
+    if (!PyArg_ParseTuple(args, "n", &n)) return -1;
+    if (n < 0) { PyErr_SetString(PyExc_ValueError, "n must be >= 0"); return -1; }
+    if (self->entries != NULL) {
+        for (Py_ssize_t i = 0; i < self->n; i++) mte_clear(&self->entries[i]);
+        PyMem_Free(self->entries);
+        self->entries = NULL;
+        self->n = 0;
+    }
+    self->entries = PyMem_Calloc(n + 1, sizeof(MTEntry));
+    if (self->entries == NULL) { PyErr_NoMemory(); return -1; }
+    self->n = n;
+    return 0;
+}
+
+static PyTypeObject MatcherTableType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "langtool._speedups.MatcherTable",
+    .tp_basicsize = sizeof(MatcherTable),
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc)mt_init,
+    .tp_dealloc = (destructor)mt_dealloc,
+    .tp_traverse = (traverseproc)mt_traverse,
+    .tp_clear = (inquiry)mt_clear,
+};
+
+/* the (initialized) entry i, NULL on error */
+static MTEntry *
+mt_entry(MatcherTable *t, Py_ssize_t i, PyObject *init)
+{
+    MTEntry *e = &t->entries[i];
+    if (e->state != 0) return e;
+    PyObject *idx = PyLong_FromSsize_t(i);
+    if (idx == NULL) return NULL;
+    PyObject *spec = PyObject_CallOneArg(init, idx);
+    Py_DECREF(idx);
+    if (spec == NULL) return NULL;
+    if (e->state != 0) {  /* initialized by the init call */
+        Py_DECREF(spec);
+        return e;
+    }
+    if (spec == Py_None) {
+        Py_DECREF(spec);
+        e->state = 2;
+        return e;
+    }
+    PyObject *compiled, *on_match, *finish, *unify, *resolver, *avalues, *aset;
+    int ainfl, sent_start, pre;
+    long aindex, psize, moc;
+    if (!PyArg_ParseTuple(spec, "O!OOOOpOOlppll;bad matcher spec", &CompiledPatternType, &compiled, &on_match,
+                          &finish, &unify, &resolver, &ainfl, &avalues, &aset, &aindex, &sent_start, &pre, &psize,
+                          &moc)) {
+        Py_DECREF(spec);
+        return NULL;
+    }
+    if (avalues != Py_None && (!PyTuple_Check(avalues) || !PyAnySet_Check(aset))) {
+        Py_DECREF(spec);
+        PyErr_SetString(PyExc_TypeError, "the anchor values must be a tuple and a set");
+        return NULL;
+    }
+#define MT_SET(f, v) do { Py_INCREF(v); Py_XSETREF(e->f, v); } while (0)
+    MT_SET(compiled, compiled);
+    MT_SET(on_match, on_match);
+    MT_SET(finish, finish);
+    MT_SET(unify, unify);
+    MT_SET(resolver, resolver);
+    MT_SET(anchor_values, avalues);
+    MT_SET(anchor_value_set, aset);
+#undef MT_SET
+    e->anchor_inflected = (char)ainfl;
+    e->anchor_index = aindex;
+    e->sent_start = (char)sent_start;
+    e->pre_disambig = (char)pre;
+    e->pattern_size = psize;
+    e->moc = moc;
+    e->state = 1;
+    Py_DECREF(spec);
+    return e;
+}
+
+/* the token lists of a sentence (and their checked copies) */
+typedef struct {
+    PyObject *sentence;    /* borrowed */
+    PyObject *nb, *nb_copy, *pre, *pre_copy;   /* new references or NULL */
+} SentenceTokens;
+
+static void
+stoks_clear(SentenceTokens *st)
+{
+    Py_CLEAR(st->nb);
+    Py_CLEAR(st->nb_copy);
+    Py_CLEAR(st->pre);
+    Py_CLEAR(st->pre_copy);
+    st->sentence = NULL;
+}
+
+static PyObject *str_non_blank_pre_disambig_tokens = NULL;
+
+/* sets *list and *copy (borrowed) to the token list for the matching */
+static int
+stoks_get(SentenceTokens *st, PyObject *sentence, int pre, PyObject **list, PyObject **copy)
+{
+    if (st->sentence != sentence) {
+        stoks_clear(st);
+        st->sentence = sentence;
+    }
+    PyObject **l = pre ? &st->pre : &st->nb;
+    PyObject **c = pre ? &st->pre_copy : &st->nb_copy;
+    if (*l == NULL) {
+        PyObject *v = PyObject_GetAttr(sentence, pre ? str_non_blank_pre_disambig_tokens : str_non_blank_tokens);
+        if (v == NULL) return -1;
+        PyObject *cp = checked_tokens_copy(v);
+        if (cp == NULL) { Py_DECREF(v); return -1; }
+        *l = v;
+        *c = cp;
+    }
+    *list = *l;
+    *copy = *c;
+    return 0;
+}
+
+/* runs the entry's pattern on the sentence. Returns the result of finish (a new
+ * reference) if there was a match, Py_None (new reference) if not, NULL on
+ * error. */
+static PyObject *mt_run_entry(MTEntry *e, PyObject *sentence, SentenceHints *sh, SentenceTokens *st, int collect);
+
+static PyObject *
+mt_run(MTEntry *e, PyObject *sentence, SentenceHints *sh, SentenceTokens *st, int collect)
+{
+    /* a copy of the entry with strong references (the entry could be cleared while Python code runs) */
+    MTEntry c = *e;
+    Py_XINCREF(c.compiled); Py_XINCREF(c.on_match); Py_XINCREF(c.finish); Py_XINCREF(c.unify);
+    Py_XINCREF(c.resolver); Py_XINCREF(c.anchor_values); Py_XINCREF(c.anchor_value_set);
+    PyObject *r = mt_run_entry(&c, sentence, sh, st, collect);
+    Py_XDECREF(c.compiled); Py_XDECREF(c.on_match); Py_XDECREF(c.finish); Py_XDECREF(c.unify);
+    Py_XDECREF(c.resolver); Py_XDECREF(c.anchor_values); Py_XDECREF(c.anchor_value_set);
+    return r;
+}
+
+static PyObject *
+mt_run_entry(MTEntry *e, PyObject *sentence, SentenceHints *sh, SentenceTokens *st, int collect)
+{
+    PyObject *tokens, *copy;
+    if (stoks_get(st, sentence, e->pre_disambig, &tokens, &copy) < 0) return NULL;
+    Py_ssize_t ntokens = PyList_GET_SIZE(copy);
+    long limit;
+    if (e->sent_start) {
+        limit = 1;
+    } else {
+        limit = (long)ntokens - e->pattern_size + 1;
+        if (limit < 0) limit = 0;
+        limit += e->moc;
+    }
+    long *starts = NULL;
+    Py_ssize_t nstarts = 0;
+    long from = 0, to = -1;
+    int use_anchor = e->anchor_values != Py_None && !e->pre_disambig;
+    if (use_anchor) {
+        if (shints_load(sh, sentence) < 0) return NULL;
+        PyObject *offsets = e->anchor_inflected ? sh->lo : sh->to;
+        Py_ssize_t nnb = sh->nnb;
+        char *mark = PyMem_Calloc(nnb + 1, 1);
+        if (mark == NULL) return PyErr_NoMemory();
+        Py_ssize_t nv = PyTuple_GET_SIZE(e->anchor_values);
+        int found = 0;
+        PyObject *key, *value;
+        Py_ssize_t pos = 0, vi = 0;
+        /* get_possible_indices: the sorted union of the offsets of the values */
+        for (;;) {
+            PyObject *lst;
+            if (nv <= PyDict_GET_SIZE(offsets)) {
+                if (vi >= nv) break;
+                lst = PyDict_GetItemWithError(offsets, PyTuple_GET_ITEM(e->anchor_values, vi++));
+                if (lst == NULL) {
+                    if (PyErr_Occurred()) { PyMem_Free(mark); return NULL; }
+                    continue;
+                }
+            } else {
+                if (!PyDict_Next(offsets, &pos, &key, &value)) break;
+                int c = PySet_Contains(e->anchor_value_set, key);
+                if (c < 0) { PyMem_Free(mark); return NULL; }
+                if (!c) continue;
+                lst = value;
+            }
+            if (!PyList_Check(lst)) {
+                PyMem_Free(mark);
+                PyErr_SetString(PyExc_TypeError, "offsets must be lists");
+                return NULL;
+            }
+            for (Py_ssize_t j = 0; j < PyList_GET_SIZE(lst); j++) {
+                Py_ssize_t ai = PyLong_AsSsize_t(PyList_GET_ITEM(lst, j));
+                if (ai == -1 && PyErr_Occurred()) { PyMem_Free(mark); return NULL; }
+                if (ai < 0 || ai >= nnb) {
+                    PyMem_Free(mark);
+                    PyErr_SetString(PyExc_IndexError, "token offset out of range");
+                    return NULL;
+                }
+                mark[ai] = 1;
+                found = 1;
+            }
+        }
+        if (found) {
+            starts = PyMem_Calloc(nnb + 1, sizeof(long));
+            if (starts == NULL) { PyMem_Free(mark); return PyErr_NoMemory(); }
+            for (Py_ssize_t ai = 0; ai < nnb; ai++) {
+                if (!mark[ai]) continue;
+                long s = (long)ai - e->anchor_index;
+                if (s >= 0 && s < limit) starts[nstarts++] = s;
+            }
+        }
+        PyMem_Free(mark);
+        if (nstarts == 0) {
+            PyMem_Free(starts);
+            Py_RETURN_NONE;
+        }
+    } else {
+        from = 0;
+        to = limit - 1;
+        if (from > to) Py_RETURN_NONE;
+    }
+    PyObject *scratch = NULL, *prefix = NULL, *results = NULL, *ret = NULL;
+    scratch = PyList_New(0);
+    if (scratch == NULL) goto done;
+    prefix = PyTuple_Pack(3, sentence, tokens, scratch);
+    if (prefix == NULL) goto done;
+    if (collect) {
+        results = PyList_New(0);
+        if (results == NULL) goto done;
+    }
+    /* keep the token copy alive while the callbacks run */
+    Py_INCREF(copy);
+    Py_ssize_t nm = 0;
+    int r = cp_run((CompiledPattern *)e->compiled, &PyList_GET_ITEM(copy, 0), ntokens, starts, nstarts, from, to,
+                   e->on_match, prefix, results, e->unify, e->resolver, &nm);
+    Py_DECREF(copy);
+    if (r < 0) goto done;
+    if (nm == 0) {
+        ret = Py_None;
+        Py_INCREF(ret);
+    } else {
+        ret = PyObject_CallFunctionObjArgs(e->finish, sentence, scratch, results != NULL ? results : Py_None, NULL);
+    }
+done:
+    PyMem_Free(starts);
+    Py_XDECREF(scratch);
+    Py_XDECREF(prefix);
+    Py_XDECREF(results);
+    return ret;
+}
+
+static PyObject *str_check_cancelled_callback = NULL;
+
+/* owner.check_cancelled_callback is set and returns true: 1, 0 if not, -1 on error */
+static int
+is_cancelled(PyObject *owner)
+{
+    if (owner == Py_None) return 0;
+    PyObject *cb = PyObject_GetAttr(owner, str_check_cancelled_callback);
+    if (cb == NULL) return -1;
+    if (cb == Py_None) { Py_DECREF(cb); return 0; }
+    PyObject *r = PyObject_CallNoArgs(cb);
+    Py_DECREF(cb);
+    if (r == NULL) return -1;
+    int t = PyObject_IsTrue(r);
+    Py_DECREF(r);
+    return t;
+}
+
+/* match_sentence(sentence, table, init, owner): the rule matches of the
+ * selected rules (the items that are not None) for the sentence:
+ *   for each rule: if owner.check_cancelled_callback is set and returns true,
+ *   stop; if the hints show that the rule can be ignored, skip it; else add
+ *   the matches of the rule (computed with the table's entry, or the result of
+ *   item(sentence)). */
+static PyObject *
+rs_match_sentence(RuleSelector *self, PyObject *args)
+{
+    PyObject *sentence, *table, *init, *owner;
+    if (!PyArg_ParseTuple(args, "OO!OO", &sentence, &MatcherTableType, &table, &init, &owner)) return NULL;
+    MatcherTable *t = (MatcherTable *)table;
+    if (t->n != self->n) {
+        PyErr_SetString(PyExc_ValueError, "the matcher table does not fit the rule selector");
+        return NULL;
+    }
+    char *mark = rs_select_marks(self, sentence);
+    if (mark == NULL) return NULL;
+    Py_INCREF(table);
+    SentenceHints sh = {NULL, 0, NULL, NULL, NULL};
+    SentenceTokens st = {NULL, NULL, NULL, NULL, NULL};
+    PyObject *out = PyList_New(0);
+    if (out == NULL) goto error;
+    for (Py_ssize_t i = 0; i < self->n; i++) {
+        if (!mark[i]) continue;
+        PyObject *item = PyTuple_GET_ITEM(self->items, i);
+        if (item == Py_None) continue;
+        int c = is_cancelled(owner);
+        if (c < 0) goto error;
+        if (c) break;
+        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
+        if (h != Py_None) {
+            if (shints_load(&sh, sentence) < 0) goto error;
+            int r = rh_check((RuleHints *)h, sh.nnb, sh.to, sh.lo, sh.tags, self->check_pos[i]);
+            if (r < 0) goto error;
+            if (r) continue;
+        }
+        MTEntry *e = mt_entry(t, i, init);
+        if (e == NULL) goto error;
+        PyObject *res;
+        if (e->state == 1) {
+            res = mt_run(e, sentence, &sh, &st, 1);
+        } else {
+            res = PyObject_CallOneArg(item, sentence);
+        }
+        if (res == NULL) goto error;
+        if (res != Py_None) {
+            Py_ssize_t len = PyList_GET_SIZE(out);
+            if (PyList_SetSlice(out, len, len, res) < 0) { Py_DECREF(res); goto error; }
+        } else if (e->state != 1) {
+            Py_DECREF(res);
+            PyErr_SetString(PyExc_TypeError, "a rule's match() returned None");
+            goto error;
+        }
+        Py_DECREF(res);
+    }
+    shints_clear(&sh);
+    stoks_clear(&st);
+    PyMem_Free(mark);
+    Py_DECREF(table);
+    return out;
+error:
+    shints_clear(&sh);
+    stoks_clear(&st);
+    PyMem_Free(mark);
+    Py_DECREF(table);
+    Py_XDECREF(out);
+    return NULL;
+}
+
+/* disambiguate(sentence, before_first=None, table=None, init=None): for the
+ * rules selected by the tokens of the sentence, in order: unless the hints of
+ * the rule show that it can be ignored for the current sentence, sentence =
+ * item(sentence) (or the result of the table's entry, see MatcherTable). If
+ * before_first is given, sentence = before_first(sentence) before the first
+ * rule is applied. Returns the final sentence. */
+static PyObject *
+rs_disambiguate(RuleSelector *self, PyObject *args)
+{
+    PyObject *sentence, *before_first = Py_None, *table = Py_None, *init = Py_None;
+    if (!PyArg_ParseTuple(args, "O|OOO", &sentence, &before_first, &table, &init)) return NULL;
+    if (table != Py_None) {
+        if (!PyObject_TypeCheck(table, &MatcherTableType) || ((MatcherTable *)table)->n != self->n) {
+            PyErr_SetString(PyExc_TypeError, "table must be a MatcherTable for the rule selector");
+            return NULL;
+        }
+    }
+    char *mark = rs_select_marks(self, sentence);
+    if (mark == NULL) return NULL;
+    Py_INCREF(table);
+    SentenceHints sh = {NULL, 0, NULL, NULL, NULL};
+    SentenceTokens st = {NULL, NULL, NULL, NULL, NULL};
+    PyObject *cur = sentence;
+    Py_INCREF(cur);
+    for (Py_ssize_t i = 0; i < self->n; i++) {
+        if (!mark[i]) continue;
+        PyObject *item = PyTuple_GET_ITEM(self->items, i);
+        if (item == Py_None) continue;
+        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
+        if (h != Py_None) {
+            if (shints_load(&sh, cur) < 0) goto error;
+            int r = rh_check((RuleHints *)h, sh.nnb, sh.to, sh.lo, sh.tags, self->check_pos[i]);
+            if (r < 0) goto error;
+            if (r) continue;
+        }
+        if (before_first != Py_None) {
+            PyObject *b = PyObject_CallOneArg(before_first, cur);
+            if (b == NULL) goto error;
+            before_first = Py_None;
+            Py_SETREF(cur, b);
+            shints_clear(&sh);
+            stoks_clear(&st);
+        }
+        MTEntry *e = NULL;
+        if (table != Py_None) {
+            e = mt_entry((MatcherTable *)table, i, init);
+            if (e == NULL) goto error;
+        }
+        PyObject *res;
+        if (e != NULL && e->state == 1) {
+            res = mt_run(e, cur, &sh, &st, 0);
+            if (res == Py_None) {
+                Py_DECREF(res);
+                continue;
+            }
+        } else {
+            res = PyObject_CallOneArg(item, cur);
+        }
+        if (res == NULL) goto error;
+        if (res != cur) {
+            shints_clear(&sh);
+            stoks_clear(&st);
+        }
+        Py_SETREF(cur, res);
+    }
+    shints_clear(&sh);
+    stoks_clear(&st);
+    PyMem_Free(mark);
+    Py_DECREF(table);
+    return cur;
+error:
+    shints_clear(&sh);
+    stoks_clear(&st);
+    PyMem_Free(mark);
+    Py_DECREF(table);
+    Py_DECREF(cur);
+    return NULL;
+}
+
+static PyMethodDef rs_methods[] = {
+    {"select", (PyCFunction)rs_select, METH_VARARGS, "The rules for a sentence"},
+    {"disambiguate", (PyCFunction)rs_disambiguate, METH_VARARGS, "Apply the disambiguation rules to a sentence"},
+    {"match_sentence", (PyCFunction)rs_match_sentence, METH_VARARGS, "The rule matches for a sentence"},
+    {NULL}
+};
+
+static PyTypeObject RuleSelectorType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "langtool._speedups.RuleSelector",
+    .tp_basicsize = sizeof(RuleSelector),
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc)rs_init,
+    .tp_dealloc = (destructor)rs_dealloc,
+    .tp_traverse = (traverseproc)rs_traverse,
+    .tp_clear = (inquiry)rs_clear,
+    .tp_methods = rs_methods,
 };
 
 /* ------------------------------------------------------------------------ */
@@ -2324,8 +3762,48 @@ static PyTypeObject SpellerSearchType = {
 /* Adds the parameters of the context predicates (in their order, like
  * ArrayMath.sumFeatures) to the sums. pmap maps a predicate to a tuple
  * (outcome indices, parameters). */
+/* the shared tables of a model whose pmap values are int codes (offset * number of patterns + pattern index):
+ * the outcome patterns (a tuple of tuples of outcome indices) and the parameters (doubles) */
+typedef struct {
+    PyObject *patterns;
+    const double *params;
+    Py_ssize_t nparams;
+} GISTables;
+
 static int
-gis_add_features(double *sums, Py_ssize_t n, PyObject *pmap, PyObject *context)
+gis_add_coded(double *sums, Py_ssize_t n, PyObject *code, GISTables *tab)
+{
+    if (tab == NULL || tab->patterns == NULL) {
+        PyErr_SetString(PyExc_TypeError, "coded pmap values need the model tables");
+        return -1;
+    }
+    Py_ssize_t c = PyLong_AsSsize_t(code);
+    if (c == -1 && PyErr_Occurred()) return -1;
+    Py_ssize_t npat = PyTuple_GET_SIZE(tab->patterns);
+    if (c < 0 || npat == 0) {
+        PyErr_SetString(PyExc_ValueError, "bad pmap code");
+        return -1;
+    }
+    PyObject *outs = PyTuple_GET_ITEM(tab->patterns, c % npat);
+    Py_ssize_t off = c / npat;
+    if (!PyTuple_Check(outs) || off + PyTuple_GET_SIZE(outs) > tab->nparams) {
+        PyErr_SetString(PyExc_ValueError, "bad pmap code");
+        return -1;
+    }
+    for (Py_ssize_t j = 0; j < PyTuple_GET_SIZE(outs); j++) {
+        Py_ssize_t oid = PyLong_AsSsize_t(PyTuple_GET_ITEM(outs, j));
+        if (oid == -1 && PyErr_Occurred()) return -1;
+        if (oid < 0 || oid >= n) {
+            PyErr_SetString(PyExc_IndexError, "outcome index out of range");
+            return -1;
+        }
+        sums[oid] += tab->params[off + j];
+    }
+    return 0;
+}
+
+static int
+gis_add_features(double *sums, Py_ssize_t n, PyObject *pmap, PyObject *context, GISTables *tab)
 {
     PyObject *seq = PySequence_Fast(context, "context must be a sequence");
     if (!seq) return -1;
@@ -2337,27 +3815,59 @@ gis_add_features(double *sums, Py_ssize_t n, PyObject *pmap, PyObject *context)
             if (PyErr_Occurred()) { Py_DECREF(seq); return -1; }
             continue;
         }
+        if (PyLong_Check(e)) {
+            if (gis_add_coded(sums, n, e, tab) < 0) { Py_DECREF(seq); return -1; }
+            continue;
+        }
         if (!PyTuple_Check(e) || PyTuple_GET_SIZE(e) != 2) {
             PyErr_SetString(PyExc_TypeError, "pmap values must be (outcomes, parameters) tuples");
             Py_DECREF(seq); return -1;
         }
         PyObject *outs = PyTuple_GET_ITEM(e, 0), *params = PyTuple_GET_ITEM(e, 1);
-        if (!PyTuple_Check(outs) || !PyTuple_Check(params) || PyTuple_GET_SIZE(outs) != PyTuple_GET_SIZE(params)) {
-            PyErr_SetString(PyExc_TypeError, "outcomes and parameters must be tuples of the same length");
+        /* the parameters: a tuple of floats or a buffer of doubles (array('d')) */
+        Py_buffer view;
+        const double *pd = NULL;
+        int is_tuple = PyTuple_Check(params);
+        if (!is_tuple) {
+            if (PyObject_GetBuffer(params, &view, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) {
+                Py_DECREF(seq); return -1;
+            }
+            if (view.format == NULL || strcmp(view.format, "d") != 0 || view.itemsize != sizeof(double)) {
+                PyBuffer_Release(&view);
+                PyErr_SetString(PyExc_TypeError, "parameters must be a tuple of floats or an array of doubles");
+                Py_DECREF(seq); return -1;
+            }
+            pd = (const double *)view.buf;
+        }
+        Py_ssize_t np = is_tuple ? PyTuple_GET_SIZE(params) : view.len / (Py_ssize_t)sizeof(double);
+        if (!PyTuple_Check(outs) || PyTuple_GET_SIZE(outs) != np) {
+            if (!is_tuple) PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_TypeError, "outcomes and parameters must have the same length");
             Py_DECREF(seq); return -1;
         }
         Py_ssize_t m = PyTuple_GET_SIZE(outs);
         for (Py_ssize_t j = 0; j < m; j++) {
             Py_ssize_t oid = PyLong_AsSsize_t(PyTuple_GET_ITEM(outs, j));
-            if (oid == -1 && PyErr_Occurred()) { Py_DECREF(seq); return -1; }
-            double p = PyFloat_AsDouble(PyTuple_GET_ITEM(params, j));
-            if (p == -1.0 && PyErr_Occurred()) { Py_DECREF(seq); return -1; }
+            double p;
+            if (oid == -1 && PyErr_Occurred()) goto feature_error;
+            if (is_tuple) {
+                p = PyFloat_AsDouble(PyTuple_GET_ITEM(params, j));
+                if (p == -1.0 && PyErr_Occurred()) goto feature_error;
+            } else {
+                p = pd[j];
+            }
             if (oid < 0 || oid >= n) {
                 PyErr_SetString(PyExc_IndexError, "outcome index out of range");
-                Py_DECREF(seq); return -1;
+                goto feature_error;
             }
             sums[oid] += p;
         }
+        if (!is_tuple) PyBuffer_Release(&view);
+        continue;
+feature_error:
+        if (!is_tuple) PyBuffer_Release(&view);
+        Py_DECREF(seq);
+        return -1;
     }
     Py_DECREF(seq);
     return 0;
@@ -2393,12 +3903,33 @@ gis_make_list(const double *values, Py_ssize_t n)
 static PyObject *
 py_gis_sum(PyObject *self, PyObject *args)
 {
-    PyObject *prior, *pmap, *context;
+    PyObject *prior, *pmap, *context, *patterns = Py_None, *params = Py_None;
     double sums[GIS_MAX_OUTCOMES];
     Py_ssize_t n;
-    if (!PyArg_ParseTuple(args, "OO!O", &prior, &PyDict_Type, &pmap, &context)) return NULL;
+    if (!PyArg_ParseTuple(args, "OO!O|OO", &prior, &PyDict_Type, &pmap, &context, &patterns, &params)) return NULL;
     if (gis_read_prior(prior, sums, &n) < 0) return NULL;
-    if (gis_add_features(sums, n, pmap, context) < 0) return NULL;
+    GISTables tab = {NULL, NULL, 0};
+    Py_buffer view;
+    int have_view = 0;
+    if (patterns != Py_None) {
+        if (!PyTuple_Check(patterns)) {
+            PyErr_SetString(PyExc_TypeError, "patterns must be a tuple");
+            return NULL;
+        }
+        if (PyObject_GetBuffer(params, &view, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) return NULL;
+        have_view = 1;
+        if (view.format == NULL || strcmp(view.format, "d") != 0 || view.itemsize != sizeof(double)) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_TypeError, "params must be an array of doubles");
+            return NULL;
+        }
+        tab.patterns = patterns;
+        tab.params = (const double *)view.buf;
+        tab.nparams = view.len / (Py_ssize_t)sizeof(double);
+    }
+    int r = gis_add_features(sums, n, pmap, context, &tab);
+    if (have_view) PyBuffer_Release(&view);
+    if (r < 0) return NULL;
     return gis_make_list(sums, n);
 }
 
@@ -2407,12 +3938,33 @@ py_gis_sum(PyObject *self, PyObject *args)
 static PyObject *
 py_gis_eval(PyObject *self, PyObject *args)
 {
-    PyObject *prior, *pmap, *context;
+    PyObject *prior, *pmap, *context, *patterns = Py_None, *params = Py_None;
     double sums[GIS_MAX_OUTCOMES];
     Py_ssize_t n;
-    if (!PyArg_ParseTuple(args, "OO!O", &prior, &PyDict_Type, &pmap, &context)) return NULL;
+    if (!PyArg_ParseTuple(args, "OO!O|OO", &prior, &PyDict_Type, &pmap, &context, &patterns, &params)) return NULL;
     if (gis_read_prior(prior, sums, &n) < 0) return NULL;
-    if (gis_add_features(sums, n, pmap, context) < 0) return NULL;
+    GISTables tab = {NULL, NULL, 0};
+    Py_buffer view;
+    int have_view = 0;
+    if (patterns != Py_None) {
+        if (!PyTuple_Check(patterns)) {
+            PyErr_SetString(PyExc_TypeError, "patterns must be a tuple");
+            return NULL;
+        }
+        if (PyObject_GetBuffer(params, &view, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) return NULL;
+        have_view = 1;
+        if (view.format == NULL || strcmp(view.format, "d") != 0 || view.itemsize != sizeof(double)) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_TypeError, "params must be an array of doubles");
+            return NULL;
+        }
+        tab.patterns = patterns;
+        tab.params = (const double *)view.buf;
+        tab.nparams = view.len / (Py_ssize_t)sizeof(double);
+    }
+    int r = gis_add_features(sums, n, pmap, context, &tab);
+    if (have_view) PyBuffer_Release(&view);
+    if (r < 0) return NULL;
     double normal = 0.0;
     for (Py_ssize_t i = 0; i < n; i++) {
         sums[i] = exp(sums[i]);
@@ -2460,8 +4012,865 @@ py_levenshtein(PyObject *self, PyObject *args)
     return PyLong_FromSsize_t(r);
 }
 
+/* ------------------------------------------------------------------------ */
+/* AnalyzedSentence.__init__: the non blank tokens and the token / lemma /
+ * POS tag indexes */
+
+static int
+nb_tokens(PyObject *tokens, PyObject *mapping, PyObject **out)
+{
+    Py_ssize_t n = PyList_GET_SIZE(tokens);
+    PyObject *l = PyList_New(0);
+    if (l == NULL) return -1;
+    Py_ssize_t nwh = 0;
+    for (Py_ssize_t wh = 0; wh < n; wh++) {
+        ATRBase *t = ATR(PyList_GET_ITEM(tokens, wh));
+        if (!t->is_whitespace || t->is_sentence_start || t->is_sentence_end || t->is_paragraph_end) {
+            if (PyList_Append(l, (PyObject *)t) < 0) { Py_DECREF(l); return -1; }
+            if (nwh >= PyList_GET_SIZE(mapping)) {
+                Py_DECREF(l);
+                PyErr_SetString(PyExc_IndexError, "list assignment index out of range");
+                return -1;
+            }
+            PyObject *v = PyLong_FromSsize_t(wh);
+            if (v == NULL) { Py_DECREF(l); return -1; }
+            if (PyList_SetItem(mapping, nwh, v) < 0) { Py_DECREF(l); return -1; }
+            nwh++;
+        }
+    }
+    *out = l;
+    return 0;
+}
+
+/* appends i to index[key] (a new list if needed), only if it is not the last element (unique = 1) */
+static int
+index_add(PyObject *index, PyObject *key, Py_ssize_t i, int unique)
+{
+    PyObject *lst = PyDict_GetItemWithError(index, key);
+    if (lst == NULL) {
+        if (PyErr_Occurred()) return -1;
+        lst = PyList_New(0);
+        if (lst == NULL) return -1;
+        int r = PyDict_SetItem(index, key, lst);
+        Py_DECREF(lst);
+        if (r < 0) return -1;
+    } else if (unique) {
+        Py_ssize_t m = PyList_GET_SIZE(lst);
+        if (m > 0) {
+            Py_ssize_t last = PyLong_AsSsize_t(PyList_GET_ITEM(lst, m - 1));
+            if (last == -1 && PyErr_Occurred()) return -1;
+            if (last == i) return 0;
+        }
+    }
+    PyObject *v = PyLong_FromSsize_t(i);
+    if (v == NULL) return -1;
+    int r = PyList_Append(lst, v);
+    Py_DECREF(v);
+    return r;
+}
+
+/* the lowercase version of a cached string slot (computed from src if not set yet), borrowed */
+static PyObject *
+cached_lower(PyObject **slot, PyObject *src)
+{
+    if (*slot == NULL || *slot == Py_None) {
+        if (src == NULL) {
+            PyErr_SetString(PyExc_AttributeError, "token not initialized");
+            return NULL;
+        }
+        PyObject *l = PyObject_CallMethodNoArgs(src, str_lower);
+        if (l == NULL) return NULL;
+        Py_XSETREF(*slot, l);
+    }
+    return *slot;
+}
+
+/* sentence_index(tokens, pre_disambig_tokens, previous, readings_unchanged) ->
+ * (wh_positions, non_blank_tokens, non_blank_pre_disambig_tokens,
+ * token_offsets, lemma_offsets, pos_tag_set), or None if the tokens are not
+ * all AnalyzedTokenReadings (with AnalyzedToken readings) */
+static PyObject *
+py_sentence_index(PyObject *self, PyObject *args)
+{
+    PyObject *tokens, *pre, *previous;
+    int readings_unchanged;
+    if (!PyArg_ParseTuple(args, "OOOp", &tokens, &pre, &previous, &readings_unchanged)) return NULL;
+    if (!PyList_Check(tokens) || !PyList_Check(pre)) Py_RETURN_NONE;
+    PyObject *lists[2] = {tokens, pre};
+    for (int k = 0; k < 2; k++) {
+        for (Py_ssize_t i = 0; i < PyList_GET_SIZE(lists[k]); i++) {
+            PyObject *t = PyList_GET_ITEM(lists[k], i);
+            if (!PyObject_TypeCheck(t, &ATRBaseType) || ATR(t)->readings == NULL || !PyList_Check(ATR(t)->readings))
+                Py_RETURN_NONE;
+            PyObject *rs = ATR(t)->readings;
+            for (Py_ssize_t j = 0; j < PyList_GET_SIZE(rs); j++) {
+                if (!PyObject_TypeCheck(PyList_GET_ITEM(rs, j), &AnalyzedTokenBaseType)) Py_RETURN_NONE;
+            }
+        }
+    }
+    PyObject *mapping = NULL, *nb = NULL, *nb_pre = NULL, *to = NULL, *lo = NULL, *tags = NULL, *pnb = NULL;
+    Py_ssize_t n = PyList_GET_SIZE(tokens);
+    mapping = PyList_New(n + 1);
+    if (mapping == NULL) goto error;
+    for (Py_ssize_t i = 0; i <= n; i++) {
+        PyObject *z = PyLong_FromLong(0);
+        if (z == NULL) goto error;
+        PyList_SET_ITEM(mapping, i, z);
+    }
+    if (nb_tokens(tokens, mapping, &nb) < 0) goto error;
+    if (nb_tokens(pre, mapping, &nb_pre) < 0) goto error;
+    Py_ssize_t nnb = PyList_GET_SIZE(nb);
+    int same_tokens = 0;
+    if (previous != Py_None) {
+        pnb = PyObject_GetAttr(previous, str_non_blank_tokens);
+        if (pnb == NULL) goto error;
+        if (!PyList_Check(pnb)) {
+            PyErr_SetString(PyExc_TypeError, "non_blank_tokens must be a list");
+            goto error;
+        }
+        same_tokens = PyList_GET_SIZE(pnb) == nnb;
+        for (Py_ssize_t i = 0; same_tokens && i < nnb; i++) {
+            PyObject *x = PyObject_GetAttr(PyList_GET_ITEM(pnb, i), str_token);
+            if (x == NULL) goto error;
+            int eq = PyObject_RichCompareBool(x, ATR(PyList_GET_ITEM(nb, i))->token, Py_EQ);
+            Py_DECREF(x);
+            if (eq < 0) goto error;
+            same_tokens = eq;
+        }
+    }
+    if (same_tokens) {
+        to = PyObject_GetAttr(previous, str_token_offsets);
+        if (to == NULL) goto error;
+    } else {
+        to = PyDict_New();
+        if (to == NULL) goto error;
+        for (Py_ssize_t i = 0; i < nnb; i++) {
+            ATRBase *t = ATR(PyList_GET_ITEM(nb, i));
+            PyObject *key = cached_lower(&t->token_lower, t->token);
+            if (key == NULL || index_add(to, key, i, 0) < 0) goto error;
+        }
+    }
+    if (same_tokens && readings_unchanged) {
+        lo = PyObject_GetAttr(previous, str_lemma_offsets);
+        if (lo == NULL) goto error;
+        tags = PyObject_GetAttr(previous, str_pos_tag_set);
+        if (tags == NULL) goto error;
+    } else {
+        lo = PyDict_New();
+        if (lo == NULL) goto error;
+        PyObject *set = PySet_New(NULL);
+        if (set == NULL) goto error;
+        for (Py_ssize_t i = 0; i < nnb; i++) {
+            PyObject *rs = ATR(PyList_GET_ITEM(nb, i))->readings;
+            for (Py_ssize_t j = 0; j < PyList_GET_SIZE(rs); j++) {
+                AnalyzedTokenBase *r = AT(PyList_GET_ITEM(rs, j));
+                PyObject *key = cached_lower(&r->lemma_or_token_lower, r->lemma_or_token);
+                if (key == NULL || index_add(lo, key, i, 1) < 0) { Py_DECREF(set); goto error; }
+            }
+        }
+        for (Py_ssize_t i = 0; i < nnb; i++) {
+            PyObject *rs = ATR(PyList_GET_ITEM(nb, i))->readings;
+            for (Py_ssize_t j = 0; j < PyList_GET_SIZE(rs); j++) {
+                AnalyzedTokenBase *r = AT(PyList_GET_ITEM(rs, j));
+                if (r->pos_tag != NULL && r->pos_tag != Py_None && PySet_Add(set, r->pos_tag) < 0) {
+                    Py_DECREF(set);
+                    goto error;
+                }
+            }
+        }
+        tags = PyFrozenSet_New(set);
+        Py_DECREF(set);
+        if (tags == NULL) goto error;
+    }
+    Py_XDECREF(pnb);
+    PyObject *res = PyTuple_Pack(6, mapping, nb, nb_pre, to, lo, tags);
+    Py_DECREF(mapping); Py_DECREF(nb); Py_DECREF(nb_pre); Py_DECREF(to); Py_DECREF(lo); Py_DECREF(tags);
+    return res;
+error:
+    Py_XDECREF(mapping); Py_XDECREF(nb); Py_XDECREF(nb_pre); Py_XDECREF(to); Py_XDECREF(lo); Py_XDECREF(tags);
+    Py_XDECREF(pnb);
+    return NULL;
+}
+
+/* ------------------------------------------------------------------------ */
+/* OpenNLP beam search (langtool.opennlp.BeamSearch.best_sequences) */
+
+/* a sequence: the Python tuple (score, outcome, parent, probability) and its score */
+typedef struct {
+    double score;
+    PyObject *seq;   /* new reference */
+} BSItem;
+
+/* java.util.PriorityQueue (the highest score first, see _JavaPriorityQueue) */
+typedef struct {
+    BSItem *q;
+    Py_ssize_t n, cap;
+} BSQueue;
+
+static int
+bsq_add(BSQueue *h, double score, PyObject *seq)
+{
+    if (h->n == h->cap) {
+        Py_ssize_t cap = h->cap ? h->cap * 2 : 64;
+        BSItem *q = PyMem_Realloc(h->q, cap * sizeof(BSItem));
+        if (q == NULL) { PyErr_NoMemory(); return -1; }
+        h->q = q;
+        h->cap = cap;
+    }
+    Py_ssize_t k = h->n++;
+    while (k > 0) {
+        Py_ssize_t parent = (k - 1) >> 1;
+        if (h->q[parent].score >= score) break;
+        h->q[k] = h->q[parent];
+        k = parent;
+    }
+    h->q[k].score = score;
+    h->q[k].seq = seq;
+    return 0;
+}
+
+/* removes the first item (the caller owns the reference) */
+static BSItem
+bsq_remove(BSQueue *h)
+{
+    BSItem result = h->q[0];
+    BSItem x = h->q[--h->n];
+    Py_ssize_t n = h->n;
+    if (n > 0) {
+        Py_ssize_t k = 0, half = n >> 1;
+        while (k < half) {
+            Py_ssize_t child = 2 * k + 1, right = child + 1;
+            if (right < n && h->q[right].score > h->q[child].score) child = right;
+            if (x.score >= h->q[child].score) break;
+            h->q[k] = h->q[child];
+            k = child;
+        }
+        h->q[k] = x;
+    }
+    return result;
+}
+
+static void
+bsq_clear(BSQueue *h)
+{
+    for (Py_ssize_t i = 0; i < h->n; i++) Py_DECREF(h->q[i].seq);
+    h->n = 0;
+}
+
+/* the expansions of a (scores, allowed outcomes) pair */
+typedef struct {
+    PyObject *scores, *allowed;   /* new references (kept, so the pointers are not reused) */
+    PyObject *sf;                 /* the scores as a list or tuple (new reference) */
+    double *probs;                /* the scores */
+    Py_ssize_t nprobs;
+    Py_ssize_t *ext;              /* the outcomes with one of the best scores (in the order of the outcomes) */
+    Py_ssize_t next;
+    Py_ssize_t *valid;            /* the allowed outcomes (or all) */
+    Py_ssize_t nvalid;
+} BSExp;
+
+static void
+bsexp_free(BSExp *e)
+{
+    Py_XDECREF(e->scores);
+    Py_XDECREF(e->allowed);
+    Py_XDECREF(e->sf);
+    PyMem_Free(e->probs);
+    PyMem_Free(e->ext);
+    PyMem_Free(e->valid);
+}
+
+static int
+cmp_double_nan_last(const void *a, const void *b)
+{
+    double x = *(const double *)a, y = *(const double *)b;
+    int xn = x != x, yn = y != y;
+    if (xn || yn) return xn - yn;
+    return (x > y) - (x < y);
+}
+
+/* StrictMath.log (see opennlp._log) */
+static inline double
+bs_log(double p)
+{
+    if (p > 0) return log(p);
+    return p == 0 ? -INFINITY : NAN;
+}
+
+/* fills the expansion e for scores / allowed; returns 0 or -1 on error */
+static int
+bsexp_init(BSExp *e, PyObject *scores, PyObject *allowed, Py_ssize_t n_outcomes, Py_ssize_t size_index)
+{
+    memset(e, 0, sizeof(BSExp));
+    Py_INCREF(scores); e->scores = scores;
+    Py_INCREF(allowed); e->allowed = allowed;
+    PyObject *sf = PySequence_Fast(scores, "the scores must be a sequence");
+    if (sf == NULL) return -1;
+    e->sf = sf;
+    Py_ssize_t np = PySequence_Fast_GET_SIZE(sf);
+    if (np != n_outcomes) {
+        PyErr_SetString(PyExc_ValueError, "the number of scores must be the number of outcomes");
+        return -1;
+    }
+    if (size_index >= np) {
+        PyErr_SetString(PyExc_IndexError, "list index out of range");
+        return -1;
+    }
+    e->probs = PyMem_Calloc(np + 1, sizeof(double));
+    double *sorted = PyMem_Calloc(np + 1, sizeof(double));
+    if (e->probs == NULL || sorted == NULL) { PyMem_Free(sorted); PyErr_NoMemory(); return -1; }
+    e->nprobs = np;
+    for (Py_ssize_t i = 0; i < np; i++) {
+        double d = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(sf, i));
+        if (d == -1.0 && PyErr_Occurred()) { PyMem_Free(sorted); return -1; }
+        e->probs[i] = sorted[i] = d;
+    }
+    qsort(sorted, np, sizeof(double), cmp_double_nan_last);
+    double min_score = sorted[size_index];
+    PyMem_Free(sorted);
+    if (allowed == Py_None) {
+        e->valid = PyMem_Calloc(np + 1, sizeof(Py_ssize_t));
+        if (e->valid == NULL) { PyErr_NoMemory(); return -1; }
+        for (Py_ssize_t i = 0; i < np; i++) e->valid[i] = i;
+        e->nvalid = np;
+    } else {
+        PyObject *af = PySequence_Fast(allowed, "the allowed outcomes must be a sequence");
+        if (af == NULL) return -1;
+        Py_ssize_t na = PySequence_Fast_GET_SIZE(af);
+        e->valid = PyMem_Calloc(na + 1, sizeof(Py_ssize_t));
+        if (e->valid == NULL) { Py_DECREF(af); PyErr_NoMemory(); return -1; }
+        for (Py_ssize_t i = 0; i < na; i++) {
+            Py_ssize_t v = PyLong_AsSsize_t(PySequence_Fast_GET_ITEM(af, i));
+            if (v == -1 && PyErr_Occurred()) { Py_DECREF(af); return -1; }
+            if (v < 0 || v >= np) {
+                Py_DECREF(af);
+                PyErr_SetString(PyExc_IndexError, "outcome index out of range");
+                return -1;
+            }
+            e->valid[i] = v;
+        }
+        e->nvalid = na;
+        Py_DECREF(af);
+    }
+    e->ext = PyMem_Calloc(e->nvalid + 1, sizeof(Py_ssize_t));
+    if (e->ext == NULL) { PyErr_NoMemory(); return -1; }
+    for (Py_ssize_t i = 0; i < e->nvalid; i++) {
+        Py_ssize_t p = e->valid[i];
+        if (e->probs[p] >= min_score) e->ext[e->next++] = p;
+    }
+    return 0;
+}
+
+/* the sequence tuple (score, names[p], parent, scores[p]) */
+static PyObject *
+bs_sequence(double score, PyObject *names, BSExp *ex, Py_ssize_t p, PyObject *parent)
+{
+    PyObject *s = PyFloat_FromDouble(score);
+    if (s == NULL) return NULL;
+    PyObject *t = PyTuple_Pack(4, s, PyList_GET_ITEM(names, p), parent, PySequence_Fast_GET_ITEM(ex->sf, p));
+    Py_DECREF(s);
+    return t;
+}
+
+/* beam_search(size, num_sequences, length, outcome_names, evaluate, allowed_outcomes, min_sequence_score,
+ * empty_sequence) -> the best sequences (see BeamSearch.best_sequences) */
+static PyObject *
+py_beam_search(PyObject *self, PyObject *args)
+{
+    Py_ssize_t size, num_sequences, length;
+    PyObject *names, *evaluate, *allowed_outcomes, *empty;
+    double min_sequence_score;
+    if (!PyArg_ParseTuple(args, "nnnO!OOdO", &size, &num_sequences, &length, &PyList_Type, &names, &evaluate,
+                          &allowed_outcomes, &min_sequence_score, &empty))
+        return NULL;
+    Py_ssize_t n_outcomes = PyList_GET_SIZE(names);
+    if (n_outcomes == 0) {
+        PyErr_SetString(PyExc_ValueError, "no outcomes");
+        return NULL;
+    }
+    Py_ssize_t size_index = n_outcomes - size > 0 ? n_outcomes - size : 0;
+    BSQueue heap = {NULL, 0, 0};
+    BSExp *exps = NULL;
+    Py_ssize_t nexps = 0, capexps = 0;
+    PyObject *expindex = PyDict_New();   /* (id(scores), id(allowed)) -> index in exps */
+    PyObject *result = NULL;
+    /* the current tops (new references) */
+    PyObject **tops = PyMem_Calloc(size + 2, sizeof(PyObject *));
+    Py_ssize_t ntops = 0;
+    /* the expansion index of each top */
+    Py_ssize_t *topexp = PyMem_Calloc(size + 2, sizeof(Py_ssize_t));
+    if (expindex == NULL || tops == NULL || topexp == NULL) { PyErr_NoMemory(); goto done; }
+    Py_INCREF(empty);
+    tops[ntops++] = empty;
+    for (Py_ssize_t i = 0; i < length; i++) {
+        PyObject *idx = PyLong_FromSsize_t(i);
+        if (idx == NULL) goto done;
+        for (Py_ssize_t t = 0; t < ntops; t++) {
+            PyObject *scores = PyObject_CallFunctionObjArgs(evaluate, idx, tops[t], NULL);
+            if (scores == NULL) { Py_DECREF(idx); goto done; }
+            PyObject *allowed = PyObject_CallFunctionObjArgs(allowed_outcomes, idx, tops[t], NULL);
+            if (allowed == NULL) { Py_DECREF(scores); Py_DECREF(idx); goto done; }
+            PyObject *key = Py_BuildValue("(NN)", PyLong_FromVoidPtr(scores), PyLong_FromVoidPtr(allowed));
+            if (key == NULL) { Py_DECREF(scores); Py_DECREF(allowed); Py_DECREF(idx); goto done; }
+            PyObject *ei = PyDict_GetItemWithError(expindex, key);
+            Py_ssize_t e;
+            if (ei != NULL) {
+                e = PyLong_AsSsize_t(ei);
+            } else if (PyErr_Occurred()) {
+                e = -1;
+            } else {
+                if (nexps == capexps) {
+                    Py_ssize_t cap = capexps ? capexps * 2 : 16;
+                    BSExp *ne = PyMem_Realloc(exps, cap * sizeof(BSExp));
+                    if (ne == NULL) {
+                        PyErr_NoMemory();
+                        Py_DECREF(key); Py_DECREF(scores); Py_DECREF(allowed); Py_DECREF(idx);
+                        goto done;
+                    }
+                    exps = ne;
+                    capexps = cap;
+                }
+                e = nexps;
+                int r = bsexp_init(&exps[nexps], scores, allowed, n_outcomes, size_index);
+                nexps++;   /* (freed in any case) */
+                if (r < 0) {
+                    e = -1;
+                } else {
+                    PyObject *v = PyLong_FromSsize_t(e);
+                    if (v == NULL || PyDict_SetItem(expindex, key, v) < 0) e = -1;
+                    Py_XDECREF(v);
+                }
+            }
+            Py_DECREF(key);
+            Py_DECREF(scores);
+            Py_DECREF(allowed);
+            if (e < 0) { Py_DECREF(idx); goto done; }
+            topexp[t] = e;
+        }
+        Py_DECREF(idx);
+        /* the candidates, in the order of _candidates(prune=False), added to the queue */
+        int added = 0;
+        for (Py_ssize_t t = 0; t < ntops; t++) {
+            BSExp *ex = &exps[topexp[t]];
+            PyObject *sc = PyTuple_GET_ITEM(tops[t], 0);
+            double top_score = PyFloat_AsDouble(sc);
+            if (top_score == -1.0 && PyErr_Occurred()) goto done;
+            for (Py_ssize_t j = 0; j < ex->next; j++) {
+                Py_ssize_t p = ex->ext[j];
+                double ns = top_score + bs_log(ex->probs[p]);
+                if (ns > min_sequence_score) {
+                    PyObject *s = bs_sequence(ns, names, ex, p, tops[t]);
+                    if (s == NULL || bsq_add(&heap, ns, s) < 0) { Py_XDECREF(s); goto done; }
+                    added = 1;
+                }
+            }
+            if (!added) {
+                for (Py_ssize_t j = 0; j < ex->nvalid; j++) {
+                    Py_ssize_t p = ex->valid[j];
+                    double ns = top_score + bs_log(ex->probs[p]);
+                    if (ns > min_sequence_score) {
+                        PyObject *s = bs_sequence(ns, names, ex, p, tops[t]);
+                        if (s == NULL || bsq_add(&heap, ns, s) < 0) { Py_XDECREF(s); goto done; }
+                        added = 1;
+                    }
+                }
+            }
+        }
+        for (Py_ssize_t t = 0; t < ntops; t++) Py_DECREF(tops[t]);
+        ntops = 0;
+        while (ntops < size && heap.n > 0) {
+            BSItem it = bsq_remove(&heap);
+            tops[ntops++] = it.seq;
+        }
+        bsq_clear(&heap);
+    }
+    {
+        Py_ssize_t k = num_sequences < ntops ? num_sequences : ntops;
+        if (k < 0) k = 0;
+        result = PyList_New(k);
+        if (result == NULL) goto done;
+        for (Py_ssize_t t = 0; t < k; t++) {
+            Py_INCREF(tops[t]);
+            PyList_SET_ITEM(result, t, tops[t]);
+        }
+    }
+done:
+    bsq_clear(&heap);
+    PyMem_Free(heap.q);
+    for (Py_ssize_t t = 0; t < ntops; t++) Py_DECREF(tops[t]);
+    PyMem_Free(tops);
+    PyMem_Free(topexp);
+    for (Py_ssize_t e = 0; e < nexps; e++) bsexp_free(&exps[e]);
+    PyMem_Free(exps);
+    Py_XDECREF(expindex);
+    return result;
+}
+
+/* ------------------------------------------------------------------------ */
+/* the trie of langtool.spelling._TrieFSA */
+
+typedef struct {
+    unsigned char label;
+    int child;
+    char child_final;
+} TrieArc;
+
+typedef struct {
+    TrieArc *arcs;
+    Py_ssize_t n, cap;
+    char final;
+} TrieNode;
+
+typedef struct {
+    char *data;
+    Py_ssize_t n, cap, itemsize;
+} TrieBuf;
+
+static int
+tbuf_add(TrieBuf *b, const void *item)
+{
+    if (b->n == b->cap) {
+        Py_ssize_t cap = b->cap ? b->cap * 2 : 1024;
+        char *d = PyMem_Realloc(b->data, cap * b->itemsize);
+        if (d == NULL) { PyErr_NoMemory(); return -1; }
+        b->data = d;
+        b->cap = cap;
+    }
+    memcpy(b->data + b->n * b->itemsize, item, b->itemsize);
+    b->n++;
+    return 0;
+}
+
+typedef struct {
+    TrieBuf first, ends, labels, dests, finals, lasts;
+} Trie;
+
+/* finish(arcs) of _TrieFSA.__init__: the number of the node (0 if it has no arcs) */
+static int
+trie_finish(Trie *t, TrieNode *node, int *out)
+{
+    if (node->n == 0) { *out = 0; return 0; }
+    int nid = (int)t->first.n;
+    int fa = (int)t->labels.n;
+    if (tbuf_add(&t->first, &fa) < 0) return -1;
+    for (Py_ssize_t k = 0; k < node->n; k++) {
+        TrieArc *a = &node->arcs[k];
+        char last = k == node->n - 1;
+        if (tbuf_add(&t->labels, &a->label) < 0 || tbuf_add(&t->dests, &a->child) < 0 ||
+                tbuf_add(&t->finals, &a->child_final) < 0 || tbuf_add(&t->lasts, &last) < 0)
+            return -1;
+    }
+    int end = (int)t->labels.n;
+    if (tbuf_add(&t->ends, &end) < 0) return -1;
+    *out = nid;
+    return 0;
+}
+
+static int
+tnode_add_arc(TrieNode *node, unsigned char label)
+{
+    if (node->n == node->cap) {
+        Py_ssize_t cap = node->cap ? node->cap * 2 : 4;
+        TrieArc *a = PyMem_Realloc(node->arcs, cap * sizeof(TrieArc));
+        if (a == NULL) { PyErr_NoMemory(); return -1; }
+        node->arcs = a;
+        node->cap = cap;
+    }
+    node->arcs[node->n].label = label;
+    node->arcs[node->n].child = 0;
+    node->arcs[node->n].child_final = 0;
+    node->n++;
+    return 0;
+}
+
+/* build_trie(sequences) -> (root, first, ends, labels, dests, finals, lasts): the trie of the sorted byte
+ * sequences, numbered like the Python implementation (first, ends and dests are arrays of C ints as bytes,
+ * node 0 is the terminal node) */
+static PyObject *
+py_build_trie(PyObject *self, PyObject *arg)
+{
+    PyObject *seqs = PySequence_Fast(arg, "sequences must be a sequence");
+    if (seqs == NULL) return NULL;
+    Trie t;
+    memset(&t, 0, sizeof(t));
+    t.first.itemsize = t.ends.itemsize = t.dests.itemsize = sizeof(int);
+    t.labels.itemsize = t.finals.itemsize = t.lasts.itemsize = 1;
+    TrieNode *stack = NULL;
+    Py_ssize_t depth = 0, stack_cap = 0;   /* stack[0..depth] */
+    PyObject *result = NULL;
+    int zero = 0;
+    unsigned char zb = 0;
+    /* node 0 / arc 0 */
+    if (tbuf_add(&t.first, &zero) < 0 || tbuf_add(&t.ends, &zero) < 0 || tbuf_add(&t.labels, &zb) < 0 ||
+            tbuf_add(&t.dests, &zero) < 0 || tbuf_add(&t.finals, &zb) < 0 || tbuf_add(&t.lasts, &zb) < 0)
+        goto done;
+    stack_cap = 64;
+    stack = PyMem_Calloc(stack_cap, sizeof(TrieNode));
+    if (stack == NULL) { PyErr_NoMemory(); goto done; }
+    const char *prev = "";
+    Py_ssize_t prev_len = 0;
+    Py_ssize_t nseq = PySequence_Fast_GET_SIZE(seqs);
+    for (Py_ssize_t i = 0; i < nseq; i++) {
+        PyObject *so = PySequence_Fast_GET_ITEM(seqs, i);
+        if (!PyBytes_Check(so)) {
+            PyErr_SetString(PyExc_TypeError, "sequences must be bytes");
+            goto done;
+        }
+        const char *seq = PyBytes_AS_STRING(so);
+        Py_ssize_t len = PyBytes_GET_SIZE(so);
+        Py_ssize_t n = prev_len < len ? prev_len : len, k = 0;
+        while (k < n && prev[k] == seq[k]) k++;
+        while (depth > k) {
+            int nid;
+            if (trie_finish(&t, &stack[depth], &nid) < 0) goto done;
+            TrieNode *parent = &stack[depth - 1];
+            parent->arcs[parent->n - 1].child = nid;
+            parent->arcs[parent->n - 1].child_final = stack[depth].final;
+            stack[depth].n = 0;
+            stack[depth].final = 0;
+            depth--;
+        }
+        for (Py_ssize_t j = k; j < len; j++) {
+            if (tnode_add_arc(&stack[depth], (unsigned char)seq[j]) < 0) goto done;
+            if (depth + 1 >= stack_cap) {
+                Py_ssize_t cap = stack_cap * 2;
+                TrieNode *ns = PyMem_Realloc(stack, cap * sizeof(TrieNode));
+                if (ns == NULL) { PyErr_NoMemory(); goto done; }
+                memset(ns + stack_cap, 0, (cap - stack_cap) * sizeof(TrieNode));
+                stack = ns;
+                stack_cap = cap;
+            }
+            depth++;
+            stack[depth].n = 0;
+            stack[depth].final = 0;
+        }
+        stack[depth].final = 1;
+        prev = seq;
+        prev_len = len;
+    }
+    while (depth > 0) {
+        int nid;
+        if (trie_finish(&t, &stack[depth], &nid) < 0) goto done;
+        TrieNode *parent = &stack[depth - 1];
+        parent->arcs[parent->n - 1].child = nid;
+        parent->arcs[parent->n - 1].child_final = stack[depth].final;
+        stack[depth].n = 0;
+        depth--;
+    }
+    int root;
+    if (trie_finish(&t, &stack[0], &root) < 0) goto done;
+    result = Py_BuildValue("(iy#y#y#y#y#y#)", root, t.first.data, t.first.n * t.first.itemsize,
+                           t.ends.data, t.ends.n * t.ends.itemsize, t.labels.data, t.labels.n,
+                           t.dests.data, t.dests.n * t.dests.itemsize, t.finals.data, t.finals.n,
+                           t.lasts.data, t.lasts.n);
+done:
+    if (stack != NULL) {
+        for (Py_ssize_t i = 0; i < stack_cap; i++) PyMem_Free(stack[i].arcs);
+        PyMem_Free(stack);
+    }
+    PyMem_Free(t.first.data); PyMem_Free(t.ends.data); PyMem_Free(t.labels.data);
+    PyMem_Free(t.dests.data); PyMem_Free(t.finals.data); PyMem_Free(t.lasts.data);
+    Py_DECREF(seqs);
+    return result;
+}
+
+/* ------------------------------------------------------------------------ */
+/* the dictionary scan of Hunspell's ngram suggestions
+ * (langtool.hunspell.Hunspell._ngsuggest, the case without complex prefixes
+ * and non-BMP characters) */
+
+/* the code point mapped with the lowercase table (a dict code -> code), -1 if the value is not an int */
+static long
+ng_lower(PyObject *lower_tr, Py_UCS4 c)
+{
+    PyObject *k = PyLong_FromLong((long)c);
+    if (k == NULL) return -2;
+    PyObject *v = PyDict_GetItemWithError(lower_tr, k);
+    Py_DECREF(k);
+    if (v == NULL) return PyErr_Occurred() ? -2 : (long)c;
+    if (!PyLong_Check(v)) return -1;
+    return PyLong_AsLong(v);
+}
+
+/* the number of the grams (a list of strings) contained in s, -1 on error */
+static Py_ssize_t
+ng_count(PyObject *s, PyObject *grams)
+{
+    Py_ssize_t n = 0;
+    for (Py_ssize_t i = 0; i < PyList_GET_SIZE(grams); i++) {
+        int r = PyUnicode_Contains(s, PyList_GET_ITEM(grams, i));
+        if (r < 0) return -1;
+        n += r;
+    }
+    return n;
+}
+
+/* ng_scan(positions, info, units_list, lowered_list, w_word, g1, g2, g3, nocap_skip, lower_tr, roots, scores,
+ *         lp, phon_score) -> lp
+ * For each position (in order): skip the entry (info[pos] = (entry, skip, initcap, phon)) like _ngsuggest,
+ * else compute its score (phon_score(pos, score) gives the score of the entries with a phonetic field) and
+ * update the best roots / scores (lists, changed in place) like _ngsuggest. */
+static PyObject *
+py_ng_scan(PyObject *self, PyObject *args)
+{
+    PyObject *positions, *info, *units_list, *lowered, *w_word, *g1, *g2, *g3, *lower_tr, *roots, *scores_l, *phon_cb;
+    int nocap_skip;
+    Py_ssize_t lp;
+    if (!PyArg_ParseTuple(args, "OO!O!O!UO!O!O!pO!O!O!nO", &positions, &PyList_Type, &info, &PyList_Type, &units_list,
+                          &PyList_Type, &lowered, &w_word, &PyList_Type, &g1, &PyList_Type, &g2, &PyList_Type, &g3,
+                          &nocap_skip, &PyDict_Type, &lower_tr, &PyList_Type, &roots, &PyList_Type, &scores_l, &lp,
+                          &phon_cb))
+        return NULL;
+    Py_ssize_t nroots = PyList_GET_SIZE(roots);
+    if (PyList_GET_SIZE(scores_l) != nroots || lp < 0 || lp >= nroots) {
+        PyErr_SetString(PyExc_ValueError, "bad roots / scores");
+        return NULL;
+    }
+    long *scores = PyMem_Calloc(nroots + 1, sizeof(long));
+    if (scores == NULL) return PyErr_NoMemory();
+    for (Py_ssize_t j = 0; j < nroots; j++) {
+        scores[j] = PyLong_AsLong(PyList_GET_ITEM(scores_l, j));
+        if (scores[j] == -1 && PyErr_Occurred()) { PyMem_Free(scores); return NULL; }
+    }
+    Py_ssize_t n = PyUnicode_GET_LENGTH(w_word);
+    int wk = PyUnicode_KIND(w_word);
+    const void *wd = PyUnicode_DATA(w_word);
+    PyObject *it = PyObject_GetIter(positions);
+    if (it == NULL) { PyMem_Free(scores); return NULL; }
+    PyObject *item;
+    Py_ssize_t nent = PyList_GET_SIZE(info);
+    int changed = 0;
+    while ((item = PyIter_Next(it)) != NULL) {
+        Py_ssize_t pos = PyLong_AsSsize_t(item);
+        Py_DECREF(item);
+        if (pos == -1 && PyErr_Occurred()) goto error;
+        if (pos < 0 || pos >= nent || pos >= PyList_GET_SIZE(units_list) || pos >= PyList_GET_SIZE(lowered)) {
+            PyErr_SetString(PyExc_IndexError, "entry index out of range");
+            goto error;
+        }
+        PyObject *inf = PyList_GET_ITEM(info, pos);
+        if (!PyTuple_Check(inf) || PyTuple_GET_SIZE(inf) != 4) {
+            PyErr_SetString(PyExc_TypeError, "bad entry info");
+            goto error;
+        }
+        int skip = PyObject_IsTrue(PyTuple_GET_ITEM(inf, 1));
+        if (skip < 0) goto error;
+        if (skip) continue;
+        PyObject *phon = PyTuple_GET_ITEM(inf, 3);
+        if (nocap_skip && phon == Py_None) {
+            int initcap = PyObject_IsTrue(PyTuple_GET_ITEM(inf, 2));
+            if (initcap < 0) goto error;
+            if (initcap) continue;
+        }
+        PyObject *f = PyList_GET_ITEM(units_list, pos);
+        PyObject *fl = PyList_GET_ITEM(lowered, pos);
+        if (!PyUnicode_Check(f) || !PyUnicode_Check(fl)) {
+            PyErr_SetString(PyExc_TypeError, "the entries must be strings");
+            goto error;
+        }
+        /* leftcommonsubstring */
+        Py_ssize_t lf = PyUnicode_GET_LENGTH(f);
+        long leftcommon;
+        Py_UCS4 c0 = n > 0 ? PyUnicode_READ(wk, wd, 0) : 0;
+        int same_first;
+        if (n == 0 || lf == 0) {
+            same_first = n == lf;
+        } else {
+            Py_UCS4 f0 = PyUnicode_READ_CHAR(f, 0);
+            same_first = c0 == f0;
+            if (!same_first) {
+                long m = ng_lower(lower_tr, f0);
+                if (m == -2) goto error;
+                if (m == -1) {
+                    /* not a code point: like idx.translate(lower_tr) */
+                    PyObject *idx = PyUnicode_Substring(f, 0, 1);
+                    if (idx == NULL) goto error;
+                    PyObject *tr = PyObject_CallMethod(idx, "translate", "O", lower_tr);
+                    Py_DECREF(idx);
+                    if (tr == NULL) goto error;
+                    PyObject *first = PyUnicode_Substring(w_word, 0, 1);
+                    if (first == NULL) { Py_DECREF(tr); goto error; }
+                    int eq = PyObject_RichCompareBool(first, tr, Py_EQ);
+                    Py_DECREF(first);
+                    Py_DECREF(tr);
+                    if (eq < 0) goto error;
+                    same_first = eq;
+                } else {
+                    same_first = (long)c0 == m;
+                }
+            }
+        }
+        if (!same_first) {
+            leftcommon = 0;
+        } else {
+            Py_ssize_t i = 1;
+            int fk = PyUnicode_KIND(f);
+            const void *fd = PyUnicode_DATA(f);
+            while (i < n && i < lf && PyUnicode_READ(wk, wd, i) == PyUnicode_READ(fk, fd, i)) i++;
+            leftcommon = (long)i;
+        }
+        Py_ssize_t l2 = PyUnicode_GET_LENGTH(fl);
+        long sc;
+        if (l2 == 0) {
+            sc = leftcommon;
+        } else {
+            Py_ssize_t ns = ng_count(fl, g1);
+            if (ns < 0) goto error;
+            long nscore = (long)ns;
+            if (ns >= 2) {
+                ns = ng_count(fl, g2);
+                if (ns < 0) goto error;
+                nscore += (long)ns;
+                if (ns >= 2) {
+                    ns = ng_count(fl, g3);
+                    if (ns < 0) goto error;
+                    nscore += (long)ns;
+                }
+            }
+            long pen = (long)l2 - (long)n - 2;
+            sc = nscore - (pen > 0 ? pen : 0) + leftcommon;
+        }
+        if (phon != Py_None) {
+            PyObject *r = PyObject_CallFunction(phon_cb, "nl", pos, sc);
+            if (r == NULL) goto error;
+            sc = PyLong_AsLong(r);
+            Py_DECREF(r);
+            if (sc == -1 && PyErr_Occurred()) goto error;
+        }
+        if (sc > scores[lp]) {
+            scores[lp] = sc;
+            PyObject *e = PyTuple_GET_ITEM(inf, 0);
+            Py_INCREF(e);
+            if (PyList_SetItem(roots, lp, e) < 0) goto error;
+            long lval = sc;
+            for (Py_ssize_t j = 0; j < nroots; j++) {
+                if (scores[j] < lval) { lp = j; lval = scores[j]; }
+            }
+            changed = 1;
+        }
+    }
+    if (PyErr_Occurred()) goto error;
+    Py_DECREF(it);
+    (void)changed;
+    for (Py_ssize_t j = 0; j < nroots; j++) {
+        PyObject *v = PyLong_FromLong(scores[j]);
+        if (v == NULL || PyList_SetItem(scores_l, j, v) < 0) { PyMem_Free(scores); return NULL; }
+    }
+    PyMem_Free(scores);
+    return PyLong_FromSsize_t(lp);
+error:
+    Py_DECREF(it);
+    PyMem_Free(scores);
+    return NULL;
+}
+
 static PyMethodDef module_methods[] = {
     {"levenshtein", py_levenshtein, METH_VARARGS, NULL},
+    {"ng_scan", py_ng_scan, METH_VARARGS, NULL},
+    {"build_trie", py_build_trie, METH_O, NULL},
+    {"beam_search", py_beam_search, METH_VARARGS, NULL},
+    {"set_fallbacks", py_set_fallbacks, METH_VARARGS, NULL},
+    {"sentence_index", py_sentence_index, METH_VARARGS, NULL},
     {"gis_sum", py_gis_sum, METH_VARARGS, NULL},
     {"gis_eval", py_gis_eval, METH_VARARGS, NULL},
     {"pattern_token_is_matched", py_pt_is_matched, METH_VARARGS, NULL},
@@ -2481,6 +4890,8 @@ exec_module(PyObject *m)
     ADD_TYPE(CompiledPatternType, "CompiledPattern");
     ADD_TYPE(FSADictType, "FSADict");
     ADD_TYPE(RuleHintsType, "RuleHints");
+    ADD_TYPE(RuleSelectorType, "RuleSelector");
+    ADD_TYPE(MatcherTableType, "MatcherTable");
     ADD_TYPE(SpellerSearchType, "SpellerSearch");
 #undef ADD_TYPE
     str_lower = PyUnicode_InternFromString("lower");
@@ -2488,7 +4899,28 @@ exec_module(PyObject *m)
     str_chunk_tag = PyUnicode_InternFromString("chunk_tag");
     str_matches = PyUnicode_InternFromString("matches");
     str_is_regexp = PyUnicode_InternFromString("is_regexp");
-    if (!str_lower || !str_regex_match || !str_chunk_tag || !str_matches || !str_is_regexp) return -1;
+    str_fullmatch = PyUnicode_InternFromString("fullmatch");
+    str_token = PyUnicode_InternFromString("token");
+    str_strip = PyUnicode_InternFromString("strip");
+    str_sent_start = PyUnicode_InternFromString("SENT_START");
+    str_sent_end = PyUnicode_InternFromString("SENT_END");
+    str_para_end = PyUnicode_InternFromString("PARA_END");
+    str_empty = PyUnicode_InternFromString("");
+    empty_tuple = PyTuple_New(0);
+    int_zero = PyLong_FromLong(0);
+    if (!str_strip || !str_sent_start || !str_sent_end || !str_para_end || !str_empty || !empty_tuple || !int_zero)
+        return -1;
+    if (str_token == NULL) return -1;
+    if (!str_lower || !str_regex_match || !str_chunk_tag || !str_matches || !str_is_regexp || !str_fullmatch)
+        return -1;
+    str_non_blank_tokens = PyUnicode_InternFromString("non_blank_tokens");
+    str_token_offsets = PyUnicode_InternFromString("token_offsets");
+    str_lemma_offsets = PyUnicode_InternFromString("lemma_offsets");
+    str_pos_tag_set = PyUnicode_InternFromString("pos_tag_set");
+    if (!str_non_blank_tokens || !str_token_offsets || !str_lemma_offsets || !str_pos_tag_set) return -1;
+    str_non_blank_pre_disambig_tokens = PyUnicode_InternFromString("non_blank_pre_disambig_tokens");
+    str_check_cancelled_callback = PyUnicode_InternFromString("check_cancelled_callback");
+    if (!str_non_blank_pre_disambig_tokens || !str_check_cancelled_callback) return -1;
     return 0;
 }
 
