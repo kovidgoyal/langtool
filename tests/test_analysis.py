@@ -14,6 +14,9 @@ def test_token_to_string():
     assert str(t2) == 'word/POS'
     assert t2.lemma is None
     assert t2.token == 'word'
+    # Java's toString() concatenates a null POS tag as "null"
+    assert str(AnalyzedToken('word', None, None)) == 'word/null'
+    assert str(AnalyzedTokenReadings(AnalyzedToken('word', None, None))) == 'word[word/null*]'
 
 
 def test_token_matches():

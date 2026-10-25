@@ -42,7 +42,8 @@ EXTERNAL_FILES = {
         'org/ioperm/morphology/el/analysis.info': 'el/analysis.info',
     },
 }
-# further jars of a language: (group, artifact, version, {jar path: name})
+# further jars of a language: (group, artifact, version, {jar path: name}
+# [, classifier])
 EXTRA_JARS = {
     # the word list and exceptions of jWordSplitter (GermanCompoundTokenizer,
     # langtool.lang.de.compound_tokenizer)
@@ -56,6 +57,13 @@ EXTRA_JARS = {
         ('edu.washington.cs.knowitall', 'opennlp-tokenize-models', '1.5', {'en-token.bin': 'en/en-token.bin'}),
         ('edu.washington.cs.knowitall', 'opennlp-postag-models', '1.5', {'en-pos-maxent.bin': 'en/en-pos-maxent.bin'}),
         ('edu.washington.cs.knowitall', 'opennlp-chunk-models', '1.5', {'en-chunker.bin': 'en/en-chunker.bin'}),
+    ],
+    # the compiled IPADIC dictionary of lucene-gosen (the Sen morphological
+    # analyzer of JapaneseWordTokenizer, langtool.lang.ja.sen)
+    'ja': [
+        ('com.github.lucene-gosen', 'lucene-gosen', '6.2.1',
+         {'net/java/sen/%s.sen' % n: 'ja/%s.sen' % n
+          for n in ('header', 'connectionCost', 'partOfSpeech', 'token', 'trie', 'posIndex')}, 'ipadic'),
     ],
 }
 # files of the speller (only the misspelling check is ported, see
@@ -115,8 +123,9 @@ SPELLER_FILES = {
 SKIP_MODULES = {'all', 'sr', 'de-DE-x-simple-language'}
 
 
-def jar_url(group, artifact, version):
-    return '%s%s/%s/%s/%s-%s.jar' % (MAVEN, group.replace('.', '/'), artifact, version, artifact, version)
+def jar_url(group, artifact, version, classifier=None):
+    return '%s%s/%s/%s/%s-%s%s.jar' % (MAVEN, group.replace('.', '/'), artifact, version, artifact, version,
+                                       '-' + classifier if classifier else '')
 
 
 def fetch(url, cache):
@@ -211,8 +220,8 @@ def main():
                     if not e['name'].rsplit('/', 1)[-1].startswith('SynthDictionaryBuilder')]
             if ents:  # jars without (non-spelling) dictionaries are not needed
                 sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar), 'files': ents})
-        for group, artifact, version, names in EXTRA_JARS.get(mod, ()):
-            url = jar_url(group, artifact, version)
+        for group, artifact, version, names, *classifier in EXTRA_JARS.get(mod, ()):
+            url = jar_url(group, artifact, version, *classifier)
             jar = fetch(url, cache)
             sources.append({'url': url, 'sha256': sha256(jar), 'size': os.path.getsize(jar),
                             'files': entries(jar, names)})

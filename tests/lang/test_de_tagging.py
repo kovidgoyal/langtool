@@ -236,7 +236,7 @@ def test_tagger_baseforms(tagger):
 
 def test_tag(tagger):
     """GermanTaggerTest.testTag"""
-    assert _str(tagger.tag(['Das'], False)) == '[Das[Das/None*]]'
+    assert _str(tagger.tag(['Das'], False)) == '[Das[Das/null*]]'
     assert _str(tagger.tag(['Das'], True)).startswith('[Das[der/ART:')
 
 

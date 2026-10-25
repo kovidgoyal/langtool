@@ -78,7 +78,8 @@ class AnalyzedToken(AnalyzedTokenBase):
         return hash((self.whitespace_before, self.lemma, self.pos_tag, self.token))
 
     def __repr__(self):
-        return '%s/%s' % (self.lemma_or_token, self.pos_tag)
+        # Java's toString(): lemma (or token) + "/" + posTag (null as "null")
+        return '%s/%s' % (self.lemma_or_token, 'null' if self.pos_tag is None else self.pos_tag)
 
     __str__ = __repr__
 
