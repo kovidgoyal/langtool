@@ -437,7 +437,12 @@ class Language:
 
     def is_variant(self):
         """Like Language.isVariant(): true for the languages that are subclasses
-        of another language class, i.e. all but the first variant."""
+        of another language class, i.e. all but the first variant. The
+        definition key 'is_variant' overrides this for a language whose
+        Java class is a subclass of the class of another language (e.g.
+        SimpleGerman extends GermanyGerman)."""
+        if 'is_variant' in self.definition:
+            return bool(self.definition['is_variant'])
         return self.code != self.definition['variants'][0]['code']
 
     def equals_consider_variants(self, other):
