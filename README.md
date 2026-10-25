@@ -30,7 +30,8 @@ They are too large to be bundled and are downloaded from Maven Central the
 first time a language is used (checksums are verified), and cached in the user
 cache directory (`~/.cache/langtool` on Linux, override with
 `LANGTOOL_CACHE_DIR`). The same mechanism provides the word lists of the
-spell checkers and, for English, the OpenNLP models of the chunker. To
+spell checkers, for English the OpenNLP models of the chunker and, for
+Japanese, the IPADIC dictionary of the morphological analyzer. To
 download them ahead of time:
 
     python -m langtool download en de fr

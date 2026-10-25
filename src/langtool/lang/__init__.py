@@ -24,6 +24,7 @@ from . import ga  # noqa: F401
 from . import gl  # noqa: F401
 from . import is_  # noqa: F401
 from . import it  # noqa: F401
+from . import ja  # noqa: F401
 from . import km  # noqa: F401
 from . import lt  # noqa: F401
 from . import ml  # noqa: F401

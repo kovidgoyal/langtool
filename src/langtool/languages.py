@@ -539,8 +539,9 @@ LANGUAGES = {
                brackets(['[', '(', '{', '»', '«'], [']', ')', '}', '«', '»']), R('UppercaseSentenceStartRule'),
                R('ItalianWordRepeatRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.Japanese (code in langtool.lang.ja)
     'ja': dict(
-        name='Japanese', countries=['JP'], variants=[V('ja-JP')],
+        name='Japanese', countries=['JP'], variants=[V('ja-JP')], sentence_tokenizer='srx',
         tagger=dict(impl='JapaneseTagger'), word_tokenizer='JapaneseWordTokenizer',
         rules=[R('DoublePunctuationRule'), R('MultipleWhitespaceRule')],
     ),

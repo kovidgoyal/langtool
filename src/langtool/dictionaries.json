@@ -784,6 +784,45 @@
     "url": "https://repo1.maven.org/maven2/org/languagetool/language-it/6.8/language-it-6.8.jar"
    }
   ],
+  "ja": [
+   {
+    "files": [
+     {
+      "name": "ja/connectionCost.sen",
+      "path": "net/java/sen/connectionCost.sen",
+      "size": 8979816
+     },
+     {
+      "name": "ja/header.sen",
+      "path": "net/java/sen/header.sen",
+      "size": 16
+     },
+     {
+      "name": "ja/partOfSpeech.sen",
+      "path": "net/java/sen/partOfSpeech.sen",
+      "size": 5829686
+     },
+     {
+      "name": "ja/posIndex.sen",
+      "path": "net/java/sen/posIndex.sen",
+      "size": 2986
+     },
+     {
+      "name": "ja/token.sen",
+      "path": "net/java/sen/token.sen",
+      "size": 5295234
+     },
+     {
+      "name": "ja/trie.sen",
+      "path": "net/java/sen/trie.sen",
+      "size": 7604920
+     }
+    ],
+    "sha256": "1e5cd3b8c26e73ac13ba56ef80c7edda711dd7b58c1f497a9876f79a8d5c2947",
+    "size": 8314160,
+    "url": "https://repo1.maven.org/maven2/com/github/lucene-gosen/lucene-gosen/6.2.1/lucene-gosen-6.2.1-ipadic.jar"
+   }
+  ],
   "km": [
    {
     "files": [
