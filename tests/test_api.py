@@ -291,7 +291,8 @@ def test_unsupported_components(tool):
     assert u == {'components': [], 'skipped_rules': []}
     require_dictionaries('de')
     u = langtool.LanguageTool('de-DE').unsupported_components()
-    assert ('tagger', 'GermanTagger') in u['components']
+    # the German tagger, synthesizer and word tokenizer are ported
+    assert not [c for c in u['components'] if c[0] in ('tagger', 'synthesizer', 'word_tokenizer')]
 
 
 def test_other_language():

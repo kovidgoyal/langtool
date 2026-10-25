@@ -1,0 +1,140 @@
+"""Port of org.languagetool.rules.de.PrepositionToCases: the cases a German
+preposition governs."""
+
+
+class Case:
+    """PrepositionToCases.Case (the Java enum constants; name() is the
+    value)"""
+    Nom = 'Nom'
+    Akk = 'Akk'
+    Gen = 'Gen'
+    Dat = 'Dat'
+
+
+Nom, Akk, Gen, Dat = Case.Nom, Case.Akk, Case.Gen, Case.Dat
+
+# sources: http://deutsche-rechtschreibung.org/woerterbuecher/rektion-praepositionen.php,
+#  https://deutschegrammatik20.de/spezielle-verben/verben-mit-praeposition/verb-mit-praeposition-kasus/
+_PREP_TO_CASES = {
+    'ab': (Dat,),
+    'abseits': (Gen,),
+    'abzüglich': (Gen,),
+    'an': (Dat, Akk),
+    'angesichts': (Gen,),
+    'anhand': (Gen,),
+    'anlässlich': (Gen,),
+    'anstatt': (Gen,),
+    'anstelle': (Gen,),
+    'auf': (Dat, Akk),
+    'aufgrund': (Gen,),
+    'aus': (Dat,),
+    'ausgangs': (Gen,),
+    'ausgenommen': (Akk,),
+    'ausschließlich': (Gen,),
+    'ausweislich': (Gen,),
+    'außer': (Dat,),
+    'außerhalb': (Gen,),
+    'bar': (Gen,),
+    'behufs': (Gen,),
+    'bei': (Dat,),
+    'beidseits': (Gen,),
+    'betreffend': (Akk,),
+    'betreffs': (Gen,),
+    'bezüglich': (Gen,),
+    'binnen': (Dat,),
+    'bis': (Akk,),
+    'bis auf': (Akk,),
+    'dank': (Dat, Gen),
+    'diesseits': (Gen,),
+    'durch': (Akk,),
+    'eingangs': (Gen,),
+    'eingedenk': (Gen,),
+    'einschließlich': (Gen,),
+    'entgegen': (Dat,),
+    'entlang': (Dat, Akk, Gen),
+    'entsprechend': (Dat,),
+    'exklusive': (Gen,),
+    'fern': (Dat,),
+    'fernab': (Gen,),
+    'für': (Akk,),
+    'gegen': (Akk,),  # (Dat,) Akk
+    'gegenüber': (Dat,),
+    'gemäß': (Dat,),
+    'getreu': (Dat,),
+    'halber': (Gen,),
+    'hinsichtlich': (Gen,),
+    'hinter': (Dat, Akk),
+    # 'in': (Dat, Akk),  # "und in das Sauerstoff nur ..."
+    'in puncto': (Gen,),
+    'infolge': (Gen,),
+    'inklusive': (Gen,),
+    'inmitten': (Gen,),
+    'innerhalb': (Gen,),
+    'innert': (Gen,),
+    'je': (Akk,),
+    'jenseits': (Gen,),
+    'kontra': (Akk,),
+    'kraft': (Gen,),
+    'laut': (Gen, Dat),
+    'längs': (Gen,),
+    'längsseits': (Gen,),
+    'mangels': (Gen,),
+    'mit': (Dat,),
+    'mitsamt': (Dat,),
+    'mittels': (Gen,),
+    'nach': (Dat,),
+    'namens': (Gen,),
+    'neben': (Dat, Akk),
+    'nebst': (Dat,),
+    'nächst': (Dat,),
+    # 'ob': (Gen,),  # "ob das Touristen überhaupt betrifft"
+    'oberhalb': (Gen,),
+    'ohne': (Akk,),
+    'per': (Akk,),
+    'pro': (Akk,),
+    'rücksichtlich': (Gen,),
+    'samt': (Dat,),
+    'seit': (Dat,),
+    'seitens': (Gen,),
+    'seitlich': (Gen,),
+    'statt': (Gen,),
+    'trotz': (Gen,),
+    'um': (Akk,),
+    'unbeschadet': (Gen,),
+    'uneingedenk': (Gen,),
+    'ungeachtet': (Gen,),
+    'unter': (Dat, Akk),
+    'unterhalb': (Gen,),
+    'unweit': (Gen,),
+    'vermittels': (Gen,),
+    'vermittelst': (Gen,),
+    'vermöge': (Gen,),
+    'versus': (Akk,),
+    'via': (Akk,),
+    'vis-à-vis': (Dat,),
+    'von': (Dat,),
+    'vor': (Dat, Akk),
+    'vorbehaltlich': (Gen,),
+    'wegen': (Gen,),
+    'weitab': (Gen,),
+    'wider': (Akk,),
+    'während': (Gen,),
+    'zeit': (Gen,),
+    'zu': (Dat,),
+    'zufolge': (Dat,),
+    'zugunsten': (Gen,),
+    'zuliebe': (Dat,),
+    'zuungunsten': (Gen,),
+    'zuwider': (Dat,),
+    'zuzüglich': (Gen,),
+    'zwecks': (Gen,),
+    'zwischen': (Dat, Akk),
+    'à': (Akk,),
+    'über': (Dat, Akk),
+}
+
+
+def get_cases_for(prep):
+    """PrepositionToCases.getCasesFor: the cases (Case values) governed by
+    the preposition, empty if unknown"""
+    return list(_PREP_TO_CASES.get(prep.lower(), ()))

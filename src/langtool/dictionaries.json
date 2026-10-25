@@ -200,6 +200,123 @@
    {
     "files": [
      {
+      "name": "de/common_words.txt",
+      "path": "org/languagetool/resource/de/common_words.txt",
+      "size": 87975
+     },
+     {
+      "name": "de/hunspell/de_CH.dic",
+      "path": "org/languagetool/resource/de/hunspell/de_CH.dic",
+      "size": 4866486
+     },
+     {
+      "name": "de/hunspell/de_AT.dic",
+      "path": "org/languagetool/resource/de/hunspell/de_AT.dic",
+      "size": 4872380
+     },
+     {
+      "name": "de/hunspell/de_AT.info",
+      "path": "org/languagetool/resource/de/hunspell/de_AT.info",
+      "size": 397
+     },
+     {
+      "name": "de/hunspell/de_DE.aff",
+      "path": "org/languagetool/resource/de/hunspell/de_DE.aff",
+      "size": 19214
+     },
+     {
+      "name": "de/hunspell/ignore.txt",
+      "path": "org/languagetool/resource/de/hunspell/ignore.txt",
+      "size": 3682448
+     },
+     {
+      "name": "de/hunspell/de_AT.dict",
+      "path": "org/languagetool/resource/de/hunspell/de_AT.dict",
+      "size": 4527207
+     },
+     {
+      "name": "de/hunspell/spelling.txt",
+      "path": "org/languagetool/resource/de/hunspell/spelling.txt",
+      "size": 1126097
+     },
+     {
+      "name": "de/hunspell/spelling-de-AT.txt",
+      "path": "org/languagetool/resource/de/hunspell/spelling-de-AT.txt",
+      "size": 8650
+     },
+     {
+      "name": "de/hunspell/spelling-de-CH.txt",
+      "path": "org/languagetool/resource/de/hunspell/spelling-de-CH.txt",
+      "size": 12494
+     },
+     {
+      "name": "de/hunspell/de_CH.info",
+      "path": "org/languagetool/resource/de/hunspell/de_CH.info",
+      "size": 397
+     },
+     {
+      "name": "de/hunspell/de_DE.dic",
+      "path": "org/languagetool/resource/de/hunspell/de_DE.dic",
+      "size": 4868438
+     },
+     {
+      "name": "de/hunspell/de_DE.dict",
+      "path": "org/languagetool/resource/de/hunspell/de_DE.dict",
+      "size": 4530566
+     },
+     {
+      "name": "de/hunspell/prohibit_custom.txt",
+      "path": "org/languagetool/resource/de/hunspell/prohibit_custom.txt",
+      "size": 112
+     },
+     {
+      "name": "de/hunspell/de_CH.aff",
+      "path": "org/languagetool/resource/de/hunspell/de_CH.aff",
+      "size": 19214
+     },
+     {
+      "name": "de/hunspell/de_DE.info",
+      "path": "org/languagetool/resource/de/hunspell/de_DE.info",
+      "size": 1042
+     },
+     {
+      "name": "de/hunspell/spelling_custom.txt",
+      "path": "org/languagetool/resource/de/hunspell/spelling_custom.txt",
+      "size": 104
+     },
+     {
+      "name": "de/hunspell/de_AT.aff",
+      "path": "org/languagetool/resource/de/hunspell/de_AT.aff",
+      "size": 19214
+     },
+     {
+      "name": "de/hunspell/de_CH.dict",
+      "path": "org/languagetool/resource/de/hunspell/de_CH.dict",
+      "size": 4459242
+     },
+     {
+      "name": "de/hunspell/prohibit.txt",
+      "path": "org/languagetool/resource/de/hunspell/prohibit.txt",
+      "size": 149695
+     },
+     {
+      "name": "de/multitoken-suggest.txt",
+      "path": "org/languagetool/resource/de/multitoken-suggest.txt",
+      "size": 58951
+     },
+     {
+      "name": "de/multitoken-ignore.txt",
+      "path": "org/languagetool/resource/de/multitoken-ignore.txt",
+      "size": 2452718
+     }
+    ],
+    "sha256": "d4328a19cd5a1cc0edb35f71411c0976db95681a11e61daef9760ceddbfbba11",
+    "size": 21053515,
+    "url": "https://repo1.maven.org/maven2/org/languagetool/language-de/6.8/language-de-6.8.jar"
+   },
+   {
+    "files": [
+     {
       "name": "de/german_synth.info",
       "path": "org/languagetool/resource/de/german_synth.info",
       "size": 100
@@ -228,6 +345,23 @@
     "sha256": "56f0b00adb704cbc1e86776b45f6890efe90685ab370a34b5b299593cdcaae22",
     "size": 1517999,
     "url": "https://repo1.maven.org/maven2/de/danielnaber/german-pos-dict/1.2.4/german-pos-dict-1.2.4.jar"
+   },
+   {
+    "files": [
+     {
+      "name": "de/jwordsplitter/exceptionsGerman.txt",
+      "path": "de/danielnaber/jwordsplitter/exceptionsGerman.txt",
+      "size": 16477
+     },
+     {
+      "name": "de/jwordsplitter/wordsGerman.txt",
+      "path": "de/danielnaber/jwordsplitter/wordsGerman.txt",
+      "size": 639695
+     }
+    ],
+    "sha256": "0435e604abe8b4a0b27f568db9349fbe0546df286bbe62f667c9fd9663df71b2",
+    "size": 184872,
+    "url": "https://repo1.maven.org/maven2/de/danielnaber/jwordsplitter/4.7/jwordsplitter-4.7.jar"
    }
   ],
   "el": [

@@ -92,25 +92,41 @@ _EN_RULES = [
     R('StyleTooOftenUsedNounRule'), R('StyleTooOftenUsedAdjectiveRule'),
 ]
 
+# org.languagetool.language.German.getRelevantRules (code in
+# langtool.lang.de); the language model rules (UpperCaseNgramRule,
+# GermanConfusionProbabilityRule, ProhibitedCompoundRule of
+# getRelevantLanguageModelRules) and the spelling rules (GermanSpellerRule,
+# AustrianGermanSpellerRule, SwissGermanSpellerRule of
+# getRelevantLanguageModelCapableRules) are not created (language model,
+# spell checking)
 _DE_RULES = [
-    R('GermanCommaWhitespaceRule'), R('GermanUnpairedBracketsRule'), R('GermanUnpairedQuotesRule'),
-    R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'),
-    R('WhiteSpaceAtBeginOfParagraph'), R('EmptyLineRule'), R('LongParagraphRule'),
-    R('PunctuationMarkAtParagraphEnd'), R('SimpleReplaceRule'), R('OldSpellingRule'),
-    R('GermanSentenceWhitespaceRule'), R('GermanDoublePunctuationRule'), R('MissingVerbRule'),
-    R('GermanWordRepeatRule'), R('GermanWordRepeatBeginningRule'), R('GermanWrongWordInContextRule'),
-    R('AgreementRule'), R('AgreementRule2'), R('CaseRule'), R('DashRule'), R('VerbAgreementRule'),
-    R('SubjectVerbAgreementRule'), R('WordCoherencyRule'), R('SimilarNameRule'), R('WiederVsWiderRule'),
-    R('GermanStyleRepeatedWordRule'), R('CompoundCoherencyRule'), R('GermanLongSentenceRule'),
-    R('GermanFillerWordsRule'), R('PassiveSentenceRule'), R('SentenceWithModalVerbRule'),
-    R('SentenceWithManRule'), R('ConjunctionAtBeginOfSentenceRule'), R('NonSignificantVerbsRule'),
-    R('UnnecessaryPhraseRule'), R('GermanParagraphRepeatBeginningRule'), R('DuUpperLowerCaseRule'),
-    R('UnitConversionRule'), R('MissingCommaRelativeClauseRule'), R('MissingCommaRelativeClauseRule', behind=True),
-    R('RedundantModalOrAuxiliaryVerb'), R('GermanReadabilityRule', too_easy_test=True),
-    R('GermanReadabilityRule', too_easy_test=False), R('CompoundInfinitivRule'),
-    R('StyleRepeatedVeryShortSentences'), R('StyleRepeatedSentenceBeginning'), R('GermanRepeatedWordsRule'),
-    R('StyleTooOftenUsedVerbRule'), R('StyleTooOftenUsedNounRule'), R('StyleTooOftenUsedAdjectiveRule'),
-    R('ProhibitedCompoundRule'),
+    R('GermanCommaWhitespaceRule',
+      examples=('Die Partei<marker> ,</marker> die die letzte Wahl gewann.',
+                'Die Partei<marker>,</marker> die die letzte Wahl gewann.'),
+      url='https://languagetool.org/insights/de/beitrag/grammatik-leerzeichen/#fehler-1-leerzeichen-vor-und-nach-satzzeichen'),
+    R('GermanUnpairedBracketsRule'), R('GermanUnpairedQuotesRule'),
+    R('UppercaseSentenceStartRule',
+      examples=('Das Haus ist alt. <marker>es</marker> wurde 1950 gebaut.',
+                'Das Haus ist alt. <marker>Es</marker> wurde 1950 gebaut.'),
+      url='https://languagetool.org/insights/de/beitrag/gross-klein-schreibung-rechtschreibung/'
+          '#1-satzanf%C3%A4nge-schreiben-wir-gro%C3%9F'),
+    R('MultipleWhitespaceRule'), R('WhiteSpaceBeforeParagraphEnd'), R('WhiteSpaceAtBeginOfParagraph'),
+    R('EmptyLineRule'), R('LongParagraphRule'), R('PunctuationMarkAtParagraphEnd'),
+    # specific to German:
+    R('SimpleReplaceRule'), R('OldSpellingRule'), R('SentenceWhitespaceRule'), R('GermanDoublePunctuationRule'),
+    R('MissingVerbRule'), R('GermanWordRepeatRule'), R('GermanWordRepeatBeginningRule'),
+    R('GermanWrongWordInContextRule'), R('AgreementRule'), R('AgreementRule2'), R('CaseRule'), R('DashRule'),
+    R('VerbAgreementRule'), R('SubjectVerbAgreementRule'), R('WordCoherencyRule'), R('SimilarNameRule'),
+    R('WiederVsWiderRule'), R('GermanStyleRepeatedWordRule'), R('CompoundCoherencyRule'),
+    R('LongSentenceRule', max_words=40), R('GermanFillerWordsRule'), R('PassiveSentenceRule'),
+    R('SentenceWithModalVerbRule'), R('SentenceWithManRule'), R('ConjunctionAtBeginOfSentenceRule'),
+    R('NonSignificantVerbsRule'), R('UnnecessaryPhraseRule'), R('GermanParagraphRepeatBeginningRule'),
+    R('DuUpperLowerCaseRule'), R('UnitConversionRule'), R('MissingCommaRelativeClauseRule'),
+    R('MissingCommaRelativeClauseRule', behind=True), R('RedundantModalOrAuxiliaryVerb'),
+    R('GermanReadabilityRule', too_easy_test=True), R('GermanReadabilityRule', too_easy_test=False),
+    R('CompoundInfinitivRule'), R('StyleRepeatedVeryShortSentences'), R('StyleRepeatedSentenceBeginning'),
+    R('GermanRepeatedWordsRule'), R('StyleTooOftenUsedVerbRule'), R('StyleTooOftenUsedNounRule'),
+    R('StyleTooOftenUsedAdjectiveRule'),
 ]
 
 _PT_RULES = [
@@ -278,8 +294,19 @@ LANGUAGES = {
                brackets(['[', '(', '{', '"', '”'], [']', ')', '}', '"', '”']),
                R('UppercaseSentenceStartRule'), R('MultipleWhitespaceRule')],
     ),
+    # org.languagetool.language.German and its subclasses GermanyGerman,
+    # AustrianGerman and SwissGerman (NonSwissGerman is not used by them, it
+    # has the same rules and rule files as GermanyGerman and AustrianGerman);
+    # code in langtool.lang.de. The disambiguator is GermanRuleDisambiguator
+    # (the MultiWordChunkers for multitoken-ignore.txt, spelling_global.txt
+    # and multitoken-suggest.txt, then the XmlRuleDisambiguator with the
+    # global disambiguation rules), the post-disambiguation chunker is
+    # GermanChunker. filterRuleMatches (AI_DE_GGEC match merging, and the
+    # ß -> ss replacement of SwissGerman), toAdvancedTypography and the
+    # priorities (langtool.priorities) are ported too.
     'de': dict(
         name='German', countries=['LU', 'LI', 'BE'], default_variant='de-DE', ignored_characters_regex=SOFT_HYPHEN,
+        sentence_tokenizer='srx', quotes=('„', '“', '‚', '‘'), advanced_typography=True,
         variants=[
             V('de', name='German'),
             V('de-DE', countries=['DE'], name='German (Germany)', extra_rules=[R('GermanCompoundRule')],
@@ -287,22 +314,23 @@ LANGUAGES = {
             V('de-AT', countries=['AT'], name='German (Austria)', extra_rules=[R('GermanCompoundRule')],
               extra_rule_files=['de-DE-AT/grammar.xml']),
             V('de-CH', countries=['CH'], name='German (Swiss)', extra_rules=[R('SwissCompoundRule')],
-              tagger_impl='SwissGermanTagger'),
+              tagger_impl='SwissGermanTagger', quotes=('«', '»', '‚', '‘')),
         ],
         tagger=dict(dict='de/german.dict', lowercase_with_uppercase=True, impl='GermanTagger'),
-        synthesizer=dict(dict='de/german_synth.dict', tags='de/german_tags.txt', impl='GermanSynthesizer'),
+        synthesizer=dict(dict='de/german_synth.dict', tags='de/german_tags.txt', sor='de/de.sor', impl='GermanSynthesizer'),
         word_tokenizer='GermanWordTokenizer',
         disambiguator=[mw('de/multitoken-ignore.txt', True, True, False, _NONE, ignore_spelling=True),
                        mw('spelling_global.txt', False, True, False, _NONE, ignore_spelling=True),
                        mw('de/multitoken-suggest.txt', True, True, False, _NONE, ignore_spelling=True),
                        xml(True)],
+        post_disambiguation_chunker='GermanChunker',
         rules=_DE_RULES,
     ),
     'de-DE-x-simple-language': dict(
         name='Simple German', countries=['DE'], resource_language='de', ignored_characters_regex=SOFT_HYPHEN,
         variants=[V('de-DE-x-simple-language')],
         tagger=dict(dict='de/german.dict', lowercase_with_uppercase=True, impl='GermanTagger'),
-        synthesizer=dict(dict='de/german_synth.dict', tags='de/german_tags.txt', impl='GermanSynthesizer'),
+        synthesizer=dict(dict='de/german_synth.dict', tags='de/german_tags.txt', sor='de/de.sor', impl='GermanSynthesizer'),
         word_tokenizer='GermanWordTokenizer',
         disambiguator=[mw('de/multitoken-ignore.txt', True, True, False, _NONE, ignore_spelling=True),
                        mw('spelling_global.txt', False, True, False, _NONE, ignore_spelling=True),
