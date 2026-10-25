@@ -6,7 +6,14 @@ Usage: import_data.py /path/to/languagetool [dest_dir]
 
 Dictionaries (*.dict) are not copied, they are downloaded on demand (see
 langtool/dictionaries.py and tools/make_dict_manifest.py).
+
+The word lists of the spell checkers (ignore.txt, spelling.txt,
+prohibit.txt ... of the hunspell directories) that the dictionary manifest
+does not provide are copied to data/spelling (they are only used by the
+user-facing spell checking, langtool/spellcheck.py).
 """
+
+import json
 
 import fnmatch
 import os
@@ -42,6 +49,39 @@ def copy_tree(src, dst, filter_files=True):
             shutil.copy2(s, d)
             count += 1
     return count
+
+
+SPELLING_LIST_PATTERNS = ['ignore.txt', 'spelling.txt', 'spelling_custom.txt', 'spelling[-_]*.txt', 'prohibit.txt',
+                          'prohibit_custom.txt']
+
+
+def copy_spelling_lists(lt, dest):
+    """Copy the word lists of the spell checkers that are not in
+    dictionaries.json to dest/spelling/<lang>/hunspell/"""
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'langtool',
+                           'dictionaries.json')) as f:
+        in_manifest = {e['name'] for srcs in json.load(f)['languages'].values() for s in srcs for e in s['files']}
+    out = os.path.join(dest, 'spelling')
+    if os.path.exists(out):
+        shutil.rmtree(out)
+    n = 0
+    modules = os.path.join(lt, 'languagetool-language-modules')
+    for mod in sorted(os.listdir(modules)):
+        if mod in EXCLUDED_MODULES:
+            continue
+        hdir = os.path.join(modules, mod, 'src', 'main', 'resources', 'org', 'languagetool', 'resource', mod,
+                            'hunspell')
+        if not os.path.isdir(hdir):
+            continue
+        for f in sorted(os.listdir(hdir)):
+            name = mod + '/hunspell/' + f
+            if name in in_manifest or f in ('spelling_merged.txt', 'spelling_recommendation.txt') or \
+                    not any(fnmatch.fnmatch(f, p) for p in SPELLING_LIST_PATTERNS):
+                continue
+            os.makedirs(os.path.join(out, mod, 'hunspell'), exist_ok=True)
+            shutil.copy2(os.path.join(hdir, f), os.path.join(out, name))
+            n += 1
+    return n
 
 
 def main():
@@ -85,6 +125,7 @@ def main():
                 src = os.path.join(kdir, lang)
                 if os.path.isdir(src):
                     n += copy_tree(src, os.path.join(dest, kind, lang))
+    n += copy_spelling_lists(lt, dest)
     print('Copied %d files to %s' % (n, dest))
 
 

@@ -9,7 +9,9 @@ found in (in order):
    in a ``<lang>/`` sub directory or in the ``org/languagetool/resource/<lang>``
    layout), a LanguageTool installation directory, or a .jar file
    (e.g. ``english-pos-dict-0.6.jar`` or ``language-pl-6.8.jar``).
-2. The download cache (``LANGTOOL_CACHE_DIR`` or the user cache directory).
+2. The download cache (the directory set with set_cache_dir() or the
+   ``cache_dir`` argument of LanguageTool, else ``LANGTOOL_CACHE_DIR``, else
+   the user cache directory).
 3. If not found and downloading is allowed, the jars listed in
    dictionaries.json are downloaded from Maven Central into the cache,
    checksums verified and the dictionary files extracted.
@@ -38,7 +40,25 @@ def manifest():
         return json.load(f)
 
 
-def cache_dir():
+_cache_root = None
+
+
+def set_cache_dir(path):
+    """Set the directory where all downloaded resources are cached (the
+    tagger/synthesizer/speller dictionaries and the Hunspell dictionaries
+    for spell checking). This is a process-wide setting; None restores the
+    default (LANGTOOL_CACHE_DIR or the user cache directory)."""
+    global _cache_root
+    _cache_root = os.path.abspath(os.fspath(path)) if path is not None else None
+
+
+def cache_root():
+    """The base directory of the download cache: the directory set with
+    set_cache_dir() (or LanguageTool(cache_dir=...)), else the
+    LANGTOOL_CACHE_DIR environment variable, else the user cache directory
+    (~/.cache/langtool on Linux)."""
+    if _cache_root is not None:
+        return _cache_root
     d = os.environ.get('LANGTOOL_CACHE_DIR')
     if not d:
         if sys.platform == 'win32':
@@ -48,7 +68,13 @@ def cache_dir():
             d = os.path.join(os.path.expanduser('~/Library/Caches'), 'langtool')
         else:
             d = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'langtool')
-    return os.path.join(d, 'dictionaries-v%d' % manifest()['version'])
+    return d
+
+
+def cache_dir():
+    """The cache directory of the (morfologik etc.) dictionaries of the
+    manifest, below cache_root()."""
+    return os.path.join(cache_root(), 'dictionaries-v%d' % manifest()['version'])
 
 
 def required_files(lang):
@@ -183,7 +209,7 @@ def is_available(lang, dictionary_path=None):
     return True
 
 
-def _download(url, dest, expected_sha256, progress=None):
+def download_file(url, dest, expected_sha256, progress=None):
     import urllib.request
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest))
@@ -226,7 +252,7 @@ def download_language(lang, progress=None):
                 continue
             jar = os.path.join(cd, 'jars', src['url'].rsplit('/', 1)[1])
             if not os.path.exists(jar):
-                _download(src['url'], jar, src['sha256'], progress)
+                download_file(src['url'], jar, src['sha256'], progress)
             for e in files:
                 _extract_from_jar(jar, e['path'], os.path.join(cd, e['name']))
             try:
@@ -241,7 +267,10 @@ def main(argv=None):
     import argparse
     p = argparse.ArgumentParser(description='Download LanguageTool dictionaries')
     p.add_argument('languages', nargs='*', help='language codes, e.g. en de (default: all)')
+    p.add_argument('--cache-dir', help='the directory for downloaded resources')
     args = p.parse_args(argv)
+    if args.cache_dir:
+        set_cache_dir(args.cache_dir)
     langs = args.languages or sorted(manifest()['languages'])
     for lang in langs:
         code = lang.split('-')[0]

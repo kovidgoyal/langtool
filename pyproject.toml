@@ -31,7 +31,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-langtool = ["dictionaries.json", "data/**/*"]
+langtool = ["dictionaries.json", "hunspell_dictionaries.json", "data/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

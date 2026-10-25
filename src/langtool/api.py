@@ -35,16 +35,64 @@ def language_names():
     return out
 
 
-def download_dictionaries(language_code=None, progress=None):
+def download_dictionaries(language_code=None, progress=None, spelling=False):
     """Download the dictionaries for a language (all languages if None) into
-    the cache directory, so that they are available offline later."""
-    from . import dictionaries
+    the cache directory, so that they are available offline later. With
+    spelling=True the Hunspell dictionary for spell checking is also
+    downloaded (for a language without one, SpellCheckUnavailable is
+    raised; with language_code None all of them are downloaded)."""
+    from . import dictionaries, hunspell_dictionaries
     if language_code is None:
         codes = sorted(dictionaries.manifest()['languages'])
     else:
         codes = [get_language(language_code).definition.get('resource_language', resolve_code(language_code)[0])]
     for c in codes:
         dictionaries.download_language(c.split('-')[0], progress)
+    if spelling:
+        if language_code is None:
+            hunspell_dictionaries.download_all(progress)
+        else:
+            hunspell_dictionaries.download(get_language(language_code), progress)
+
+
+def set_cache_dir(path):
+    """Set the directory where all downloaded resources (the dictionaries
+    of the languages and the Hunspell dictionaries for spell checking) are
+    cached. This is a process-wide setting (the dictionaries are shared by
+    all LanguageTool instances); None restores the default, the
+    LANGTOOL_CACHE_DIR environment variable or else the user cache
+    directory (~/.cache/langtool on Linux)."""
+    from . import dictionaries
+    dictionaries.set_cache_dir(path)
+
+
+def get_cache_dir():
+    """The directory where downloaded resources are cached."""
+    from . import dictionaries
+    return dictionaries.cache_root()
+
+
+def spell_check_languages():
+    """The language codes for which a Hunspell dictionary for spell checking
+    can be downloaded (from the LibreOffice dictionaries). For the other
+    languages a dictionary must be given with the hunspell_dictionaries
+    argument of LanguageTool."""
+    from . import hunspell_dictionaries
+    return hunspell_dictionaries.available_languages()
+
+
+def hunspell_dictionary_info(language_code):
+    """Information about the Hunspell dictionary that spell checking uses by
+    default for a language: a dict with 'name' (the dictionary in the
+    LibreOffice dictionaries repository, e.g. 'en/en_US', None if there is
+    none), 'aff_url', 'dic_url', 'commit', 'cached' and 'note'."""
+    from . import hunspell_dictionaries as hd
+    lang = get_language(language_code)
+    name = hd.dictionary_name(lang)
+    m = hd.manifest()
+    entry = m['dictionaries'].get(name, {}) if name else {}
+    return {'name': name, 'aff_url': entry.get('aff', {}).get('url'), 'dic_url': entry.get('dic', {}).get('url'),
+            'commit': m['commit'], 'cached': hd.is_cached(lang), 'note': hd.note(lang)}
 
 
 class Match:
@@ -130,17 +178,41 @@ class LanguageTool:
            for German and French speakers; false friend rules are not
            supported yet)
     :param picky: enable rules tagged as "picky" (Java: Level.PICKY)
+    :param spell_check: report misspelled words (rule id HUNSPELL_RULE,
+           category TYPOS) with suggestions, using a Hunspell dictionary.
+           Off by default; can be switched at any time with the
+           spell_check property. Raises SpellCheckUnavailable if there is
+           no dictionary for the language.
+    :param hunspell_dictionaries: Hunspell dictionaries to use for spell
+           checking instead of the LibreOffice dictionaries that are
+           downloaded otherwise: a mapping of language or variant codes to
+           a path prefix (the .aff and .dic files) or an (aff, dic) pair of
+           paths, e.g. {'en-US': '/usr/share/hunspell/en_US'}. The
+           variant code (en-US) is looked up first, then the language (en).
+    :param cache_dir: the directory where downloaded resources (all
+           dictionaries) are cached; a process-wide setting, see
+           set_cache_dir()
     """
 
-    def __init__(self, language, dictionary_path=None, download=True, mother_tongue=None, picky=False):
+    def __init__(self, language, dictionary_path=None, download=True, mother_tongue=None, picky=False,
+                 spell_check=False, hunspell_dictionaries=None, cache_dir=None):
         from .tool import JLanguageTool, LEVEL_DEFAULT, LEVEL_PICKY
+        from . import hunspell_dictionaries as hd
+        if cache_dir is not None:
+            set_cache_dir(cache_dir)
         self.language = get_language(language)
         if dictionary_path is not None:
             self.language.dictionary_path = dictionary_path
         self.language.download_dictionaries = download
+        self._download = download
+        self._hunspell_dictionaries = dict(hunspell_dictionaries or {})
+        for loc in self._hunspell_dictionaries.values():
+            hd.normalize_location(loc)  # fail early on missing files
         self._lt = JLanguageTool(self.language, mother_tongue=mother_tongue,
                                  level=LEVEL_PICKY if picky else LEVEL_DEFAULT)
         self._lock = threading.RLock()
+        self._spelling_rule = None
+        self.spell_check = spell_check
 
     @property
     def language_code(self):
@@ -153,6 +225,43 @@ class LanguageTool:
     @picky.setter
     def picky(self, val):
         self._lt.level = 'PICKY' if val else 'DEFAULT'
+
+    @property
+    def spell_check(self):
+        """Whether misspelled words are reported (can be switched on and off)."""
+        return self._spelling_rule is not None
+
+    @spell_check.setter
+    def spell_check(self, value):
+        with self._lock:
+            if value and self._spelling_rule is None:
+                rule = self._create_spelling_rule()
+                # (like the spelling rules of LanguageTool, before the other rules)
+                self._lt.builtin_rules.insert(0, rule)
+                self._lt._rule_set_cache.clear()
+                self._spelling_rule = rule
+            elif not value and self._spelling_rule is not None:
+                self._lt.remove_rule(self._spelling_rule)
+                self._spelling_rule = None
+
+    def _create_spelling_rule(self):
+        from . import hunspell_dictionaries, spellcheck
+        aff, dic = hunspell_dictionaries.locate(self.language, self._hunspell_dictionaries, self._download)
+        return spellcheck.get_rule(self._lt.messages, self.language, aff, dic)
+
+    @property
+    def spelling_rule(self):
+        """The spell checking rule (a langtool.spellcheck.HunspellSpellingRule
+        with is_misspelled(word) and suggest(word)), None if spell checking
+        is off."""
+        return self._spelling_rule
+
+    @property
+    def hunspell_dictionary(self):
+        """The (aff, dic) paths of the Hunspell dictionary used for spell
+        checking, None if spell checking is off."""
+        r = self._spelling_rule
+        return (r.aff_path, r.dic_path) if r is not None else None
 
     def check(self, text):
         """Check the text, returns a list of Match objects, sorted by position."""
@@ -234,13 +343,16 @@ class LanguageTool:
         }
 
 
-def check(text, language):
+def check(text, language, spell_check=False, hunspell_dictionaries=None):
     """Convenience function: check text in the given language with a cached
-    LanguageTool instance."""
+    LanguageTool instance (see LanguageTool for the arguments)."""
+    key = (language, bool(spell_check),
+           tuple(sorted((k, repr(v)) for k, v in (hunspell_dictionaries or {}).items())))
     with _lock:
-        tool = _tools.get(language)
+        tool = _tools.get(key)
         if tool is None:
-            tool = _tools[language] = LanguageTool(language)
+            tool = _tools[key] = LanguageTool(language, spell_check=spell_check,
+                                              hunspell_dictionaries=hunspell_dictionaries)
     return tool.check(text)
 
 

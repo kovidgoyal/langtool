@@ -2,11 +2,14 @@
 
 import argparse
 import json
+import os
 import sys
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog='langtool', description='Check text for grammar and style errors')
+    p.add_argument('--cache-dir', help='directory for the downloaded dictionaries (default: LANGTOOL_CACHE_DIR '
+                                       'or the user cache directory)')
     sub = p.add_subparsers(dest='command')
 
     c = sub.add_parser('check', help='check text from files or stdin')
@@ -17,10 +20,22 @@ def main(argv=None):
     c.add_argument('--json', action='store_true', help='JSON output')
     c.add_argument('--dictionary-path', help='where to find the dictionaries')
     c.add_argument('--no-download', action='store_true', help='do not download dictionaries')
+    c.add_argument('-s', '--spell-check', action='store_true',
+                   help='report misspelled words (Hunspell, rule id HUNSPELL_RULE)')
+    c.add_argument('--hunspell-dict', action='append', default=[], metavar='[CODE=]PATH',
+                   help='Hunspell dictionary for spell checking: the path without .aff/.dic (e.g. '
+                        '/usr/share/hunspell/en_US), optionally prefixed with the language code it is for '
+                        '(default: the language of -l); can be repeated')
+    c.add_argument('--cache-dir', default=argparse.SUPPRESS, help='directory for the downloaded dictionaries')
     c.add_argument('files', nargs='*')
 
     d = sub.add_parser('download', help='download dictionaries')
+    d.add_argument('--spelling', action='store_true', help='also download the Hunspell dictionaries for spell '
+                                                           'checking')
+    d.add_argument('--cache-dir', default=argparse.SUPPRESS, help='directory for the downloaded dictionaries')
     d.add_argument('languages', nargs='*')
+
+    sub.add_parser('spelling-languages', help='list the Hunspell dictionaries used for spell checking')
 
     sub.add_parser('languages', help='list the supported languages')
 
@@ -29,14 +44,40 @@ def main(argv=None):
     a.add_argument('text', nargs='*')
 
     args = p.parse_args(argv)
+    if args.cache_dir:
+        from .api import set_cache_dir
+        set_cache_dir(args.cache_dir)
     if args.command == 'languages':
         from .api import language_names
         for code, name in sorted(language_names().items()):
             print(code, name, sep='\t')
         return 0
     if args.command == 'download':
-        from .dictionaries import main as dmain
-        return dmain(args.languages)
+        from .api import download_dictionaries, get_cache_dir
+        from .dictionaries import DictionaryNotFound, download_language, manifest
+        if args.languages:
+            for lang in args.languages:
+                print('Downloading dictionaries for', lang, '...')
+                try:
+                    download_dictionaries(lang, spelling=args.spelling)
+                except DictionaryNotFound as e:
+                    print('warning:', e, file=sys.stderr)
+        else:
+            for lang in sorted(manifest()['languages']):
+                print('Downloading dictionaries for', lang, '...')
+                download_language(lang)
+            if args.spelling:
+                print('Downloading the Hunspell dictionaries ...')
+                from .hunspell_dictionaries import download_all
+                download_all()
+        print('Dictionaries are in', get_cache_dir())
+        return 0
+    if args.command == 'spelling-languages':
+        from .api import hunspell_dictionary_info, languages
+        for code in languages():
+            info = hunspell_dictionary_info(code)
+            print(code, info['name'] or '-', 'cached' if info['cached'] else '', info['note'] or '', sep='\t')
+        return 0
     if args.command == 'analyze':
         from .api import LanguageTool
         tool = LanguageTool(args.language)
@@ -46,8 +87,20 @@ def main(argv=None):
         return 0
     if args.command == 'check':
         from .api import LanguageTool
+        from .hunspell_dictionaries import SpellCheckUnavailable
+        hunspell_dicts = {}
+        for spec in args.hunspell_dict:
+            code, sep, path = spec.partition('=')
+            if not sep or os.sep in code or not code:
+                code, path = args.language, spec
+            hunspell_dicts[code] = path
         tool = LanguageTool(args.language, dictionary_path=args.dictionary_path, download=not args.no_download,
-                            picky=args.picky)
+                            picky=args.picky, hunspell_dictionaries=hunspell_dicts)
+        if args.spell_check:
+            try:
+                tool.spell_check = True
+            except SpellCheckUnavailable as e:
+                print('warning: %s' % e, file=sys.stderr)
         for r in args.disable:
             tool.disable_rule(r)
         for r in args.enable:

@@ -1,0 +1,506 @@
+{
+ "commit": "67032ee957631908098a72edf48dc81cac27e369",
+ "dictionaries": {
+  "ar/ar": {
+   "aff": {
+    "sha256": "cec30b8621001e49618feb05aec1984c5fcfbf7d2ec309901d5cbf66585217a3",
+    "size": 86949,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ar/ar.aff"
+   },
+   "dic": {
+    "sha256": "2a3e5367f61c1583734db9d66734f5603e6be5c2d227cf5c5cd7e4ca586e34fe",
+    "size": 7217161,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ar/ar.dic"
+   }
+  },
+  "be_BY/be-official": {
+   "aff": {
+    "sha256": "0a7f8246a352e7eea61f88d44a200a277a8a5dd5b06f1d7725f16138d1b751c1",
+    "size": 184150,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/be_BY/be-official.aff"
+   },
+   "dic": {
+    "sha256": "86237db80ddf5dc68d4319abed4de709a2096835042b332cf323207c13e869cd",
+    "size": 10607006,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/be_BY/be-official.dic"
+   }
+  },
+  "br_FR/br_FR": {
+   "aff": {
+    "sha256": "108c2d8ed86695497e60a0111013a69af4d18326722f61ec45ba041239919abe",
+    "size": 13544,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/br_FR/br_FR.aff"
+   },
+   "dic": {
+    "sha256": "2722fae5934b07e8994a108826b5ca9b9040cdfffc5a07c776b90f4d8b7560a4",
+    "size": 3968237,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/br_FR/br_FR.dic"
+   }
+  },
+  "ca/dictionaries/ca": {
+   "aff": {
+    "sha256": "abcca353b16af2d91be51d68899f47e5076a47489d08f696717fbac44074ddb8",
+    "size": 52471,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ca/dictionaries/ca.aff"
+   },
+   "dic": {
+    "sha256": "4838bb46776f5d82a3823aa7abb17cd00b9dc0c301d1b6d002e1ab6558fa07ca",
+    "size": 3086130,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ca/dictionaries/ca.dic"
+   }
+  },
+  "ca/dictionaries/ca-valencia": {
+   "aff": {
+    "sha256": "2e0b44b5dffd1b9b2f1af432f7db43f847f32e0103a91ba961e8652128dc9fad",
+    "size": 52680,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ca/dictionaries/ca-valencia.aff"
+   },
+   "dic": {
+    "sha256": "8f65e295eac2ae5ef8ed6b4d584b1acde0d1d353cadde67aefe8dadd1632b47b",
+    "size": 3091032,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ca/dictionaries/ca-valencia.dic"
+   }
+  },
+  "da_DK/da_DK": {
+   "aff": {
+    "sha256": "ee4fe193d19b72aa64bc0d2b9bcdf44ee44f11d9b4e7dcf6da36fd0e91528561",
+    "size": 82864,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/da_DK/da_DK.aff"
+   },
+   "dic": {
+    "sha256": "298aabeca362ee2c71836c5c7748d22080a460bd7193e6fbd2471f27a70d0fd3",
+    "size": 3894244,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/da_DK/da_DK.dic"
+   }
+  },
+  "de/de_AT_frami": {
+   "aff": {
+    "sha256": "8b428f6215e36e145626e3d150cd0ffe273e1ad9a9ec0a1bbd31ee468ee39edc",
+    "size": 19068,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/de/de_AT_frami.aff"
+   },
+   "dic": {
+    "sha256": "d821e0a5a029b66df696c982a4cd55eb792139c33716ccbde364941db2448cbb",
+    "size": 4359309,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/de/de_AT_frami.dic"
+   }
+  },
+  "de/de_CH_frami": {
+   "aff": {
+    "sha256": "d86884be4c3f07e5e08057884856feabf2872b4e2f90a587a11376082bc4126b",
+    "size": 19068,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/de/de_CH_frami.aff"
+   },
+   "dic": {
+    "sha256": "80a4df38cdc3e16d2f042f8eba4a99668ab9c075662e4262c62f8bba46c7bd16",
+    "size": 4358308,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/de/de_CH_frami.dic"
+   }
+  },
+  "de/de_DE_frami": {
+   "aff": {
+    "sha256": "646bf3333ac69c23e9d794533ee5241d6f755c359e8fe10a648f87613743d594",
+    "size": 19067,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/de/de_DE_frami.aff"
+   },
+   "dic": {
+    "sha256": "4ca3c958b0e5545910999bc246f668840bf8ede3df8e5e6790d05edd5a586c38",
+    "size": 4356903,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/de/de_DE_frami.dic"
+   }
+  },
+  "el_GR/el_GR": {
+   "aff": {
+    "sha256": "868dfe13ad7d34251915a745e44d38542831463d56e60732ba3a5bc1dcca582a",
+    "size": 15647,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/el_GR/el_GR.aff"
+   },
+   "dic": {
+    "sha256": "e5b9b9c2cf05bbc59e03fe302b462dae85968f822f4fc219a8ed2879d6943720",
+    "size": 10125390,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/el_GR/el_GR.dic"
+   }
+  },
+  "en/en_AU": {
+   "aff": {
+    "sha256": "e746c882dd6f303c2c46e7452804b9201115a6942cfeb15f18f8edf774d2e24e",
+    "size": 3205,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_AU.aff"
+   },
+   "dic": {
+    "sha256": "aa07c46571f306b79fc1bc534357ed357af15687381b26f891ba66e8a2caed89",
+    "size": 554336,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_AU.dic"
+   }
+  },
+  "en/en_CA": {
+   "aff": {
+    "sha256": "e746c882dd6f303c2c46e7452804b9201115a6942cfeb15f18f8edf774d2e24e",
+    "size": 3205,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_CA.aff"
+   },
+   "dic": {
+    "sha256": "53096689870246a78fa408b1e7a8c49bc140bd466a84a384cfb509445fff7173",
+    "size": 551583,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_CA.dic"
+   }
+  },
+  "en/en_GB": {
+   "aff": {
+    "sha256": "0fd6ed120ef28957847d98ba5149b117e27116cf81b5aa36208453f6755a36fd",
+    "size": 44158,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_GB.aff"
+   },
+   "dic": {
+    "sha256": "04e90f34f5263bf26780e9c4a442e9ad16584e227af49ddd1b3b21b01df5b29c",
+    "size": 1230571,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_GB.dic"
+   }
+  },
+  "en/en_US": {
+   "aff": {
+    "sha256": "e746c882dd6f303c2c46e7452804b9201115a6942cfeb15f18f8edf774d2e24e",
+    "size": 3205,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_US.aff"
+   },
+   "dic": {
+    "sha256": "f0b1a234bd178bdd01875b2a392a9647f888b8fe879f79c52aae62c2759b3647",
+    "size": 551762,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_US.dic"
+   }
+  },
+  "en/en_ZA": {
+   "aff": {
+    "sha256": "5ddaf2bd123df16cbb887adf7dd835593200d0454703c461714886833c9ddec9",
+    "size": 43842,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_ZA.aff"
+   },
+   "dic": {
+    "sha256": "a438af6c6bfa9b25208d72c6ebf53507e178d6e6d285895e97870c36193433b1",
+    "size": 998279,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/en/en_ZA.dic"
+   }
+  },
+  "eo/eo": {
+   "aff": {
+    "sha256": "28d48b2d17c9fd20ae9924f14dc2832c8277c9d03715f939957e2c93bcd767b1",
+    "size": 19129,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/eo/eo.aff"
+   },
+   "dic": {
+    "sha256": "d3d8f84c7b5d6fcb348ce8c11b07c70e007c4b0075350d6bd796196419d42ac4",
+    "size": 377989,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/eo/eo.dic"
+   }
+  },
+  "es/es_AR": {
+   "aff": {
+    "sha256": "e9a96514295f8664db270d024c345700ccb9410a384eb71aec0fe5f0931d8c70",
+    "size": 171527,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/es/es_AR.aff"
+   },
+   "dic": {
+    "sha256": "4fe3e193425bb3841ee218d36a9fc95d85b8daa8909363bdbba55a2f9f4e3d1d",
+    "size": 707817,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/es/es_AR.dic"
+   }
+  },
+  "es/es_ES": {
+   "aff": {
+    "sha256": "e73a9bf8e1383f4986a5dc9e2fbed49371c0c61f511c626d15586bd433c1cad9",
+    "size": 169202,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/es/es_ES.aff"
+   },
+   "dic": {
+    "sha256": "6975dddec3d5d2c676069537bc67b4b5f786c65c5d4cf6703a82acf779ac9ec1",
+    "size": 715989,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/es/es_ES.dic"
+   }
+  },
+  "fa_IR/fa-IR": {
+   "aff": {
+    "sha256": "cf7cd88fa8658b9c1bae8196b34ee2ff52456f6ce7a44482c1f5063feb6d8768",
+    "size": 5439,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/fa_IR/fa-IR.aff"
+   },
+   "dic": {
+    "sha256": "314f31e059994f26e8016c834b14dfd10f74834b3f623a6040265b8f2a9dddab",
+    "size": 2575990,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/fa_IR/fa-IR.dic"
+   }
+  },
+  "fr_FR/dictionaries/fr": {
+   "aff": {
+    "sha256": "c176610cd5dc4846806a65ddd029f422d87978bf58f224aa44222662a16a2de5",
+    "size": 199870,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/fr_FR/dictionaries/fr.aff"
+   },
+   "dic": {
+    "sha256": "b78a868e31dd6e373b6c3217969afb898a9acde828a5e7ef97308da42218c88c",
+    "size": 1236490,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/fr_FR/dictionaries/fr.dic"
+   }
+  },
+  "gl/gl_ES": {
+   "aff": {
+    "sha256": "76c848fc7704be8ea035926fb524b6379d572212f10eb8cb8e847e98442b2f3a",
+    "size": 1163541,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/gl/gl_ES.aff"
+   },
+   "dic": {
+    "sha256": "9c0b9128a73473fde3199e807a78252c39a3885db1d0db161a2b0fcd286c7a4b",
+    "size": 8325262,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/gl/gl_ES.dic"
+   }
+  },
+  "is/is": {
+   "aff": {
+    "sha256": "0168050c64a369c55b5aeb61f9dfe484d2aa7512d78bb3fa36779ea24b467c50",
+    "size": 309734,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/is/is.aff"
+   },
+   "dic": {
+    "sha256": "8447594fd7eb1d6d43725c4ca49b00d3f00c4c4f3ac2f2b6dfe3f56eb211d280",
+    "size": 2454138,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/is/is.dic"
+   }
+  },
+  "it_IT/it_IT": {
+   "aff": {
+    "sha256": "951afaa19272f13555b8823e8bcf9ccf78f8fe1a07835bdfb912ab3e4d537c2b",
+    "size": 70054,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/it_IT/it_IT.aff"
+   },
+   "dic": {
+    "sha256": "bae1e3501dcd2a923669592493b3fde6c02aae7c7aab83bf5e5b49077e73dd64",
+    "size": 1295083,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/it_IT/it_IT.dic"
+   }
+  },
+  "lt_LT/lt": {
+   "aff": {
+    "sha256": "79c6f8304490d1c8b27ec93e509b2f635d9bb21d45a2d41c15162b18c8ff897c",
+    "size": 99714,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/lt_LT/lt.aff"
+   },
+   "dic": {
+    "sha256": "a751750b040623cf408cf1a3b6f6336141b55ac9519e54068dbeaa52eb395ccd",
+    "size": 1181184,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/lt_LT/lt.dic"
+   }
+  },
+  "nl_NL/nl_NL": {
+   "aff": {
+    "sha256": "f0233d4f721f4661cf5f4d05ed2739549322bf3b6b66764b55a38257e1e16e6f",
+    "size": 46557,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/nl_NL/nl_NL.aff"
+   },
+   "dic": {
+    "sha256": "bc28af45307700a9927ad5719184da44dfd7eed4f707b8c1477f6d8a21b586a6",
+    "size": 2488246,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/nl_NL/nl_NL.dic"
+   }
+  },
+  "pl_PL/pl_PL": {
+   "aff": {
+    "sha256": "82973651651aa930335c865b339b98db376ca3dbf3a661b70b9eeb71fdf41dca",
+    "size": 257542,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/pl_PL/pl_PL.aff"
+   },
+   "dic": {
+    "sha256": "c0848440599eb88e5aca500418d5f389e562ec2c157b63dbe39d354658ffba49",
+    "size": 5252096,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/pl_PL/pl_PL.dic"
+   }
+  },
+  "pt_BR/pt_BR": {
+   "aff": {
+    "sha256": "21d8ad2a769a60e17e2b5ea4ef11d4d593a58b9e2a82d642ef82d6a4c5523865",
+    "size": 979792,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/pt_BR/pt_BR.aff"
+   },
+   "dic": {
+    "sha256": "a38bfb26b68ece2834e79fe83e48d5792652970ace12db89d1b9674bf9933183",
+    "size": 4477695,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/pt_BR/pt_BR.dic"
+   }
+  },
+  "pt_PT/pt_PT": {
+   "aff": {
+    "sha256": "975a209fcc892cb382fa5f34a28c391a39668661ce373ae071287809c5fcae24",
+    "size": 95089,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/pt_PT/pt_PT.aff"
+   },
+   "dic": {
+    "sha256": "e29ba2d7aa8a2ad43e9cb46ac6473064b661545c87002aea90e18899d98d3cc9",
+    "size": 1485977,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/pt_PT/pt_PT.dic"
+   }
+  },
+  "ro/ro_RO": {
+   "aff": {
+    "sha256": "0c83a02f0ac5202c068e60e1aef5ce99e13d7f6c92ae8e68ca8b9e06829edfd1",
+    "size": 55195,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ro/ro_RO.aff"
+   },
+   "dic": {
+    "sha256": "c26a9356f598a0ae89e7be650f6bdd9ba70acce66b41d7ab14c0c68639b6ed33",
+    "size": 2202394,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ro/ro_RO.dic"
+   }
+  },
+  "ru_RU/ru_RU": {
+   "aff": {
+    "sha256": "38ce7d4af78e211e9bafe4bf7e3d6a2c420591136cb738ec6648f8fdf6524cd7",
+    "size": 71236,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ru_RU/ru_RU.aff"
+   },
+   "dic": {
+    "sha256": "f6047416a0204adbecf3a451b874ec8a97ee37e2cbc714466ef04d8dbcc0d6fc",
+    "size": 3473191,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ru_RU/ru_RU.dic"
+   }
+  },
+  "sk_SK/sk_SK": {
+   "aff": {
+    "sha256": "af67bbe8ea9dea74968ec01acd266b3f74177ca087ee6eb7898c576e0aef7a3d",
+    "size": 225271,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/sk_SK/sk_SK.aff"
+   },
+   "dic": {
+    "sha256": "3e3dbd5c6af8431a3a47652c69692f3f86d0cd82deb4418e49a057a33ef56063",
+    "size": 3362212,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/sk_SK/sk_SK.dic"
+   }
+  },
+  "sl_SI/sl_SI": {
+   "aff": {
+    "sha256": "3cb3e84824959928c8004e07b37b9d2bcb84176095f514e134f006dbb14a0beb",
+    "size": 14730,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/sl_SI/sl_SI.aff"
+   },
+   "dic": {
+    "sha256": "e157aabf1a20d21f639d04cf79f019ff1a3eb623c6780a726ffa4293787fa0ab",
+    "size": 2967766,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/sl_SI/sl_SI.dic"
+   }
+  },
+  "sv_SE/dictionaries/sv_SE": {
+   "aff": {
+    "sha256": "b721c9d44bee912feb182b601a1bc2ae3e7dffef660f4130cf2751867488a9dd",
+    "size": 18583,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/sv_SE/dictionaries/sv_SE.aff"
+   },
+   "dic": {
+    "sha256": "384a2126eff333f5f6f9790ae892554546f53948d2988c600397cb5ad6ce66e8",
+    "size": 2344202,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/sv_SE/dictionaries/sv_SE.dic"
+   }
+  },
+  "ta_IN/ta_IN": {
+   "aff": {
+    "sha256": "e05c53e643a141efc1e9c00c5f6532a6fd8ac547b998e1347aa8aea5817f2e15",
+    "size": 12114,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ta_IN/ta_IN.aff"
+   },
+   "dic": {
+    "sha256": "4c079bde24d3232d4195e78bd33bbe5fcb887ceb6363065574cec048d04bc756",
+    "size": 2422307,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/ta_IN/ta_IN.dic"
+   }
+  },
+  "uk_UA/uk_UA": {
+   "aff": {
+    "sha256": "2219dd15e9802adebc45722c60943b1472640260491af38dd3e43b07e75585e6",
+    "size": 211759,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/uk_UA/uk_UA.aff"
+   },
+   "dic": {
+    "sha256": "2e5a9e67be63bdb089b3459addb5d71113319d13768e277bcae20f3cc1ad5a93",
+    "size": 8919324,
+    "url": "https://raw.githubusercontent.com/LibreOffice/dictionaries/67032ee957631908098a72edf48dc81cac27e369/uk_UA/uk_UA.dic"
+   }
+  }
+ },
+ "languages": {
+  "ar": "ar/ar",
+  "ast-ES": null,
+  "be-BY": "be_BY/be-official",
+  "br-FR": "br_FR/br_FR",
+  "ca-ES": "ca/dictionaries/ca",
+  "ca-ES-balear": "ca/dictionaries/ca",
+  "ca-ES-valencia": "ca/dictionaries/ca-valencia",
+  "crh-UA": null,
+  "da-DK": "da_DK/da_DK",
+  "de": "de/de_DE_frami",
+  "de-AT": "de/de_AT_frami",
+  "de-CH": "de/de_CH_frami",
+  "de-DE": "de/de_DE_frami",
+  "de-DE-x-simple-language": "de/de_DE_frami",
+  "el-GR": "el_GR/el_GR",
+  "en": "en/en_US",
+  "en-AU": "en/en_AU",
+  "en-CA": "en/en_CA",
+  "en-GB": "en/en_GB",
+  "en-NZ": "en/en_GB",
+  "en-US": "en/en_US",
+  "en-ZA": "en/en_ZA",
+  "eo": "eo/eo",
+  "es": "es/es_ES",
+  "es-AR": "es/es_AR",
+  "fa": "fa_IR/fa-IR",
+  "fr": "fr_FR/dictionaries/fr",
+  "fr-BE": "fr_FR/dictionaries/fr",
+  "fr-CA": "fr_FR/dictionaries/fr",
+  "fr-CH": "fr_FR/dictionaries/fr",
+  "ga-IE": null,
+  "gl-ES": "gl/gl_ES",
+  "is-IS": "is/is",
+  "it": "it_IT/it_IT",
+  "ja-JP": null,
+  "km-KH": null,
+  "lt-LT": "lt_LT/lt",
+  "ml-IN": null,
+  "nl": "nl_NL/nl_NL",
+  "nl-BE": "nl_NL/nl_NL",
+  "pl-PL": "pl_PL/pl_PL",
+  "pt": "pt_PT/pt_PT",
+  "pt-AO": "pt_PT/pt_PT",
+  "pt-BR": "pt_BR/pt_BR",
+  "pt-MZ": "pt_PT/pt_PT",
+  "pt-PT": "pt_PT/pt_PT",
+  "ro-RO": "ro/ro_RO",
+  "ru-RU": "ru_RU/ru_RU",
+  "sk-SK": "sk_SK/sk_SK",
+  "sl-SI": "sl_SI/sl_SI",
+  "sv": "sv_SE/dictionaries/sv_SE",
+  "ta-IN": "ta_IN/ta_IN",
+  "tl-PH": null,
+  "uk-UA": "uk_UA/uk_UA",
+  "zh-CN": null
+ },
+ "notes": {
+  "ast-ES": "no Asturian dictionary in LibreOffice",
+  "ca-ES-balear": "LibreOffice has no Balearic dictionary, the general Catalan one is used",
+  "crh-UA": "no Crimean Tatar dictionary in LibreOffice",
+  "de": "the dictionary of Germany (de_DE_frami)",
+  "de-DE-x-simple-language": "the dictionary of Germany (de_DE_frami)",
+  "en": "the American English dictionary (en_US)",
+  "en-NZ": "LibreOffice has no en_NZ dictionary, the British English one (en_GB) is used",
+  "fr-BE": "one French dictionary for all variants",
+  "fr-CA": "one French dictionary for all variants",
+  "fr-CH": "one French dictionary for all variants",
+  "ga-IE": "no Irish dictionary in LibreOffice",
+  "ja-JP": "no Japanese dictionary in LibreOffice",
+  "km-KH": "no Khmer dictionary in LibreOffice",
+  "ml-IN": "no Malayalam dictionary in LibreOffice",
+  "nl-BE": "one Dutch dictionary for all variants",
+  "pt": "the European Portuguese dictionary (pt_PT)",
+  "pt-AO": "the European Portuguese dictionary (pt_PT)",
+  "pt-MZ": "the European Portuguese dictionary (pt_PT)",
+  "tl-PH": "no Tagalog dictionary in LibreOffice",
+  "zh-CN": "no Chinese dictionary in LibreOffice"
+ },
+ "repository": "https://github.com/LibreOffice/dictionaries",
+ "version": 1
+}

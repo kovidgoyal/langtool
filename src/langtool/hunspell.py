@@ -27,7 +27,8 @@ word end with U+FFFD in the UTF-16 conversions, like in Hunspell).
 Not ported: morphological analysis/generation, Hungarian specific rules
 (LANG hu), and the CPU time limits of Hunspell (compound_check and the
 suggestion search stop after a fixed CPU time in C++; here they never time
-out). PHONE tables are not used for suggestions. For 8-bit encodings the
+out; suggest() has an optional time limit instead). PHONE tables are not
+used for suggestions. For 8-bit encodings the
 character tables are derived from Python's codecs and the Unicode table
 (Hunspell has its own tables in csutil.cxx).
 
@@ -38,6 +39,7 @@ instance; Hunspell.spell(word) is thread-safe.
 import os
 import re
 import threading
+from time import perf_counter
 
 __all__ = ['Hunspell', 'get_dictionary']
 
@@ -498,6 +500,9 @@ class Hunspell:
         self._parse_aff(aff_path)
         self._load_tables(dic_path)
         self._sug_data = None
+        self._deadline = None  # the time limit of the running suggest() call (perf_counter), None: no limit
+        self._time_limit = None
+        self._map_timer = None
 
     # ------------------------------------------------------------------
     # flags (HashMgr::decode_flag(s))
@@ -2214,7 +2219,10 @@ class Hunspell:
 
     def compound_check(self, word, wordnum, numsyllable, maxwordnum, wnum, words, rwords, hu_mov_rule, is_sug,
                        info):
-        """AffixMgr::compound_check (without the time limit)"""
+        """AffixMgr::compound_check (without the time limit, except in
+        suggest() calls with a time limit)"""
+        if is_sug and self._deadline is not None and perf_counter() > self._deadline:
+            return None
         utf8 = self.utf8
         cf = self.compoundflag
         cb = self.compoundbegin
@@ -2987,6 +2995,8 @@ class Hunspell:
                 old_sug = len(slst)
 
             def room():
+                if self._deadline is not None and perf_counter() > self._deadline:
+                    return False
                 return len(slst) < maxsug and (not cpdsuggest or len(slst) < old_sug + maxcpdsugs)
             # suggestions for an uppercase word (html -> HTML)
             if len(slst) < maxsug:
@@ -3033,9 +3043,26 @@ class Hunspell:
     def _mapchars(self, wlst, word, cpdsuggest):
         if len(word) < 2 or not self.maptable:
             return
-        self._map_related(word, b'', 0, wlst, cpdsuggest)
+        if self._deadline is None:
+            self._map_related(word, b'', 0, wlst, cpdsuggest)
+            return
+        # with a time limit: like Hunspell's map_related timer (a quarter of the limit, checked every 100 calls)
+        self._map_timer = [100, min(self._deadline, perf_counter() + self._time_limit / 4)]
+        try:
+            self._map_related(word, b'', 0, wlst, cpdsuggest)
+        except _TimeLimit:
+            pass
+        finally:
+            self._map_timer = None
 
     def _map_related(self, word, candidate, wn, wlst, cpdsuggest):
+        timer = self._map_timer
+        if timer is not None:
+            timer[0] -= 1
+            if not timer[0]:
+                if perf_counter() > timer[1]:
+                    raise _TimeLimit()
+                timer[0] = 100
         if wn >= len(word):
             if candidate not in wlst and self._sug_checkword(candidate, cpdsuggest):
                 if len(wlst) < self.maxsug:
@@ -3529,6 +3556,10 @@ class Hunspell:
         g3 = [w_word[i:i + 3] for i in range(n - 2)]
         first = w_word[:1]
         complexprefixes = self.a_complexprefixes
+        if self._deadline is not None:
+            # with a time limit: the scan of the dictionary stops at the deadline (or half the limit after its start)
+            ng_deadline = max(self._deadline, perf_counter() + self._time_limit / 2)
+            positions = _until(positions, ng_deadline)
         for pos in positions:
             e, skip, initcap, phon = info[pos]
             if skip or (captype == NOCAP and initcap and ph is None and not de and phon is None):
@@ -3718,14 +3749,26 @@ class Hunspell:
 
     # --- HunspellImpl::suggest ---
 
-    def suggest(self, word):
+    def suggest(self, word, time_limit=None):
         """Hunspell::suggest(word): the suggestions for a misspelled word
         (like Hunspell_suggest; Hunspell's CPU time limits are not
-        emulated, the search always completes)"""
+        emulated, the search always completes).
+
+        time_limit (seconds) bounds the search (approximately; the result
+        may then differ from Hunspell's): the MAP suggestions stop after a
+        quarter of it (like Hunspell's timer), the other phases and the
+        compound suggestions after the limit, the ngram search after the
+        limit or at least half the limit after its start."""
         b = self._encode(word)
         with self._lock:
-            return [s.decode('utf-8', 'replace') if self.utf8 else s.decode(self._codec, 'replace')
-                    for s in self._hsuggest(b)]
+            if time_limit is not None:
+                self._time_limit = time_limit
+                self._deadline = perf_counter() + time_limit
+            try:
+                return [s.decode('utf-8', 'replace') if self.utf8 else s.decode(self._codec, 'replace')
+                        for s in self._hsuggest(b)]
+            finally:
+                self._deadline = self._time_limit = None
 
     def _mkinitcap_b(self, b):
         u = self._units(b)
@@ -3925,6 +3968,8 @@ def _bubblesort(rword, rword2, rsc):
 
 def _is_subset_keys(s1, s2):
     """AffixMgr::isSubset for two affix keys"""
+    if 46 not in s1:  # no '.' (any character): a prefix test
+        return s2.startswith(s1)
     n2 = len(s2)
     for k, c in enumerate(s1):
         if c != 46 and (k >= n2 or c != s2[k]):
@@ -3935,6 +3980,18 @@ def _is_subset_keys(s1, s2):
 def _reverse_utf(b):
     """reverseword_utf: reverse the characters of UTF-8 bytes"""
     return u16_u8(u8_u16(b)[::-1])
+
+
+class _TimeLimit(Exception):
+    pass
+
+
+def _until(items, deadline):
+    """the items until the deadline (perf_counter) has passed (checked every 256 items)"""
+    for i, x in enumerate(items):
+        if not (i & 255) and perf_counter() > deadline:
+            return
+        yield x
 
 
 def _truncate_bad(u, b):

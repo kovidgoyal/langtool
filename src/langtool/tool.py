@@ -152,6 +152,12 @@ class JLanguageTool:
         self.user_rules.append(rule)
         self._rule_set_cache.clear()
 
+    def remove_rule(self, rule):
+        """Remove a rule added with add_rule() or a built-in rule."""
+        self.user_rules = [r for r in self.user_rules if r is not rule]
+        self.builtin_rules = [r for r in self.builtin_rules if r is not rule]
+        self._rule_set_cache.clear()
+
     def disable_rule(self, rule_id):
         self.disabled_rules.add(rule_id)
         self.enabled_rules.discard(rule_id)

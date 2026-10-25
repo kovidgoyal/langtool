@@ -11,16 +11,22 @@ Quick start::
 The binary dictionaries needed for part of speech tagging are downloaded on
 first use (or can be pointed to with the dictionary_path argument or the
 LANGTOOL_DICT_PATH environment variable).
+
+Spell checking with Hunspell dictionaries is optional::
+
+    tool = langtool.LanguageTool('en-US', spell_check=True)
 """
 
-from .api import (LanguageTool, Match, RuleInfo, check, download_dictionaries, get_language, language_names,
-                  languages)
+from .api import (LanguageTool, Match, RuleInfo, check, download_dictionaries, get_cache_dir, get_language,
+                  hunspell_dictionary_info, language_names, languages, set_cache_dir, spell_check_languages)
 from .dictionaries import DictionaryNotFound
+from .hunspell_dictionaries import SpellCheckUnavailable
 
 __version__ = '0.1.0'
 
 __all__ = ['LanguageTool', 'Match', 'RuleInfo', 'check', 'download_dictionaries', 'get_language',
-           'language_names', 'languages', 'DictionaryNotFound', 'have_speedups']
+           'language_names', 'languages', 'DictionaryNotFound', 'SpellCheckUnavailable', 'have_speedups',
+           'set_cache_dir', 'get_cache_dir', 'spell_check_languages', 'hunspell_dictionary_info']
 
 
 def have_speedups():
