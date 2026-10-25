@@ -65,6 +65,14 @@ EXTRA_JARS = {
          {'net/java/sen/%s.sen' % n: 'ja/%s.sen' % n
           for n in ('header', 'connectionCost', 'partOfSpeech', 'token', 'trie', 'posIndex')}, 'ipadic'),
     ],
+    # the binary dictionaries and the transition matrix of HanLP (the
+    # ViterbiSegment of ChineseWordTokenizer, langtool.lang.zh.hanlp)
+    'zh': [
+        ('com.hankcs', 'hanlp', 'portable-1.8.2',
+         {'data/dictionary/%s' % n: 'zh/%s' % n.rsplit('/', 1)[-1]
+          for n in ('CoreNatureDictionary.mini.txt.bin', 'CoreNatureDictionary.ngram.mini.txt.table.bin',
+                    'CoreNatureDictionary.tr.txt', 'other/CharType.bin')}),
+    ],
 }
 # files of the speller (only the misspelling check is ported, see
 # langtool/spelling.py) that the dictionary download provides: names
