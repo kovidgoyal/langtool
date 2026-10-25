@@ -773,6 +773,8 @@ LANGUAGES = {
                R('TokenAgreementNumrNounRule'), R('MixedAlphabetsRule'), R('SimpleReplaceSoftRule'),
                R('SimpleReplaceRenamedRule'), R('SimpleReplaceRule')],
     ),
+    # org.languagetool.language.Chinese (code in langtool.lang.zh); its
+    # language model rule ChineseConfusionProbabilityRule is not ported
     'zh': dict(
         name='Chinese', countries=['CN'], variants=[V('zh-CN')],
         tagger=dict(impl='ChineseTagger'), word_tokenizer='ChineseWordTokenizer',

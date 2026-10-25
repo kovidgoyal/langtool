@@ -1296,6 +1296,35 @@
     "size": 6251960,
     "url": "https://repo1.maven.org/maven2/ua/net/nlp/morfologik-ukrainian-lt/6.8.6/morfologik-ukrainian-lt-6.8.6.jar"
    }
+  ],
+  "zh": [
+   {
+    "files": [
+     {
+      "name": "zh/CharType.bin",
+      "path": "data/dictionary/other/CharType.bin",
+      "size": 23025
+     },
+     {
+      "name": "zh/CoreNatureDictionary.mini.txt.bin",
+      "path": "data/dictionary/CoreNatureDictionary.mini.txt.bin",
+      "size": 3669592
+     },
+     {
+      "name": "zh/CoreNatureDictionary.ngram.mini.txt.table.bin",
+      "path": "data/dictionary/CoreNatureDictionary.ngram.mini.txt.table.bin",
+      "size": 3569237
+     },
+     {
+      "name": "zh/CoreNatureDictionary.tr.txt",
+      "path": "data/dictionary/CoreNatureDictionary.tr.txt",
+      "size": 35398
+     }
+    ],
+    "sha256": "f4e8e42211f62dc952a669329f43b78c72927690407b1ccea37448c76f843379",
+    "size": 8139979,
+    "url": "https://repo1.maven.org/maven2/com/hankcs/hanlp/portable-1.8.2/hanlp-portable-1.8.2.jar"
+   }
   ]
  },
  "version": 1
