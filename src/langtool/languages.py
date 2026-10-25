@@ -12,6 +12,8 @@ Each language has:
  word_tokenizer: name of the tokenizer implementation ('core' by default)
  disambiguator: list of stages, each one of
      ('xml', use_global_disambiguation)
+     ('xml_of', short_code, use_global_disambiguation) -- the XmlRuleDisambiguator
+                             of the default variant of another language
      ('multiword', file, dict(allow_first_capitalized, allow_all_uppercase,
                              allow_titlecase, default_tag, ignore_spelling,
                              remove_previous_tags))
@@ -20,6 +22,7 @@ Each language has:
  chunker: name of the chunker run on the tagged tokens (Language.getChunker())
  post_disambiguation_chunker: name of the chunker run on the disambiguated
    tokens (Language.getPostDisambiguationChunker())
+ is_variant: Language.isVariant() (default: all variants but the first one)
  rules: list of (rule class name, kwargs) -- core rules are implemented in
    langtool.rules.core, others are language specific and are looked up in
    the extensions registry.
@@ -326,8 +329,19 @@ LANGUAGES = {
         post_disambiguation_chunker='GermanChunker',
         rules=_DE_RULES,
     ),
+    # org.languagetool.language.SimpleGerman, a subclass of GermanyGerman
+    # (code in langtool.lang.de_simple): German's sentence tokenizer, tagger,
+    # synthesizer, word tokenizer, post-disambiguation chunker, quotes,
+    # typography, filterRuleMatches and multitoken speller; the disambiguator
+    # is GermanRuleDisambiguator(GermanyGerman.getInstance()) (the
+    # XmlRuleDisambiguator of de-DE); getRelevantRules is only the German
+    # LongSentenceRule with 12 words, getRuleFileNames only its own
+    # grammar.xml, no language model (capable) rules (so no speller rule);
+    # the priorities of TOO_LONG_SENTENCE and LANGES_WORT, then German's
+    # (langtool.priorities)
     'de-DE-x-simple-language': dict(
         name='Simple German', countries=['DE'], resource_language='de', ignored_characters_regex=SOFT_HYPHEN,
+        is_variant=True, sentence_tokenizer='srx', quotes=('„', '“', '‚', '‘'), advanced_typography=True,
         variants=[V('de-DE-x-simple-language')],
         tagger=dict(dict='de/german.dict', lowercase_with_uppercase=True, impl='GermanTagger'),
         synthesizer=dict(dict='de/german_synth.dict', tags='de/german_tags.txt', sor='de/de.sor', impl='GermanSynthesizer'),
@@ -336,7 +350,8 @@ LANGUAGES = {
                        mw('spelling_global.txt', False, True, False, _NONE, ignore_spelling=True),
                        mw('de/multitoken-suggest.txt', True, True, False, _NONE, ignore_spelling=True),
                        ('xml_of', 'de', True)],
-        rules=[R('SimpleGermanLongSentenceRule')],
+        post_disambiguation_chunker='GermanChunker',
+        rules=[R('LongSentenceRule', max_words=12)],
     ),
     # org.languagetool.language.Greek (code in langtool.lang.el); its
     # MorfologikGreekSpellerRule (after LongSentenceRule) is not ported

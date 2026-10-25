@@ -1,6 +1,8 @@
 """Language specific code (ports of the Java code of the language modules of
 LanguageTool), one package per language code (a trailing underscore is added
-when the code is a Python keyword, like ``is_``). Importing this package
+when the code is a Python keyword, like ``is_``, and a
+code with dashes gets a valid package name: de_simple for
+de-DE-x-simple-language). Importing this package
 registers the implementations with langtool.extensions."""
 
 from . import ar  # noqa: F401
@@ -11,6 +13,7 @@ from . import ca  # noqa: F401
 from . import crh  # noqa: F401
 from . import da  # noqa: F401
 from . import de  # noqa: F401
+from . import de_simple  # noqa: F401 -- de-DE-x-simple-language
 from . import el  # noqa: F401
 from . import en  # noqa: F401
 from . import eo  # noqa: F401

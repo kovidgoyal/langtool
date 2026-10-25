@@ -49,8 +49,8 @@ the user; spell checking), UpperCaseNgramRule and
 GermanConfusionProbabilityRule (language model); ProhibitedCompoundRule is
 ported but, as in Java, only created with a language model (lm argument).
 The rules are registered for 'de' only (other languages have classes with
-the same names); the tagger, synthesizer and word tokenizer also for
-de-DE-x-simple-language (SimpleGerman extends GermanyGerman).
+the same names); SimpleGerman (de-DE-x-simple-language, a subclass of
+GermanyGerman) registers the components it inherits in langtool.lang.de_simple.
 """
 
 from ...extensions import register  # noqa: F401
@@ -63,11 +63,9 @@ from .tagging import swiss_tagger_factory as _swiss_tagger_factory, tagger_facto
 from .tokenizers import GermanWordTokenizer  # noqa: E402
 
 register('tagger', 'SwissGermanTagger', _swiss_tagger_factory, language='de')
-# SimpleGerman (de-DE-x-simple-language) extends GermanyGerman
-for _de_tagging_code in ('de', 'de-DE-x-simple-language'):
-    register('tagger', 'GermanTagger', _tagger_factory, language=_de_tagging_code)
-    register('synthesizer', 'GermanSynthesizer', _synthesizer_factory, language=_de_tagging_code)
-    register('word_tokenizer', 'GermanWordTokenizer', lambda language: GermanWordTokenizer(), language=_de_tagging_code)
+register('tagger', 'GermanTagger', _tagger_factory, language='de')
+register('synthesizer', 'GermanSynthesizer', _synthesizer_factory, language='de')
+register('word_tokenizer', 'GermanWordTokenizer', lambda language: GermanWordTokenizer(), language='de')
 # === end tokenizers, compound splitter, taggers, synthesizer ===
 
 # === speller (misspelling check, suggestions), multitoken speller ===
