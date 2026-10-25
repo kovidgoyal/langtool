@@ -638,6 +638,49 @@ def _java_index_of(s, sub, from_index):
     return s.find(sub, max(0, from_index))
 
 
+def _is_utf8(encoding):
+    import codecs
+    try:
+        return codecs.lookup(encoding).name == 'utf-8'
+    except LookupError:
+        return False
+
+
+def _single_byte_table(encoding):
+    """byte -> code point for single byte encodings in which every byte
+    decodes to one character (None otherwise)"""
+    if _is_utf8(encoding):
+        return None
+    table = []
+    try:
+        for b in range(256):
+            d = bytes((b,)).decode(encoding)
+            if len(d) != 1:
+                return None
+            table.append(ord(d))
+    except (UnicodeDecodeError, LookupError):
+        return None
+    return table
+
+
+def _native_fsa(fsa, dictionary):
+    """The FSA for the C search: an FSADict for the binary FSAs, the arrays
+    of a _TrieFSA"""
+    from ._base import speedups
+    from . import fsa as fsa_module
+    if isinstance(fsa, _TrieFSA):
+        return fsa.c_arrays()
+    if isinstance(fsa, (fsa_module._FSA5, fsa_module._CFSA, fsa_module._CFSA2)):
+        kind = 5 if isinstance(fsa, fsa_module._FSA5) else (0xc5 if isinstance(fsa, fsa_module._CFSA) else 0xc6)
+        native = getattr(dictionary, '_native', None)
+        if native is not None and isinstance(native, speedups.FSADict):
+            return native
+        return speedups.FSADict(bytes(fsa.arcs), kind, fsa.root, getattr(fsa, 'gtl', 0),
+                                getattr(fsa, 'node_data_length', 0), bytes(getattr(fsa, 'label_mapping', b'')),
+                                bool(getattr(fsa, 'has_numbers', False)), 0, 0, 'NONE')
+    return None
+
+
 class Speller:
     """Port of the suggestion search of morfologik.speller.Speller (version
     2.2.0, as used by LanguageTool): K. Oflazer's error-tolerant recognition
@@ -689,6 +732,12 @@ class Speller:
         self.word_len = 0
         self.candidate = None
         self.effect_edit_distance = 0
+        self._equal_cache = {}
+        try:
+            # (the bytes 0-127 are ASCII characters in the encoding)
+            self._ascii_compatible = bytes(range(128)).decode(self.encoding) == ''.join(map(chr, range(128)))
+        except (UnicodeDecodeError, LookupError):
+            self._ascii_compatible = False
 
     def _create_replacements_maps(self):
         self.replacements_any_to_one = {}
@@ -836,7 +885,14 @@ class Speller:
                 self.candidate = ['\0'] * self.MAX_WORD_LENGTH
                 self.effect_edit_distance = (self.word_len - 1 if self.word_len <= self.edit_distance
                                              else self.edit_distance)
-                self._find_repl(candidates, 0, self.fsa.root, b'', 0, 0, -1, None, '\0')
+                native = self._native_search()
+                if native is not None:
+                    h = self.h_matrix
+                    for w, dist in native[0].search(native[1], self.fsa.root, word_checked, h.p, h.edit_distance,
+                                                    h.row_length, self.effect_edit_distance, self.MAX_WORD_LENGTH):
+                        candidates.append(self._candidate_data(w, dist))
+                else:
+                    self._find_repl(candidates, 0, self.fsa.root, b'', 0, 0, -1, None, '\0')
         candidates.sort(key=lambda cd: cd.distance)  # stable, like Collections.sort
         # Apply replacements, prune duplicates while preserving the candidate order.
         words = set()
@@ -850,6 +906,32 @@ class Speller:
                     result.append(self._candidate_data(replaced, cd.orig_distance))
         return result
 
+    def _native_search(self):
+        """(SpellerSearch, FSA argument) of the C implementation of the
+        search (_find_repl), None without the C extension or for FSAs and
+        encodings it doesn't support"""
+        r = self.__dict__.get('_native_search_cache', False)
+        if r is not False:
+            return r
+        r = None
+        from ._base import speedups
+        if speedups is not None and hasattr(speedups, 'SpellerSearch'):
+            fsa_arg = _native_fsa(self.fsa, self.dictionary)
+            table = _single_byte_table(self.encoding)
+            utf8 = _is_utf8(self.encoding)
+            if fsa_arg is not None and (utf8 or table is not None):
+                m1 = [(k, [(p.chars, p.start_anchor, p.end_anchor) for p in v])
+                      for k, v in self.replacements_any_to_one.items()]
+                m2 = [(k, [(p.chars, p.start_anchor, p.end_anchor) for p in v])
+                      for k, v in self.replacements_any_to_two.items()]
+                if all(len(k) == 1 for k, _ in m1) and all(len(k) == 2 for k, _ in m2) and \
+                        len(self.separator_char) == 1:
+                    search = speedups.SpellerSearch(self._are_equal, m1, m2, utf8, table or [-1] * 256,
+                                                    self.separator_char, self.separator)
+                    r = (search, fsa_arg)
+        self._native_search_cache = r
+        return r
+
     def _find_repl(self, candidates, depth, node, prev_bytes, word_index, cand_index, min_lookback_word_index,
                    last_any_to_one_source, last_any_to_one_target):
         fsa = self.fsa
@@ -858,12 +940,18 @@ class Speller:
         effect_ed = self.effect_edit_distance
         word_len = self.word_len
         arc = fsa.first_arc(node)
+        ascii_compatible = self._ascii_compatible
         while arc != 0:
-            buf = prev_bytes + bytes((fsa.label(arc),))
-            try:
-                decoded = buf.decode(self.encoding)
-            except UnicodeDecodeError:
-                decoded = None
+            label = fsa.label(arc)
+            if ascii_compatible and label < 0x80 and not prev_bytes:
+                buf = b''
+                decoded = chr(label)
+            else:
+                buf = prev_bytes + bytes((label,))
+                try:
+                    decoded = buf.decode(self.encoding)
+                except UnicodeDecodeError:
+                    decoded = None
             if decoded is None or not decoded:
                 # incomplete multi-byte sequence: accumulate bytes and descend
                 dest = fsa.destination(arc)
@@ -944,27 +1032,42 @@ class Speller:
         """Calculates the edit distance (see Oflazer). i: length of the
         misspelled word - 1, j: length of the candidate - 1."""
         h = self.h_matrix
+        p = h.p
+        rl = h.row_length
+        # index of H(i, j) in the vector of the HMatrix: (j - i + editDistance + 1) * rowLength + j
+        base = (j - i + h.edit_distance + 1) * rl + j
         wp = self.word_processed
         cand = self.candidate
-        if self._are_equal(wp[word_index], cand[cand_index]):
+        x = wp[word_index]
+        y = cand[cand_index]
+        if x == y or self._are_equal(x, y):
             # last characters are the same
-            result = h.get(i, j)
-        elif (word_index > 0 and cand_index > 0 and wp[word_index] == cand[cand_index - 1]
-              and wp[word_index - 1] == cand[cand_index]):
+            result = p[base]
+        elif word_index > 0 and cand_index > 0 and x == cand[cand_index - 1] and wp[word_index - 1] == y:
             # last two characters are transposed
-            a = h.get(i - 1, j - 1)  # transposition, e.g. ababab, ababba
-            b = h.get(i + 1, j)  # deletion, e.g. abab, aba
-            c = h.get(i, j + 1)  # insertion e.g. aba, abab
-            result = 1 + min(a, b, c)
+            a = p[base - 1]  # H(i - 1, j - 1): transposition, e.g. ababab, ababba
+            b = p[base - rl]  # H(i + 1, j): deletion, e.g. abab, aba
+            c = p[base + rl + 1]  # H(i, j + 1): insertion e.g. aba, abab
+            result = 1 + (a if a <= b and a <= c else (b if b <= c else c))
         else:
-            a = h.get(i, j)  # replacement, e.g. ababa, ababb
-            b = h.get(i + 1, j)  # deletion, e.g. ab, a
-            c = h.get(i, j + 1)  # insertion e.g. a, ab
-            result = 1 + min(a, b, c)
-        h.set(i + 1, j + 1, result)
+            a = p[base]  # H(i, j): replacement, e.g. ababa, ababb
+            b = p[base - rl]  # H(i + 1, j): deletion, e.g. ab, a
+            c = p[base + rl + 1]  # H(i, j + 1): insertion e.g. a, ab
+            result = 1 + (a if a <= b and a <= c else (b if b <= c else c))
+        p[base + 1] = result  # H(i + 1, j + 1)
         return result
 
     def _are_equal(self, x, y):
+        """areEqual (memoized: the result only depends on the characters
+        and the settings of the dictionary)"""
+        cache = self._equal_cache
+        key = (x, y)
+        r = cache.get(key)
+        if r is None:
+            r = cache[key] = self._are_equal_uncached(x, y)
+        return r
+
+    def _are_equal_uncached(self, x, y):
         if x == y:
             return True
         chars = self.equivalent_chars.get(x)
@@ -984,14 +1087,46 @@ class Speller:
         return False
 
     def cuted(self, depth, word_index, cand_index):
-        """Calculates the cut-off edit distance (see Oflazer)."""
+        """Calculates the cut-off edit distance (see Oflazer). (ed() is
+        inlined)"""
         effect_ed = self.effect_edit_distance
         lo = max(0, depth - effect_ed)  # min chars from word to consider - 1
         up = min(self.word_len - 1 - (word_index - depth), depth + effect_ed)  # max chars from word to consider - 1
         min_ed = effect_ed + 1  # what is to be computed
         wi = word_index + lo - depth
+        h = self.h_matrix
+        p = h.p
+        rl = h.row_length
+        e1 = h.edit_distance + 1
+        wp = self.word_processed
+        cand = self.candidate
+        y = cand[cand_index]
+        y_prev = cand[cand_index - 1] if cand_index > 0 else None
+        cache = self._equal_cache
+        j = depth
         for i in range(lo, up + 1):
-            d = self.ed(i, depth, wi, cand_index)
+            # ed(i, depth, wi, cand_index)
+            base = (j - i + e1) * rl + j
+            x = wp[wi]
+            if x == y:
+                eq = True
+            else:
+                eq = cache.get((x, y))
+                if eq is None:
+                    eq = self._are_equal(x, y)
+            if eq:
+                d = p[base]
+            elif wi > 0 and cand_index > 0 and x == y_prev and wp[wi - 1] == y:
+                a = p[base - 1]
+                b = p[base - rl]
+                c = p[base + rl + 1]
+                d = 1 + (a if a <= b and a <= c else (b if b <= c else c))
+            else:
+                a = p[base]
+                b = p[base - rl]
+                c = p[base + rl + 1]
+                d = 1 + (a if a <= b and a <= c else (b if b <= c else c))
+            p[base + 1] = d
             if d < min_ed:
                 min_ed = d
             wi += 1
@@ -1155,49 +1290,70 @@ class _TrieFSA:
     node (no outgoing arcs) and the missing arc."""
 
     def __init__(self, sequences):
-        children = [{}]  # node -> {label: child node}
-        final = [False]
-        for seq in sequences:
-            node = 0
-            for b in seq:
-                c = children[node].get(b)
-                if c is None:
-                    c = children[node][b] = len(children)
-                    children.append({})
-                    final.append(False)
-                node = c
-            final[node] = True
-        # arcs of a node are consecutive, arc ids start with 1
-        self._first = [0] * len(children)
+        """sequences: sorted (unsigned byte order), without duplicates. The
+        trie is built in one pass over the sorted sequences (the nodes on
+        the path of the previous sequence are kept on a stack); a node gets
+        its number (and its arcs their numbers) when all its children are
+        known."""
         labels = [0]
         dests = [0]
         finals = [False]
         lasts = [False]
-        # node numbers: 0 for nodes without outgoing arcs, i + 1 otherwise
-        node_ids = [i + 1 if children[i] else 0 for i in range(len(children))]
-        first = [0] * (len(children) + 1)
-        arc_maps = [None] * (len(children) + 1)
-        for i, ch in enumerate(children):
-            if not ch:
-                continue
-            nid = node_ids[i]
-            first[nid] = len(labels)
+        first = [0]  # node -> first arc; nodes without arcs are 0
+        arc_maps = [None]  # node -> {label: arc}
+
+        def finish(arcs):
+            if not arcs:
+                return 0
+            nid = len(first)
+            first.append(len(labels))
             m = {}
-            items = sorted(ch.items())
-            for k, (label, c) in enumerate(items):
+            last = len(arcs) - 1
+            for k, (label, child) in enumerate(arcs):
                 m[label] = len(labels)
                 labels.append(label)
-                dests.append(node_ids[c])
-                finals.append(final[c])
-                lasts.append(k == len(items) - 1)
-            arc_maps[nid] = m
+                dests.append(child[0])
+                finals.append(child[1])
+                lasts.append(k == last)
+            arc_maps.append(m)
+            return nid
+
+        # a stack entry: [arcs (a list of [label, (child node, child is final)]), final]
+        stack = [[[], False]]
+        prev = b''
+        for seq in sequences:
+            n = min(len(prev), len(seq))
+            k = 0
+            while k < n and prev[k] == seq[k]:
+                k += 1
+            while len(stack) > k + 1:
+                node = stack.pop()
+                stack[-1][0][-1][1] = (finish(node[0]), node[1])
+            for b in seq[k:]:
+                stack[-1][0].append([b, None])
+                stack.append([[], False])
+            stack[-1][1] = True
+            prev = seq
+        while len(stack) > 1:
+            node = stack.pop()
+            stack[-1][0][-1][1] = (finish(node[0]), node[1])
+        self.root = finish(stack[0][0])
         self._first = first
         self._labels = labels
         self._dests = dests
         self._finals = finals
         self._lasts = lasts
         self._arc_maps = arc_maps
-        self.root = node_ids[0]
+
+    def c_arrays(self):
+        """The arrays of the trie for the C search (first arc, labels,
+        destinations, final and last flags)"""
+        r = getattr(self, '_c_arrays', None)
+        if r is None:
+            from array import array
+            r = self._c_arrays = (array('i', self._first).tobytes(), bytes(self._labels),
+                                  array('i', self._dests).tobytes(), bytes(self._finals), bytes(self._lasts))
+        return r
 
     def first_arc(self, node):
         return self._first[node]

@@ -27,7 +27,7 @@ def codes_to_test():
             continue
         variants = [v['code'] for v in d['variants']]
         if short == 'de':
-            out.extend(['de-DE', 'de', 'de-CH'])
+            out.extend(['de-DE', 'de', 'de-AT', 'de-CH'])
             continue
         first = True
         for v in variants:

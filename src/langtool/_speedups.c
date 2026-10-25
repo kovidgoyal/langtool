@@ -1559,6 +1559,764 @@ static PyTypeObject FSADictType = {
 /* ------------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------------ */
+/* morfologik Speller: the error-tolerant search (Speller.findRepl,
+ * langtool.spelling.Speller._find_repl with cuted/ed/areEqual and the
+ * replacement pairs). Exactly the semantics of the Python implementation,
+ * including Python's index wrapping of negative indexes. */
+
+#define SP_MAX_PREV 8
+
+typedef struct {
+    Py_UCS4 *chars;
+    int len;
+    int start_anchor, end_anchor;
+} SpPattern;
+
+typedef struct {
+    unsigned long long key;
+    int start, count;   /* range in the pattern array */
+} SpKey;
+
+typedef struct {
+    PyObject_HEAD
+    PyObject *eq_func;
+    unsigned long long *eq_keys;   /* (x << 32 | y) + 1, 0 = empty */
+    signed char *eq_vals;
+    Py_ssize_t eq_cap, eq_n;
+    SpKey *k1; int n1; SpPattern *p1; int np1;
+    SpKey *k2; int n2; SpPattern *p2; int np2;
+    int utf8;                       /* 1: UTF-8, 0: single byte table */
+    int table[256];
+    Py_UCS4 separator_char;
+    int separator;
+} SpellerSearch;
+
+static void
+sp_free_patterns(SpPattern *p, int n)
+{
+    if (!p) return;
+    for (int i = 0; i < n; i++) PyMem_Free(p[i].chars);
+    PyMem_Free(p);
+}
+
+static void
+sp_dealloc(SpellerSearch *self)
+{
+    Py_XDECREF(self->eq_func);
+    PyMem_Free(self->eq_keys);
+    PyMem_Free(self->eq_vals);
+    PyMem_Free(self->k1);
+    PyMem_Free(self->k2);
+    sp_free_patterns(self->p1, self->np1);
+    sp_free_patterns(self->p2, self->np2);
+    Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int
+sp_key_cmp(const void *a, const void *b)
+{
+    unsigned long long x = ((const SpKey *)a)->key, y = ((const SpKey *)b)->key;
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+/* items: list of (key string, [(chars, start_anchor, end_anchor), ...]) in order */
+static int
+sp_load_map(PyObject *items, int keylen, SpKey **keys_out, int *nk_out, SpPattern **pats_out, int *np_out)
+{
+    if (!PyList_Check(items)) { PyErr_SetString(PyExc_TypeError, "list expected"); return -1; }
+    Py_ssize_t nk = PyList_GET_SIZE(items), np = 0;
+    for (Py_ssize_t i = 0; i < nk; i++) {
+        PyObject *it = PyList_GET_ITEM(items, i);
+        if (!PyTuple_Check(it) || PyTuple_GET_SIZE(it) != 2 || !PyList_Check(PyTuple_GET_ITEM(it, 1))) {
+            PyErr_SetString(PyExc_TypeError, "(key, list) expected"); return -1;
+        }
+        np += PyList_GET_SIZE(PyTuple_GET_ITEM(it, 1));
+    }
+    SpKey *keys = PyMem_Calloc(nk ? nk : 1, sizeof(SpKey));
+    SpPattern *pats = PyMem_Calloc(np ? np : 1, sizeof(SpPattern));
+    if (!keys || !pats) { PyMem_Free(keys); PyMem_Free(pats); PyErr_NoMemory(); return -1; }
+    *keys_out = keys; *pats_out = pats; *nk_out = (int)nk; *np_out = 0;
+    int pi = 0;
+    for (Py_ssize_t i = 0; i < nk; i++) {
+        PyObject *it = PyList_GET_ITEM(items, i);
+        PyObject *k = PyTuple_GET_ITEM(it, 0), *lst = PyTuple_GET_ITEM(it, 1);
+        if (!PyUnicode_Check(k) || PyUnicode_GET_LENGTH(k) != keylen) {
+            PyErr_SetString(PyExc_ValueError, "bad key"); return -1;
+        }
+        unsigned long long key = PyUnicode_READ_CHAR(k, 0);
+        if (keylen == 2) key = (key << 32) | PyUnicode_READ_CHAR(k, 1);
+        keys[i].key = key;
+        keys[i].start = pi;
+        keys[i].count = (int)PyList_GET_SIZE(lst);
+        for (Py_ssize_t j = 0; j < PyList_GET_SIZE(lst); j++) {
+            PyObject *t = PyList_GET_ITEM(lst, j);
+            PyObject *chars;
+            int sa, ea;
+            if (!PyArg_ParseTuple(t, "Upp", &chars, &sa, &ea)) return -1;
+            Py_ssize_t n = PyUnicode_GET_LENGTH(chars);
+            pats[pi].chars = PyMem_Malloc((n ? n : 1) * sizeof(Py_UCS4));
+            if (!pats[pi].chars) { PyErr_NoMemory(); return -1; }
+            for (Py_ssize_t c = 0; c < n; c++) pats[pi].chars[c] = PyUnicode_READ_CHAR(chars, c);
+            pats[pi].len = (int)n;
+            pats[pi].start_anchor = sa;
+            pats[pi].end_anchor = ea;
+            pi++;
+            *np_out = pi;
+        }
+    }
+    qsort(keys, nk, sizeof(SpKey), sp_key_cmp);  /* keys are distinct */
+    return 0;
+}
+
+static const SpKey *
+sp_find_key(const SpKey *keys, int n, unsigned long long key)
+{
+    int lo = 0, hi = n - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) >> 1;
+        if (keys[mid].key == key) return &keys[mid];
+        if (keys[mid].key < key) lo = mid + 1; else hi = mid - 1;
+    }
+    return NULL;
+}
+
+/* SpellerSearch(eq_func, any_to_one_items, any_to_two_items, utf8, table (list of 256 ints, -1: undecodable),
+ *               separator_char, separator_byte) */
+static int
+sp_init(SpellerSearch *self, PyObject *args, PyObject *kwds)
+{
+    PyObject *eq, *m1, *m2, *table, *sepc;
+    int utf8, sep;
+    if (!PyArg_ParseTuple(args, "OOOpOUi", &eq, &m1, &m2, &utf8, &table, &sepc, &sep)) return -1;
+    if (PyUnicode_GET_LENGTH(sepc) != 1) { PyErr_SetString(PyExc_ValueError, "separator char"); return -1; }
+    Py_INCREF(eq);
+    Py_XSETREF(self->eq_func, eq);
+    if (sp_load_map(m1, 1, &self->k1, &self->n1, &self->p1, &self->np1) < 0) return -1;
+    if (sp_load_map(m2, 2, &self->k2, &self->n2, &self->p2, &self->np2) < 0) return -1;
+    self->utf8 = utf8;
+    if (!PyList_Check(table) || PyList_GET_SIZE(table) != 256) {
+        PyErr_SetString(PyExc_ValueError, "table of 256 ints expected"); return -1;
+    }
+    for (int i = 0; i < 256; i++) {
+        long v = PyLong_AsLong(PyList_GET_ITEM(table, i));
+        if (v == -1 && PyErr_Occurred()) return -1;
+        self->table[i] = (int)v;
+    }
+    self->separator_char = PyUnicode_READ_CHAR(sepc, 0);
+    self->separator = sep;
+    self->eq_cap = 1024;
+    self->eq_keys = PyMem_Calloc(self->eq_cap, sizeof(unsigned long long));
+    self->eq_vals = PyMem_Calloc(self->eq_cap, 1);
+    if (!self->eq_keys || !self->eq_vals) { PyErr_NoMemory(); return -1; }
+    return 0;
+}
+
+static int
+sp_eq_insert(SpellerSearch *s, unsigned long long k, signed char v)
+{
+    if ((s->eq_n + 1) * 2 > s->eq_cap) {
+        Py_ssize_t nc = s->eq_cap * 2;
+        unsigned long long *nk = PyMem_Calloc(nc, sizeof(unsigned long long));
+        signed char *nv = PyMem_Calloc(nc, 1);
+        if (!nk || !nv) { PyMem_Free(nk); PyMem_Free(nv); PyErr_NoMemory(); return -1; }
+        for (Py_ssize_t i = 0; i < s->eq_cap; i++) {
+            if (s->eq_keys[i]) {
+                Py_ssize_t h = (Py_ssize_t)((s->eq_keys[i] * 0x9E3779B97F4A7C15ULL) >> 20) & (nc - 1);
+                while (nk[h]) h = (h + 1) & (nc - 1);
+                nk[h] = s->eq_keys[i];
+                nv[h] = s->eq_vals[i];
+            }
+        }
+        PyMem_Free(s->eq_keys); PyMem_Free(s->eq_vals);
+        s->eq_keys = nk; s->eq_vals = nv; s->eq_cap = nc;
+    }
+    Py_ssize_t h = (Py_ssize_t)((k * 0x9E3779B97F4A7C15ULL) >> 20) & (s->eq_cap - 1);
+    while (s->eq_keys[h]) h = (h + 1) & (s->eq_cap - 1);
+    s->eq_keys[h] = k;
+    s->eq_vals[h] = v;
+    s->eq_n++;
+    return 0;
+}
+
+/* 1 / 0, -1 on error */
+static int
+sp_are_equal(SpellerSearch *s, Py_UCS4 x, Py_UCS4 y)
+{
+    if (x == y) return 1;
+    unsigned long long k = (((unsigned long long)x << 32) | y) + 1;
+    Py_ssize_t h = (Py_ssize_t)((k * 0x9E3779B97F4A7C15ULL) >> 20) & (s->eq_cap - 1);
+    while (s->eq_keys[h]) {
+        if (s->eq_keys[h] == k) return s->eq_vals[h];
+        h = (h + 1) & (s->eq_cap - 1);
+    }
+    PyObject *xs = PyUnicode_FromOrdinal(x);
+    if (!xs) return -1;
+    PyObject *ys = PyUnicode_FromOrdinal(y);
+    if (!ys) { Py_DECREF(xs); return -1; }
+    PyObject *r = PyObject_CallFunctionObjArgs(s->eq_func, xs, ys, NULL);
+    Py_DECREF(xs); Py_DECREF(ys);
+    if (!r) return -1;
+    int v = PyObject_IsTrue(r);
+    Py_DECREF(r);
+    if (v < 0) return -1;
+    if (sp_eq_insert(s, k, (signed char)v) < 0) return -1;
+    return v;
+}
+
+typedef struct {
+    SpellerSearch *s;
+    FSADict *d;                 /* binary FSA, or NULL for the trie */
+    const int *t_first; const unsigned char *t_labels; const int *t_dests;
+    const unsigned char *t_finals, *t_lasts;
+    Py_ssize_t t_nnodes, t_narcs;
+    const Py_UCS4 *wp; Py_ssize_t word_len;
+    Py_UCS4 *cand; Py_ssize_t maxw;
+    int *p; Py_ssize_t plen; Py_ssize_t rl; Py_ssize_t e1;
+    int effect_ed;
+    PyObject *result;
+} SpCtx;
+
+#define SP_ERR (-0x7fffffffL)
+
+static int
+sp_index_error(void)
+{
+    PyErr_SetString(PyExc_IndexError, "index out of range");
+    return -1;
+}
+
+static int
+sp_corrupt(void)
+{
+    if (!PyErr_Occurred()) PyErr_SetString(PyExc_ValueError, "Corrupt FSA dictionary");
+    return -1;
+}
+
+/* Python list index semantics */
+static inline int
+sp_pidx(SpCtx *c, Py_ssize_t i, Py_ssize_t *out)
+{
+    if (i < 0) i += c->plen;
+    if (i < 0 || i >= c->plen) return sp_index_error();
+    *out = i;
+    return 0;
+}
+
+static inline int
+sp_wp(SpCtx *c, Py_ssize_t i, Py_UCS4 *out)
+{
+    if (i < 0) i += c->word_len;
+    if (i < 0 || i >= c->word_len) return sp_index_error();
+    *out = c->wp[i];
+    return 0;
+}
+
+static inline int
+sp_cand(SpCtx *c, Py_ssize_t i, Py_UCS4 *out)
+{
+    if (i < 0) i += c->maxw;
+    if (i < 0 || i >= c->maxw) return sp_index_error();
+    *out = c->cand[i];
+    return 0;
+}
+
+/* H(i, j) */
+static inline int
+sp_hget(SpCtx *c, Py_ssize_t i, Py_ssize_t j, int *out)
+{
+    Py_ssize_t k;
+    if (sp_pidx(c, (j - i + c->e1) * c->rl + j, &k) < 0) return -1;
+    *out = c->p[k];
+    return 0;
+}
+
+static inline int
+sp_hset(SpCtx *c, Py_ssize_t i, Py_ssize_t j, int v)
+{
+    Py_ssize_t k;
+    if (sp_pidx(c, (j - i + c->e1) * c->rl + j, &k) < 0) return -1;
+    c->p[k] = v;
+    return 0;
+}
+
+/* FSA operations, mirroring the Python FSA classes; return SP_ERR on errors */
+static inline long
+sp_first_arc(SpCtx *c, long node)
+{
+    if (c->d) return fsa_first_arc(c->d, node) < 0 ? SP_ERR : fsa_first_arc(c->d, node);
+    if (node < 0 || node >= c->t_nnodes) return SP_ERR;
+    return c->t_first[node];
+}
+
+static inline int
+sp_arc_ok(SpCtx *c, long arc)
+{
+    if (c->d) return arc >= 0 && arc < c->d->narcs && !(c->d->kind == 5 && arc + 1 >= c->d->narcs)
+                     && !(c->d->kind == 0xc6 && (c->d->arcs[arc] & 0x1f) == 0 && arc + 1 >= c->d->narcs);
+    return arc >= 0 && arc < c->t_narcs;
+}
+
+static inline long
+sp_next_arc(SpCtx *c, long arc)
+{
+    if (!sp_arc_ok(c, arc)) return SP_ERR;
+    if (c->d) {
+        if (fsa_is_last(c->d, arc)) return 0;
+        long r = fsa_skip_arc(c->d, arc);
+        return r < 0 ? SP_ERR : r;
+    }
+    return c->t_lasts[arc] ? 0 : arc + 1;
+}
+
+static inline int
+sp_label(SpCtx *c, long arc)
+{
+    return c->d ? fsa_label(c->d, arc) : c->t_labels[arc];
+}
+
+static inline int
+sp_is_final(SpCtx *c, long arc)
+{
+    return c->d ? fsa_is_final(c->d, arc) : c->t_finals[arc];
+}
+
+static inline long
+sp_destination(SpCtx *c, long arc)
+{
+    if (!sp_arc_ok(c, arc)) return SP_ERR;
+    if (c->d) {
+        long r = fsa_destination(c->d, arc);
+        return r < 0 ? SP_ERR : r;
+    }
+    return c->t_dests[arc];
+}
+
+static long
+sp_get_arc(SpCtx *c, long node, int lbl)
+{
+    if (c->d) {
+        long arc = sp_first_arc(c, node);
+        if (arc == SP_ERR) return SP_ERR;
+        while (1) {
+            if (!sp_arc_ok(c, arc)) return SP_ERR;
+            if (fsa_label(c->d, arc) == lbl) return arc;
+            if (fsa_is_last(c->d, arc)) return 0;
+            arc = fsa_skip_arc(c->d, arc);
+            if (arc < 0) return SP_ERR;
+        }
+    }
+    if (node < 0 || node >= c->t_nnodes) return SP_ERR;
+    if (node == 0) return 0;  /* (no arc map) */
+    long arc = c->t_first[node];
+    while (1) {
+        if (arc < 0 || arc >= c->t_narcs) return SP_ERR;
+        if (c->t_labels[arc] == lbl) return arc;
+        if (c->t_lasts[arc]) return 0;
+        arc++;
+    }
+}
+
+/* _is_end_of_candidate: 1/0, -1 error */
+static int
+sp_is_end_of_candidate(SpCtx *c, long arc, Py_ssize_t word_index)
+{
+    int ok = sp_is_final(c, arc);
+    if (!ok) {
+        long dest = sp_destination(c, arc);
+        if (dest == SP_ERR) return sp_corrupt();
+        long arc1 = sp_get_arc(c, dest, c->s->separator);
+        if (arc1 == SP_ERR) return sp_corrupt();
+        if (arc1 != 0) {
+            long d2 = sp_destination(c, arc1);
+            if (d2 == SP_ERR) return sp_corrupt();
+            ok = d2 != 0;
+        }
+    }
+    if (!ok) return 0;
+    Py_ssize_t diff = c->word_len - 1 - word_index;
+    if (diff < 0) diff = -diff;
+    return diff <= c->effect_ed;
+}
+
+static int
+sp_is_arc_not_terminal(SpCtx *c, long arc, Py_ssize_t cand_index)
+{
+    long dest = sp_destination(c, arc);
+    if (dest == SP_ERR) return sp_corrupt();
+    if (dest == 0) return 0;
+    Py_UCS4 ch;
+    if (sp_cand(c, cand_index, &ch) < 0) return -1;
+    return ch != c->s->separator_char;
+}
+
+static int
+sp_add_candidate(SpCtx *c, Py_ssize_t cand_index, int dist)
+{
+    Py_ssize_t n = cand_index + 1;
+    if (n > c->maxw) n = c->maxw;
+    if (n < 0) n = 0;
+    PyObject *w = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, c->cand, n);
+    if (!w) return -1;
+    PyObject *t = Py_BuildValue("(Ni)", w, dist);
+    if (!t) return -1;
+    int r = PyList_Append(c->result, t);
+    Py_DECREF(t);
+    return r;
+}
+
+/* ed(i, j, word_index, cand_index) */
+static int
+sp_ed(SpCtx *c, Py_ssize_t i, Py_ssize_t j, Py_ssize_t word_index, Py_ssize_t cand_index, int *out)
+{
+    Py_ssize_t base = (j - i + c->e1) * c->rl + j, k;
+    Py_UCS4 x, y;
+    int result, a, b, cc;
+    if (sp_wp(c, word_index, &x) < 0 || sp_cand(c, cand_index, &y) < 0) return -1;
+    int eq = sp_are_equal(c->s, x, y);
+    if (eq < 0) return -1;
+    int transposed = 0;
+    if (!eq && word_index > 0 && cand_index > 0) {
+        Py_UCS4 cp, wpp;
+        if (sp_cand(c, cand_index - 1, &cp) < 0) return -1;
+        if (x == cp) {
+            if (sp_wp(c, word_index - 1, &wpp) < 0) return -1;
+            transposed = wpp == y;
+        }
+    }
+    if (eq) {
+        if (sp_pidx(c, base, &k) < 0) return -1;
+        result = c->p[k];
+    } else {
+        if (sp_pidx(c, transposed ? base - 1 : base, &k) < 0) return -1;
+        a = c->p[k];
+        if (sp_pidx(c, base - c->rl, &k) < 0) return -1;
+        b = c->p[k];
+        if (sp_pidx(c, base + c->rl + 1, &k) < 0) return -1;
+        cc = c->p[k];
+        result = 1 + (a <= b && a <= cc ? a : (b <= cc ? b : cc));
+    }
+    if (sp_pidx(c, base + 1, &k) < 0) return -1;
+    c->p[k] = result;
+    *out = result;
+    return 0;
+}
+
+static int
+sp_cuted(SpCtx *c, Py_ssize_t depth, Py_ssize_t word_index, Py_ssize_t cand_index, int *out)
+{
+    int ee = c->effect_ed;
+    Py_ssize_t lo = depth - ee > 0 ? depth - ee : 0;
+    Py_ssize_t up = c->word_len - 1 - (word_index - depth);
+    if (depth + ee < up) up = depth + ee;
+    int min_ed = ee + 1;
+    Py_ssize_t wi = word_index + lo - depth;
+    for (Py_ssize_t i = lo; i <= up; i++) {
+        int d;
+        if (sp_ed(c, i, depth, wi, cand_index, &d) < 0) return -1;
+        if (d < min_ed) min_ed = d;
+        wi++;
+    }
+    *out = min_ed;
+    return 0;
+}
+
+static int
+sp_match_any_to_one(SpCtx *c, Py_ssize_t word_index, Py_ssize_t cand_index, int *out)
+{
+    Py_UCS4 ch;
+    *out = 0;
+    if (sp_cand(c, cand_index, &ch) < 0) return -1;
+    const SpKey *k = sp_find_key(c->s->k1, c->s->n1, ch);
+    if (!k) return 0;
+    for (int pi = k->start; pi < k->start + k->count; pi++) {
+        const SpPattern *p = &c->s->p1[pi];
+        if (p->start_anchor && word_index != 0) continue;
+        int i = 0;
+        while (i < p->len && word_index + i < c->word_len) {
+            Py_UCS4 w;
+            if (sp_wp(c, word_index + i, &w) < 0) return -1;
+            if (p->chars[i] != w) break;
+            i++;
+        }
+        if (i == p->len) {
+            if (p->end_anchor && word_index + i != c->word_len) continue;
+            *out = i;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static int
+sp_match_any_to_two(SpCtx *c, Py_ssize_t word_index, Py_ssize_t cand_index, Py_ssize_t min_lookback,
+                    Py_ssize_t src_start, Py_ssize_t src_len, Py_UCS4 target, int *out)
+{
+    *out = 0;
+    if (!(0 < cand_index && cand_index < c->maxw && word_index > 0)) return 0;
+    Py_UCS4 c1 = c->cand[cand_index - 1], c2 = c->cand[cand_index];
+    const SpKey *k = sp_find_key(c->s->k2, c->s->n2, ((unsigned long long)c1 << 32) | c2);
+    if (!k) return 0;
+    for (int pi = k->start; pi < k->start + k->count; pi++) {
+        const SpPattern *p = &c->s->p2[pi];
+        if (p->start_anchor && word_index - 1 != 0) continue;
+        if (p->len == 2 && word_index < c->word_len) {
+            Py_UCS4 w1, w2;
+            if (sp_wp(c, word_index - 1, &w1) < 0) return -1;
+            if (c1 == w1) {
+                if (sp_wp(c, word_index, &w2) < 0) return -1;
+                if (c2 == w2) { *out = 0; return 0; }  /* unnecessary replacements */
+            }
+        }
+        int i = 0;
+        while (i < p->len && word_index - 1 + i < c->word_len) {
+            Py_UCS4 w;
+            if (sp_wp(c, word_index - 1 + i, &w) < 0) return -1;
+            if (p->chars[i] != w) break;
+            i++;
+        }
+        if (i == p->len) {
+            if (p->end_anchor && word_index - 1 + i != c->word_len) continue;
+            /* Reject if this match directly reverses a previous anyToOne match at an overlapping position */
+            if (word_index - 1 < min_lookback && src_len >= 0 && p->len == 1 && p->chars[0] == target
+                    && src_len == 2) {
+                Py_UCS4 s1, s2;
+                if (sp_wp(c, src_start, &s1) < 0 || sp_wp(c, src_start + 1, &s2) < 0) return -1;
+                if (s1 == c1 && s2 == c2) continue;
+            }
+            *out = i;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+/* decoding of the accumulated bytes plus label: the character or -1 (incomplete / undecodable) */
+static long
+sp_decode(SpCtx *c, const unsigned char *prev, int prev_len, int label, unsigned char *buf, int *buf_len)
+{
+    int n = prev_len + 1;
+    for (int i = 0; i < prev_len && i < SP_MAX_PREV; i++) buf[i] = prev[i];
+    if (prev_len < SP_MAX_PREV) buf[prev_len] = (unsigned char)label;
+    *buf_len = n;
+    if (!c->s->utf8) {
+        if (prev_len == 0) return c->s->table[label];
+        return -1;  /* (not used: all bytes are decodable) */
+    }
+    if (prev_len == 0 && label < 0x80) return label;
+    unsigned char lead = buf[0];
+    int need = lead < 0x80 ? 1 : lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 0;
+    if (need == 0 || n != need || n > SP_MAX_PREV) return -1;
+    PyObject *u = PyUnicode_DecodeUTF8((const char *)buf, n, "strict");
+    if (!u) {
+        if (!PyErr_ExceptionMatches(PyExc_UnicodeDecodeError)) return -2;
+        PyErr_Clear();
+        return -1;
+    }
+    long r = PyUnicode_GET_LENGTH(u) ? (long)PyUnicode_READ_CHAR(u, 0) : -1;
+    Py_DECREF(u);
+    return r;
+}
+
+static int
+sp_find_repl(SpCtx *c, Py_ssize_t depth, long node, const unsigned char *prev, int prev_len,
+             Py_ssize_t word_index, Py_ssize_t cand_index, Py_ssize_t min_lookback,
+             Py_ssize_t src_start, Py_ssize_t src_len, Py_UCS4 target)
+{
+    int ee = c->effect_ed;
+    long arc = sp_first_arc(c, node);
+    if (arc == SP_ERR) return sp_corrupt();
+    while (arc != 0) {
+        if (!sp_arc_ok(c, arc)) return sp_corrupt();
+        int label = sp_label(c, arc);
+        unsigned char buf[SP_MAX_PREV];
+        int buf_len;
+        long ch = sp_decode(c, prev, prev_len, label, buf, &buf_len);
+        if (ch == -2) return -1;
+        if (ch < 0) {
+            /* incomplete multi-byte sequence: accumulate bytes and descend */
+            long dest = sp_destination(c, arc);
+            if (dest == SP_ERR) return sp_corrupt();
+            if (dest != 0) {
+                if (sp_find_repl(c, depth, dest, buf, buf_len, word_index, cand_index, min_lookback,
+                                 src_start, src_len, target) < 0) return -1;
+            }
+        } else {
+            if (ch > 0xffff) ch = 0xd800 + ((ch - 0x10000) >> 10);  /* the first UTF-16 code unit */
+            Py_ssize_t ci = cand_index < 0 ? cand_index + c->maxw : cand_index;
+            if (ci < 0 || ci >= c->maxw) return sp_index_error();
+            c->cand[ci] = (Py_UCS4)ch;
+            int lr, r;
+            /* replacement "any to two" */
+            if (sp_match_any_to_two(c, word_index, cand_index, min_lookback, src_start, src_len, target, &lr) < 0)
+                return -1;
+            if (lr > 0) {
+                if ((r = sp_is_end_of_candidate(c, arc, word_index)) < 0) return -1;
+                if (r) {
+                    int dist;
+                    if (sp_hget(c, depth - 1, depth - 1, &dist) < 0) return -1;
+                    if (dist <= ee) {
+                        Py_ssize_t extra = c->word_len - 1 - (word_index + lr - 2);
+                        if (extra < 0) extra = -extra;
+                        if (extra > 0) dist += (int)extra;
+                        if (dist <= ee && sp_add_candidate(c, cand_index, dist) < 0) return -1;
+                    }
+                }
+                if ((r = sp_is_arc_not_terminal(c, arc, cand_index)) < 0) return -1;
+                if (r) {
+                    int x, v;
+                    if (sp_hget(c, depth, depth, &x) < 0) return -1;
+                    if (sp_hget(c, depth - 1, depth - 1, &v) < 0 || sp_hset(c, depth, depth, v) < 0) return -1;
+                    long dest = sp_destination(c, arc);
+                    if (dest == SP_ERR) return sp_corrupt();
+                    if (sp_find_repl(c, depth > 0 ? depth : 0, dest, NULL, 0, word_index + lr - 1, cand_index + 1,
+                                     min_lookback, src_start, src_len, target) < 0) return -1;
+                    if (sp_hset(c, depth, depth, x) < 0) return -1;
+                }
+            }
+            /* replacement "any to one" */
+            if (sp_match_any_to_one(c, word_index, cand_index, &lr) < 0) return -1;
+            if (lr > 0) {
+                if ((r = sp_is_end_of_candidate(c, arc, word_index)) < 0) return -1;
+                if (r) {
+                    int dist;
+                    if (sp_hget(c, depth, depth, &dist) < 0) return -1;
+                    if (dist <= ee) {
+                        Py_ssize_t extra = c->word_len - 1 - (word_index + lr - 1);
+                        if (extra < 0) extra = -extra;
+                        if (extra > 0) dist += (int)extra;
+                        if (dist <= ee && sp_add_candidate(c, cand_index, dist) < 0) return -1;
+                    }
+                }
+                if ((r = sp_is_arc_not_terminal(c, arc, cand_index)) < 0) return -1;
+                if (r) {
+                    /* new_any_to_one_source = word_processed[word_index:word_index + lr] (a Python slice) */
+                    Py_ssize_t s0 = word_index, s1 = word_index + lr, L = c->word_len;
+                    if (s0 < 0) { s0 += L; if (s0 < 0) s0 = 0; } else if (s0 > L) s0 = L;
+                    if (s1 < 0) { s1 += L; if (s1 < 0) s1 = 0; } else if (s1 > L) s1 = L;
+                    Py_ssize_t slen = s1 > s0 ? s1 - s0 : 0;
+                    long dest = sp_destination(c, arc);
+                    if (dest == SP_ERR) return sp_corrupt();
+                    if (sp_find_repl(c, depth, dest, NULL, 0, word_index + lr, cand_index + 1, word_index + lr,
+                                     s0, slen, c->cand[ci]) < 0) return -1;
+                }
+            }
+            /* general */
+            int cut;
+            if (sp_cuted(c, depth, word_index, cand_index, &cut) < 0) return -1;
+            if (cut <= ee) {
+                if ((r = sp_is_end_of_candidate(c, arc, word_index)) < 0) return -1;
+                if (r) {
+                    int dist;
+                    if (sp_ed(c, c->word_len - 1 - (word_index - depth), depth, c->word_len - 1, cand_index, &dist) < 0)
+                        return -1;
+                    if (dist <= ee && sp_add_candidate(c, cand_index, dist) < 0) return -1;
+                }
+                if ((r = sp_is_arc_not_terminal(c, arc, cand_index)) < 0) return -1;
+                if (r) {
+                    long dest = sp_destination(c, arc);
+                    if (dest == SP_ERR) return sp_corrupt();
+                    if (sp_find_repl(c, depth + 1, dest, NULL, 0, word_index + 1, cand_index + 1, min_lookback,
+                                     src_start, src_len, target) < 0) return -1;
+                }
+            }
+        }
+        arc = sp_next_arc(c, arc);
+        if (arc == SP_ERR) return sp_corrupt();
+    }
+    return 0;
+}
+
+/* search(fsa, root, word, h_list, h_edit_distance, row_length, effect_edit_distance, max_word_length)
+ * -> list of (candidate, distance). fsa is an FSADict or a tuple of bytes
+ * (first (int32), labels (uint8), dests (int32), finals (uint8), lasts (uint8)) of a trie.
+ * h_list (the HMatrix vector, a list of ints) is updated. */
+static PyObject *
+sp_search(SpellerSearch *self, PyObject *args)
+{
+    PyObject *fsa, *word, *hlist;
+    long root;
+    Py_ssize_t hed, rl, maxw;
+    int effect_ed;
+    if (!PyArg_ParseTuple(args, "OlUO!nnin", &fsa, &root, &word, &PyList_Type, &hlist, &hed, &rl, &effect_ed, &maxw))
+        return NULL;
+    SpCtx c;
+    memset(&c, 0, sizeof(c));
+    c.s = self;
+    Py_buffer bufs[5];
+    int nbufs = 0;
+    if (PyObject_TypeCheck(fsa, &FSADictType)) {
+        c.d = (FSADict *)fsa;
+    } else {
+        if (!PyTuple_Check(fsa) || PyTuple_GET_SIZE(fsa) != 5) {
+            PyErr_SetString(PyExc_TypeError, "FSADict or trie arrays expected"); return NULL;
+        }
+        for (int i = 0; i < 5; i++) {
+            if (PyObject_GetBuffer(PyTuple_GET_ITEM(fsa, i), &bufs[i], PyBUF_SIMPLE) < 0) goto fail;
+            nbufs++;
+        }
+        c.t_first = bufs[0].buf; c.t_nnodes = bufs[0].len / (Py_ssize_t)sizeof(int);
+        c.t_labels = bufs[1].buf; c.t_narcs = bufs[1].len;
+        c.t_dests = bufs[2].buf; c.t_finals = bufs[3].buf; c.t_lasts = bufs[4].buf;
+        if (bufs[2].len / (Py_ssize_t)sizeof(int) != c.t_narcs || bufs[3].len != c.t_narcs || bufs[4].len != c.t_narcs) {
+            PyErr_SetString(PyExc_ValueError, "inconsistent trie arrays"); goto fail;
+        }
+    }
+    {
+        Py_ssize_t wl = PyUnicode_GET_LENGTH(word);
+        Py_UCS4 *wp = PyUnicode_AsUCS4Copy(word);
+        Py_UCS4 *cand = PyMem_Calloc(maxw > 0 ? maxw : 1, sizeof(Py_UCS4));
+        Py_ssize_t plen = PyList_GET_SIZE(hlist);
+        int *p = PyMem_Malloc((plen ? plen : 1) * sizeof(int));
+        PyObject *result = PyList_New(0);
+        if (!wp || !cand || !p || !result) {
+            PyMem_Free(wp); PyMem_Free(cand); PyMem_Free(p); Py_XDECREF(result);
+            if (!PyErr_Occurred()) PyErr_NoMemory();
+            goto fail;
+        }
+        for (Py_ssize_t i = 0; i < plen; i++) {
+            long v = PyLong_AsLong(PyList_GET_ITEM(hlist, i));
+            if (v == -1 && PyErr_Occurred()) {
+                PyMem_Free(wp); PyMem_Free(cand); PyMem_Free(p); Py_DECREF(result); goto fail;
+            }
+            p[i] = (int)v;
+        }
+        c.wp = wp; c.word_len = wl; c.cand = cand; c.maxw = maxw;
+        c.p = p; c.plen = plen; c.rl = rl; c.e1 = hed + 1; c.effect_ed = effect_ed;
+        c.result = result;
+        int rc = sp_find_repl(&c, 0, root, NULL, 0, 0, 0, -1, 0, -1, 0);
+        /* write back the HMatrix (also after errors, like the Python code would have modified it) */
+        for (Py_ssize_t i = 0; i < plen; i++) {
+            PyObject *v = PyLong_FromLong(p[i]);
+            if (!v) { rc = -1; break; }
+            PyList_SetItem(hlist, i, v);
+        }
+        PyMem_Free(wp); PyMem_Free(cand); PyMem_Free(p);
+        for (int i = 0; i < nbufs; i++) PyBuffer_Release(&bufs[i]);
+        if (rc < 0) { Py_DECREF(result); return NULL; }
+        return result;
+    }
+fail:
+    for (int i = 0; i < nbufs; i++) PyBuffer_Release(&bufs[i]);
+    return NULL;
+}
+
+static PyMethodDef sp_methods[] = {
+    {"search", (PyCFunction)sp_search, METH_VARARGS, "The error-tolerant search of morfologik's Speller"},
+    {NULL}
+};
+
+static PyTypeObject SpellerSearchType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "langtool._speedups.SpellerSearch",
+    .tp_basicsize = sizeof(SpellerSearch),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc)sp_init,
+    .tp_dealloc = (destructor)sp_dealloc,
+    .tp_methods = sp_methods,
+};
+
+/* ------------------------------------------------------------------------ */
 /* OpenNLP GIS model evaluation (langtool.opennlp.GISModel)                  */
 
 #define GIS_MAX_OUTCOMES 1024
@@ -1723,6 +2481,7 @@ exec_module(PyObject *m)
     ADD_TYPE(CompiledPatternType, "CompiledPattern");
     ADD_TYPE(FSADictType, "FSADict");
     ADD_TYPE(RuleHintsType, "RuleHints");
+    ADD_TYPE(SpellerSearchType, "SpellerSearch");
 #undef ADD_TYPE
     str_lower = PyUnicode_InternFromString("lower");
     str_regex_match = PyUnicode_InternFromString("_regex_match");

@@ -151,3 +151,48 @@ def test_weighted_speller():
     m = SuggestionMultiSpeller(d, [b'cesar', b'casa'], 1)
     assert m.get_suggestions('cesa') == ['casa', 'cosa', 'cesar']
     assert m.get_weighted_suggestions_from_default_dicts('cesa') == [('casa', 51), ('cosa', 51), ('cesar', 51)]
+
+
+# --- the C implementation of the search (_speedups.SpellerSearch) ---
+
+def _python_and_c_candidates(dictionary, words, distances=(1, 2, 3)):
+    """The candidates of the Speller search with the C implementation and
+    with the Python implementation (forced)"""
+    out_c, out_py = [], []
+    for ed in distances:
+        sc, sp = Speller(dictionary, ed), Speller(dictionary, ed)
+        sp.__dict__['_native_search_cache'] = None  # pure Python search
+        if sc._native_search() is None:
+            pytest.skip('no C extension')
+        for w in words:
+            for similar in (False, True):
+                for s, out in ((sc, out_c), (sp, out_py)):
+                    f = s.find_similar_word_candidates if similar else s.find_replacement_candidates
+                    out.append([(c.word, c.orig_distance, c.distance) for c in f(w)])
+    return out_c, out_py
+
+
+def test_c_search_plain_text():
+    """The C search gives the same candidates as the Python search
+    (replacement pairs, equivalent characters, diacritics, case, multi-byte
+    UTF-8 characters, characters outside the BMP)"""
+    words = ['casa', 'cása', 'Casa', 'CASA', 'grande', 'grand', 'quiero', 'kiero', 'cosa', 'ñandú', 'nandu',
+             'straße', 'strasse', 'Straße', 'über', 'uber', 'a\U0001F600b', 'ab', 'ćasa', 'ka', 'kasas', 'gande']
+    d = _plain_dictionary(words + ['ñu', 'año', 'Año', 'xyz', 'a\U0001F600bc', 'casé', 'kasa'],
+                          'fsa.dict.speller.replacement-pairs=k qu, qu k, ss ß, ß ss, n ñ, ü ue, ^ka ca, sa$ za\n'
+                          'fsa.dict.speller.equivalent-chars=c ć, ñ n\n'
+                          'fsa.dict.speller.ignore-diacritics=true\nfsa.dict.speller.convert-case=true\n')
+    c, py = _python_and_c_candidates(d, words + ['kasa', 'strase', 'qasa', 'año', 'ano', 'xy', 'zz', 'casaz'])
+    assert c == py
+    assert any(c)
+
+
+def test_c_search_dictionary_es():
+    """The C search on a binary speller dictionary (es-ES.dict)"""
+    require_dictionaries('es')
+    from langtool.api import get_language
+    dictionary = get_language('es').dictionary('es/es-ES.dict')
+    words = ['kiero', 'cosa', 'kasa', 'arbol', 'telefóno', 'Madrit', 'ESPANA', 'corazon', 'pinguino', 'acción',
+             'acsion', 'hechar', 'haber', 'aver', 'bueno', 'veuno', 'ola', 'x', 'ab']
+    c, py = _python_and_c_candidates(dictionary, words, (1, 2))
+    assert c == py

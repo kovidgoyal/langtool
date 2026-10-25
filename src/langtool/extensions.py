@@ -182,8 +182,8 @@ def create_disambiguator(language):
             from .api import get_language
             out.append(_xml_disambiguator(get_language(st[1]).default_variant, st[2]))
         elif kind == 'multiword':
-            path = language.resource_path(st[1])
-            if os.path.exists(path):
+            path = _resource_or_downloaded(language, st[1])
+            if path is not None:
                 out.append(_shared_chunker(path, **st[2]))
         elif kind == 'multiword2':
             kw = dict(st[2])
@@ -201,6 +201,23 @@ def create_disambiguator(language):
         else:
             raise ValueError('Unknown disambiguator stage: %r' % (st,))
     return ChainDisambiguator(out)
+
+
+def _resource_or_downloaded(language, name):
+    """The path of a resource file (e.g. 'de/multitoken-ignore.txt'), or of
+    the downloaded file for word lists that are part of the dictionary
+    download instead of the package data (see dictionaries.json), None if
+    neither exists"""
+    path = language.resource_path(name)
+    if os.path.exists(path):
+        return path
+    from .dictionaries import DictionaryNotFound, locate, required_files
+    if name not in required_files(resource_language(language)):
+        return None
+    try:
+        return locate(name, language.dictionary_path, language.download_dictionaries)
+    except DictionaryNotFound:
+        return None
 
 
 _chunker_cache = {}
@@ -260,8 +277,10 @@ def create_rules(language, messages, user_config=None):
         # examples=(wrong, fixed): the IncorrectExample/CorrectExample
         # constructor arguments of the Java rule (Rule.addExamplePair)
         examples = kw.get('examples')
-        if examples is not None:
-            kw = {k: v for k, v in kw.items() if k != 'examples'}
+        # url: the URL constructor argument of the Java rule (Rule.setUrl)
+        url = kw.get('url')
+        if examples is not None or url is not None:
+            kw = {k: v for k, v in kw.items() if k not in ('examples', 'url')}
         # a language specific class with the name of a core rule (e.g. the
         # LongSentenceRule of org.languagetool.rules.en) replaces the core rule
         _load_language_modules()
@@ -277,6 +296,9 @@ def create_rules(language, messages, user_config=None):
         if examples is not None:
             for rule in new:
                 rule.add_example_pair(*examples)
+        if url is not None:
+            for rule in new:
+                rule.url = url
         rules.extend(new)
     return rules
 

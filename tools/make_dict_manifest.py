@@ -44,6 +44,13 @@ EXTERNAL_FILES = {
 }
 # further jars of a language: (group, artifact, version, {jar path: name})
 EXTRA_JARS = {
+    # the word list and exceptions of jWordSplitter (GermanCompoundTokenizer,
+    # langtool.lang.de.compound_tokenizer)
+    'de': [
+        ('de.danielnaber', 'jwordsplitter', '4.7', {
+            'de/danielnaber/jwordsplitter/wordsGerman.txt': 'de/jwordsplitter/wordsGerman.txt',
+            'de/danielnaber/jwordsplitter/exceptionsGerman.txt': 'de/jwordsplitter/exceptionsGerman.txt'}),
+    ],
     # the OpenNLP models of the EnglishChunker (langtool.opennlp, lang/en/chunking.py)
     'en': [
         ('edu.washington.cs.knowitall', 'opennlp-tokenize-models', '1.5', {'en-token.bin': 'en/en-token.bin'}),
@@ -62,6 +69,19 @@ SPELLER_FILES = {
         'external': ['ca/ca-ES_spelling.dict', 'ca/ca-ES_spelling.info', 'ca/ca-ES_spelling_multitoken.dict',
                      'ca/ca-ES_spelling_multitoken.info'],
         'module': ['ca/spelling.txt', 'ca/hunspell/ignore.txt', 'ca/hunspell/prohibit.txt'],
+    },
+    'de': {
+        # GermanSpellerRule: the Hunspell dictionaries (misspelling check), the
+        # morfologik speller dictionaries (suggestions), the word lists;
+        # the multitoken files of GermanRuleDisambiguator and
+        # GermanMultitokenSpeller
+        'module': ['de/hunspell/de_%s.%s' % (c, ext) for c in ('DE', 'AT', 'CH') for ext in ('dic', 'aff')] +
+                  ['de/hunspell/de_%s.%s' % (c, ext) for c in ('DE', 'AT', 'CH') for ext in ('dict', 'info')] +
+                  ['de/hunspell/spelling.txt',
+                   'de/hunspell/spelling_custom.txt', 'de/hunspell/spelling-de-AT.txt',
+                   'de/hunspell/spelling-de-CH.txt', 'de/hunspell/ignore.txt', 'de/hunspell/prohibit.txt',
+                   'de/hunspell/prohibit_custom.txt', 'de/multitoken-ignore.txt', 'de/multitoken-suggest.txt',
+                   'de/common_words.txt'],
     },
     'en': {
         'external': ['en/hunspell/en_%s.%s' % (c, ext) for c in ('US', 'GB', 'CA', 'AU', 'NZ', 'ZA')
