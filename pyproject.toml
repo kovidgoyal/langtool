@@ -35,3 +35,6 @@ langtool = ["dictionaries.json", "hunspell_dictionaries.json", "data/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "pure_smoke: tests also run in the pure Python mode (LANGTOOL_PURE_PYTHON=1 pytest -m pure_smoke)",
+]

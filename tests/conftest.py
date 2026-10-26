@@ -94,3 +94,22 @@ def require_dictionaries(lang_code):
         download_language(lang_code)
     except Exception as e:  # network problems etc.
         pytest.skip('could not download dictionaries for %s: %s' % (lang_code, e))
+
+
+# The tests run in the pure Python mode (LANGTOOL_PURE_PYTHON=1) as a smoke
+# test: `LANGTOOL_PURE_PYTHON=1 pytest -m pure_smoke`. They cover the code
+# that has a C implementation; test_c_vs_python.py compares the results of
+# both implementations in detail (it runs both in subprocesses).
+PURE_SMOKE_MODULES = {
+    'test_analysis.py', 'test_api.py', 'test_core_rules.py', 'test_disambiguation_rules.py', 'test_fsa.py',
+    'test_jlanguagetool.py', 'test_levenshtein.py', 'test_match.py', 'test_opennlp.py',
+    'test_pattern_rule_matcher.py', 'test_pattern_token.py', 'test_spellcheck.py', 'test_string_matcher.py',
+    'test_tokenizers.py', 'test_unifier.py', 'test_hunspell.py', 'test_speller_suggestions.py',
+    'test_pl_pattern_rules.py',
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if os.path.basename(str(item.fspath)) in PURE_SMOKE_MODULES:
+            item.add_marker(pytest.mark.pure_smoke)

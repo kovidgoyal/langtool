@@ -148,7 +148,12 @@ components with `langtool.extensions.register()`.
     pip install -e .[test]
     pytest
 
-The tests include ports of the unit tests of the LanguageTool core. The check
+The tests include ports of the unit tests of the LanguageTool core and of the
+language modules. They run with the C extension; the pure Python
+implementation (the fallback when the extension can not be built) is checked
+by `tests/test_c_vs_python.py`, which compares the results of both
+implementations, and by a smoke test subset: `LANGTOOL_PURE_PYTHON=1 pytest -m
+pure_smoke`. The check
 of the example sentences of the XML rules of all languages against a baseline
 of known failures (`tests/data/rule_test_baseline.json`) needs the
 dictionaries and takes a while, it runs with `LANGTOOL_LANGUAGE_TESTS=1 pytest
