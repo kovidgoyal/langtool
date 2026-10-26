@@ -119,15 +119,24 @@ def string_for_speller(s):
     return s
 
 
+_BMP_END = '\U00010000'
+
+
 def _utf16_key(s):
-    """sort key of String.compareTo (UTF-16 code unit order)"""
-    return s.encode('utf-16-be', 'surrogatepass')
+    """sort key of String.compareTo (UTF-16 code unit order): the string
+    with the characters outside the BMP replaced by their surrogate pairs
+    (whose code points are the UTF-16 code units), i.e. s itself for most
+    strings"""
+    if not s or max(s) < _BMP_END:
+        return s
+    return ''.join(c if c < _BMP_END else chr(0xd800 + ((ord(c) - 0x10000) >> 10)) + chr(0xdc00 + (ord(c) & 0x3ff))
+                   for c in s)
 
 
 def _case_insensitive_key(s):
     """sort key of String.CASE_INSENSITIVE_ORDER"""
     if s.isascii():
-        return s.lower()  # (the same for ASCII strings)
+        return s if s.islower() else s.lower()  # (the same for ASCII strings)
     return ''.join(c.upper().lower() if len(c.upper()) == 1 else c.lower() for c in s)
 
 
@@ -190,6 +199,70 @@ def read_lines(path):
     """The lines of a UTF-8 text file (BufferedReader.readLine semantics)"""
     from .rules.abstract_rules import _read_lines
     return list(_read_lines(path))
+
+
+_IMMUTABLE = (type(None), bool, int, float, str, bytes, frozenset, tuple)
+
+
+def _comparable_state(attrs):
+    """a hash for comparing the attributes of an object (a dict name ->
+    value) with those of an object in another process: the values of the
+    immutable attributes and of the containers of immutable values, the
+    types of the other attributes and of the elements of the other
+    containers"""
+    out = []
+    for name, v in sorted(attrs.items()):
+        t = type(v)
+        if t in _IMMUTABLE and t is not tuple and t is not frozenset:
+            out.append((name, v))
+        elif t in (set, frozenset, list, tuple, dict):
+            items = list(v.items()) if t is dict else list(v)
+            flat = [x for item in items for x in (item if t is dict else (item,))]
+            if all(type(x) in _IMMUTABLE and type(x) is not tuple and type(x) is not frozenset for x in flat):
+                if t in (set, frozenset, dict):
+                    items = sorted(items, key=repr)
+                out.append((name, t.__name__, items))
+            else:
+                out.append((name, t.__name__, len(items), [type(x).__qualname__ for x in flat]))
+        else:
+            out.append((name, t.__module__ + '.' + t.__qualname__))
+    import hashlib
+    return hashlib.sha256(repr(out).encode('utf-8', 'surrogatepass')).hexdigest()
+
+
+def _attribute_changes(before, snapshot, after):
+    """the changes of the attributes of an object (dicts name -> value)
+    as a list of (name, kind, value), kind 'set' (a new immutable value),
+    'add' (elements added to a set) or 'extend' (elements appended to a
+    list); None if there are other changes"""
+    changes = []
+    for name, value in after.items():
+        old = before.get(name, _attribute_changes)
+        if value is old:
+            snap = snapshot[name]
+            t = type(value)
+            if t is set:
+                if value != snap:
+                    if not snap <= value:
+                        return None
+                    changes.append((name, 'add', set(value - snap)))
+            elif t is list:
+                if len(value) < len(snap) or any(a is not b for a, b in zip(snap, value)):
+                    return None
+                if len(value) > len(snap):
+                    changes.append((name, 'extend', value[len(snap):]))
+            elif t is dict:
+                if len(value) != len(snap) or any(k not in value or value[k] is not v for k, v in snap.items()):
+                    return None
+            continue
+        if type(value) not in _IMMUTABLE:
+            return None
+        if type(value) is tuple and any(type(x) not in _IMMUTABLE for x in value):
+            return None
+        changes.append((name, 'set', value))
+    if any(name not in after for name in before):
+        return None
+    return changes
 
 
 class _LazyIgnoreSpellingAntiPattern:
@@ -305,7 +378,85 @@ class SpellingCheckRule(Rule):
     # --- word lists ---
 
     def init(self):
-        """SpellingCheckRule.init"""
+        """SpellingCheckRule.init (the result is cached on disk, see
+        langtool.diskcache and _cached_init())"""
+        from . import diskcache
+        cls_key = diskcache.function_key(type(self))
+        if cls_key is None or diskcache.language_key(self.language) is None or not diskcache.is_enabled():
+            self._init_word_lists()
+        else:
+            self._cached_init(cls_key)
+
+    def _word_list_files(self):
+        """the files read by _init_word_lists()"""
+        names = [self.get_ignore_file_name(), self.get_spelling_file_name()]
+        names.extend(self.get_additional_spelling_file_names())
+        names.extend(self.get_additional_prohibit_file_names())
+        names.append(self.get_prohibit_file_name())
+        return [resource_file(self.language, n) if n is not None else None for n in names]
+
+    def _cached_init(self, cls_key):
+        """_init_word_lists() with the changes of the attributes cached on
+        disk: they depend on the word lists, the class (its methods) and
+        the language (its tokenizer and dictionaries, e.g. for the line
+        expansion of German). The changes are replayed if the attributes
+        are as when they were cached; they must be additions to sets and
+        lists or new immutable values, else nothing is cached."""
+        from . import diskcache
+        from .dictionaries import dependency_files
+        files = self._word_list_files()
+        try:
+            before = dict(vars(self))
+        except TypeError:
+            before = None
+        if before is None:
+            self._init_word_lists()
+            return
+        state = _comparable_state(before)
+        snapshot = {k: (frozenset(v) if type(v) is set else list(v) if type(v) is list
+                        else dict(v) if type(v) is dict else None) for k, v in before.items()}
+        language = self.language
+        built = []
+
+        def build():
+            self._init_word_lists()
+            built.append(True)
+            return state, _attribute_changes(before, snapshot, vars(self))
+
+        def persist(obj):
+            if obj is language:
+                return 'L'
+            t = type(obj)
+            if t is _LazyIgnoreSpellingAntiPattern or t is type:
+                return None
+            raise diskcache.Uncacheable('unexpected %s %.100r' % (t.__qualname__, obj))
+
+        def resolve(pid):
+            if pid == 'L':
+                return language
+            raise ValueError(pid)
+
+        key = (cls_key, language.code, tuple(files))
+        built_state, changes = diskcache.load_or_build(
+            'speller-init', key, build, persist=persist, resolve=resolve,
+            deps=[f for f in files if f is not None] + dependency_files(language))
+        if built:
+            return
+        if changes is None or built_state != state:
+            # (the changes can't be replayed, or not to this state)
+            self._init_word_lists()
+            return
+        d = vars(self)
+        for name, kind, value in changes:
+            if kind == 'set':
+                d[name] = value
+            elif kind == 'add':
+                d[name].update(value)
+            else:  # 'extend'
+                d[name].extend(value)
+
+    def _init_word_lists(self):
+        """SpellingCheckRule.init: the word lists"""
         for ignore_word in load_words(self.language, self.get_ignore_file_name()):
             self.add_ignore_words(ignore_word)
         if self.get_spelling_file_name() is not None:
@@ -456,6 +607,35 @@ class SpellingCheckRule(Rule):
     def ignore_potentially_misspelled_word(self, word):
         return False
 
+    def _sorted_ignored_words(self, case_sensitive):
+        """the ignored words sorted by String.compareTo (case_sensitive) or
+        String.CASE_INSENSITIVE_ORDER, and their sort keys (for
+        starts_with_ignored_word()). Large lists are cached on disk (see
+        langtool.diskcache), they are used if they have the ignored words."""
+        words = self.words_to_be_ignored
+
+        def build():
+            if case_sensitive:
+                if max((max(w) for w in words if w), default='') < _BMP_END:
+                    arr = sorted(words)  # (the keys are the words)
+                    return arr, arr
+                arr = sorted(words, key=_utf16_key)
+                return arr, [_utf16_key(w) for w in arr]
+            # (sorted(words, key=_case_insensitive_key), computing the keys once)
+            wl = list(words)
+            ks = [_case_insensitive_key(w) for w in wl]
+            order = sorted(range(len(wl)), key=ks.__getitem__)
+            return [wl[i] for i in order], [ks[i] for i in order]
+        from . import diskcache
+        cls_key = diskcache.function_key(type(self))
+        if cls_key is None or len(words) < 20000 or diskcache.language_key(self.language) is None:
+            return build()
+        arr, keys = diskcache.cached('speller-sorted-words', (cls_key, self.language.code, case_sensitive, len(words)),
+                                     build)
+        if len(arr) != len(words) or not words.issuperset(arr):
+            return build()
+        return arr, keys
+
     def starts_with_ignored_word(self, word, case_sensitive):
         """startsWithIgnoredWord: the length of the longest ignored word
         that word starts with (0 if none, or if the word is shorter than 4
@@ -464,20 +644,13 @@ class SpellingCheckRule(Rule):
             return 0
         if case_sensitive:
             if self._ignored_sorted is None:
-                words = self.words_to_be_ignored
-                if max((max(w) for w in words if w), default='') < '\ud800':
-                    # (the UTF-16 order is the code point order for these strings, and they are all different)
-                    arr = sorted(words)
-                else:
-                    arr = sorted(words, key=_utf16_key)
-                self._ignored_sorted_keys = [_utf16_key(w) for w in arr]
-                self._ignored_sorted = arr
+                arr, self._ignored_sorted_keys = self._sorted_ignored_words(True)
+                self._ignored_sorted = arr  # (set last: other threads check it)
             arr, keys, keyf = self._ignored_sorted, self._ignored_sorted_keys, _utf16_key
         else:
             if self._ignored_sorted_ci is None:
-                arr = sorted(self.words_to_be_ignored, key=_case_insensitive_key)
-                self._ignored_sorted_ci_keys = [_case_insensitive_key(w) for w in arr]
-                self._ignored_sorted_ci = arr
+                arr, self._ignored_sorted_ci_keys = self._sorted_ignored_words(False)
+                self._ignored_sorted_ci = arr  # (set last: other threads check it)
             arr, keys, keyf = self._ignored_sorted_ci, self._ignored_sorted_ci_keys, _case_insensitive_key
         while word:
             k = keyf(word)

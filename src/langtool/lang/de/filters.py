@@ -285,8 +285,11 @@ def _get_added_compounds():
     global _added_compounds
     with _added_compounds_lock:
         if _added_compounds is None:
+            from ... import diskcache
             from ...language import RULES_DIR
-            _added_compounds = _load_words(os.path.join(RULES_DIR, 'de', 'addedCompound.txt'))
+            path = os.path.join(RULES_DIR, 'de', 'addedCompound.txt')
+            # (cached on disk, see langtool.diskcache)
+            _added_compounds = diskcache.cached('de-added-compounds', (path,), lambda: _load_words(path), deps=[path])
         return _added_compounds
 
 

@@ -15,12 +15,19 @@ SPELLNUMBER_ROMAN_TAG = '_spell_number_:Roman'
 class ManualSynthesizer:
 
     def __init__(self, paths):
-        self.map = {}
+        from . import diskcache
+        paths = [os.path.abspath(p) for p in paths]
+        self.map, self.possible_tags = diskcache.cached('manual-synthesizer', tuple(paths),
+                                                        lambda: self._build(paths), deps=paths)
+
+    @staticmethod
+    def _build(paths):
+        m = {}
         tags = set()
         for form, lemma, tag in iter_manual_lines(paths, check_nbsp=False):
-            self.map.setdefault((lemma, tag), []).append(form)
+            m.setdefault((lemma, tag), []).append(form)
             tags.add(tag)
-        self.possible_tags = tags
+        return m, tags
 
     def lookup(self, lemma, pos_tag):
         if lemma is None or pos_tag is None:

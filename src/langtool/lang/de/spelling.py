@@ -423,18 +423,28 @@ def get_speller(language, language_variant_plain_text_dict):
     if r is not None:
         return r
     binary_dict = language.dictionary(morfo_file)
-    text_lines = []
-    for path in paths:
-        # (the streams are separated by a comment line and terminated by a line separator)
-        text_lines.append('# Start of file ' + path.replace('\n', ''))
-        p = resource_file(language, path)
-        if p is not None:
-            text_lines.extend(read_lines(p))
-    lines = _expanded_plain_text_lines(text_lines)
-    if language_variant_plain_text_dict:
-        p = resource_file(language, language_variant_plain_text_dict)
-        lines.extend(_expanded_plain_text_lines(read_lines(p) if p is not None else []))
-        lines.append(b'LanguageTool')  # adding here so it's also used for suggestions
+    files = [resource_file(language, path) for path in paths]
+    variant_file = resource_file(language, language_variant_plain_text_dict) if language_variant_plain_text_dict \
+        else None
+
+    def build():
+        text_lines = []
+        for path, p in zip(paths, files):
+            # (the streams are separated by a comment line and terminated by a line separator)
+            text_lines.append('# Start of file ' + path.replace('\n', ''))
+            if p is not None:
+                text_lines.extend(read_lines(p))
+        lines = _expanded_plain_text_lines(text_lines)
+        if language_variant_plain_text_dict:
+            lines.extend(_expanded_plain_text_lines(read_lines(variant_file) if variant_file is not None else []))
+            lines.append(b'LanguageTool')  # adding here so it's also used for suggestions
+        return lines
+    # (cached on disk, see langtool.diskcache; the line expansion uses the synthesizer)
+    from ... import diskcache
+    from ...dictionaries import dependency_files
+    lines = diskcache.cached('de-speller-lines', (tuple(paths), tuple(files), language_variant_plain_text_dict,
+                                                  variant_file), build,
+                             deps=[f for f in files + [variant_file] if f is not None] + dependency_files(language))
     r = SuggestionMultiSpeller(binary_dict, lines, MAX_EDIT_DISTANCE)
     with _files_lock:
         _morfo_spellers.setdefault(key, r)

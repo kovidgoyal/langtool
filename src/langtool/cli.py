@@ -10,6 +10,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog='langtool', description='Check text for grammar and style errors')
     p.add_argument('--cache-dir', help='directory for the downloaded dictionaries (default: LANGTOOL_CACHE_DIR '
                                        'or the user cache directory)')
+    p.add_argument('--no-disk-cache', action='store_true',
+                   help='do not use the disk cache of derived data (loaded rules etc., which makes loading a '
+                        'language faster), same as LANGTOOL_DISK_CACHE=0')
+    p.add_argument('--clear-disk-cache', action='store_true', help='remove the disk cache of derived data')
     sub = p.add_subparsers(dest='command')
 
     c = sub.add_parser('check', help='check text from files or stdin')
@@ -47,6 +51,12 @@ def main(argv=None):
     if args.cache_dir:
         from .api import set_cache_dir
         set_cache_dir(args.cache_dir)
+    if args.clear_disk_cache:
+        from .api import clear_disk_cache
+        clear_disk_cache()
+    if args.no_disk_cache:
+        from .api import set_disk_cache
+        set_disk_cache(False)
     if args.command == 'languages':
         from .api import language_names
         for code, name in sorted(language_names().items()):

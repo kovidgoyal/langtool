@@ -405,7 +405,16 @@ class AbstractSimpleReplaceRule2(_RuleBase):
                    self.rule_has_suggestions, self.language.short_code)
             m = _replace2_cache.get(key)
             if m is None:
-                m = _replace2_cache[key] = self._fill_maps(paths)
+                from .. import diskcache
+                cls_key = diskcache.function_key(type(self))
+                if cls_key is None:
+                    m = self._fill_maps(paths)
+                else:
+                    # (cached on disk, see langtool.diskcache)
+                    abs_paths = tuple(os.path.abspath(p) for p in paths)
+                    m = diskcache.cached('replace-rule-maps', (cls_key,) + key[1:], lambda: self._fill_maps(paths),
+                                         deps=abs_paths)
+                _replace2_cache[key] = m
             self._maps = m
         return m
 
@@ -621,6 +630,9 @@ class CompoundRuleData:
     """Port of CompoundRuleData, paths are absolute file paths. expander is
     an optional function line -> list of lines (LineExpander)."""
 
+    _FIELDS = ('incorrect_compounds', 'joined_suggestion', 'joined_lower_case_suggestion', 'dash_suggestion',
+               'first_words', 'has_digit_patterns')
+
     def __init__(self, *paths, expander=None):
         self.incorrect_compounds = set()
         self.joined_suggestion = set()
@@ -684,7 +696,21 @@ def load_compound_rule_data(language, *paths, expander=None):
     key = (files, expander)
     d = _compound_cache.get(key)
     if d is None:
-        d = _compound_cache[key] = CompoundRuleData(*files, expander=expander)
+        from .. import diskcache
+        fkey = diskcache.function_key(expander)
+        if fkey is None:
+            d = CompoundRuleData(*files, expander=expander)
+        else:
+            # (the data is cached on disk, see langtool.diskcache)
+            def build():
+                c = CompoundRuleData(*files, expander=expander)
+                return tuple(getattr(c, f) for f in CompoundRuleData._FIELDS)
+            files = tuple(os.path.abspath(f) for f in files)
+            state = diskcache.cached('compound-rule-data', (files, fkey), build, deps=files)
+            d = CompoundRuleData(expander=expander)
+            for f, v in zip(CompoundRuleData._FIELDS, state):
+                setattr(d, f, v)
+        _compound_cache[key] = d
     return d
 
 

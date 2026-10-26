@@ -119,8 +119,7 @@ class FilterFactory:
     def get_filter(self, class_name, language):
         cls = self.filters.get(class_name)
         if cls is None:
-            from .. import extensions
-            cls = extensions.lookup('filter', class_name)
+            cls = _lookup('filter', class_name, language)
         if cls is None:
             raise UnsupportedFilter(class_name)
         return cls(language)
@@ -128,11 +127,24 @@ class FilterFactory:
     def get_regex_filter(self, class_name, language):
         cls = self.regex_filters.get(class_name)
         if cls is None:
-            from .. import extensions
-            cls = extensions.lookup('regex_filter', class_name)
+            cls = _lookup('regex_filter', class_name, language)
         if cls is None:
             raise UnsupportedFilter(class_name)
         return cls(language)
+
+
+def _lookup(kind, class_name, language):
+    """the filter class registered by a language package: the package of the
+    language is imported first, all of them only if it doesn't register the
+    name (the names are registered only once)"""
+    from .. import extensions
+    code = getattr(language, 'short_code', None)
+    if code is not None and not extensions._loaded:
+        extensions._load_language_modules(code)
+        cls = extensions._registry.get((kind, class_name, None))
+        if cls is not None:
+            return cls
+    return extensions.lookup(kind, class_name)
 
 
 _default = None

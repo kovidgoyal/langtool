@@ -61,9 +61,17 @@ def iter_manual_lines(paths, check_nbsp=True):
 class ManualTagger:
 
     def __init__(self, paths):
-        self.map = {}
+        from . import diskcache
+        paths = [os.path.abspath(p) for p in paths]
+        self.map = diskcache.cached('manual-tagger', tuple(paths), lambda: self._build(paths), deps=paths,
+                                    types=(TaggedWord,))
+
+    @staticmethod
+    def _build(paths):
+        m = {}
         for form, lemma, tag in iter_manual_lines(paths):
-            self.map.setdefault(form, []).append(TaggedWord(lemma, tag))
+            m.setdefault(form, []).append(TaggedWord(lemma, tag))
+        return m
 
     def tag(self, word):
         return self.map.get(word, ())

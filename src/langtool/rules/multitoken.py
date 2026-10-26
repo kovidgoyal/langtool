@@ -2,6 +2,7 @@
 an ultra-naive speller that provides spelling suggestions for multitoken
 words (usually proper nouns) from a list of words."""
 
+import os
 import threading
 
 import regex
@@ -142,6 +143,25 @@ class MultitokenSpeller:
         self._init(file_paths)
 
     def _init(self, file_paths):
+        from .. import diskcache
+        cls_key = diskcache.function_key(type(self))
+        if cls_key is None or diskcache.language_key(self.language) is None:
+            self._build(file_paths)
+            return
+        # (cached on disk, see langtool.diskcache; the lines are prepared by the class, which may use the
+        # dictionaries of the language)
+        from ..dictionaries import dependency_files
+        paths = [os.path.abspath(p) for p in file_paths]
+
+        def build():
+            self._build(file_paths)
+            return (self.suggestions_map, self.suggestions_map_no_spaces_key, self.candidate_parts_by_key,
+                    self._ordered_keys)
+        (self.suggestions_map, self.suggestions_map_no_spaces_key, self.candidate_parts_by_key,
+         self._ordered_keys) = diskcache.cached('multitoken-speller', (cls_key, tuple(paths)), build,
+                                                deps=paths + dependency_files(self.language))
+
+    def _build(self, file_paths):
         by_char = self.suggestions_map
         for path in file_paths:
             for line_original in _read_lines(path):

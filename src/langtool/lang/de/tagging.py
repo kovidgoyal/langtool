@@ -12,6 +12,7 @@ non-separable prefixes, alternative imperative forms ("Geh!") and
 substantivated adjectives ("Verletzter").
 """
 
+import os
 import threading
 
 from ... import jregex
@@ -391,13 +392,20 @@ _expansion_lock = threading.Lock()
 _expansion_infos = {}
 
 
-def _get_expansion_infos(path, synthesizer):
+def _get_expansion_infos(path, language):
     infos = _expansion_infos.get(path)
     if infos is None:
         with _expansion_lock:
             infos = _expansion_infos.get(path)
             if infos is None:
-                infos = _expansion_infos[path] = _init_expansion_infos(path, synthesizer)
+                from ... import diskcache
+                from ...dictionaries import dependency_files
+                from .synthesis import get_german_synthesizer
+                # (cached on disk, see langtool.diskcache; they depend on the synthesizer)
+                infos = _expansion_infos[path] = diskcache.cached(
+                    'de-expansion-infos', (os.path.abspath(path),),
+                    lambda: _init_expansion_infos(path, get_german_synthesizer(language)),
+                    deps=[path] + dependency_files(language), types=(_ExpansionInfos, _PrefixInfixVerb))
     return infos
 
 
@@ -422,8 +430,7 @@ class GermanTagger(BaseTagger):
 
     @property
     def expansion_infos(self):
-        from .synthesis import get_german_synthesizer
-        return _get_expansion_infos(self._spelling_path, get_german_synthesizer(self.language))
+        return _get_expansion_infos(self._spelling_path, self.language)
 
     def strict_compound_tokenizer(self):
         """GermanCompoundTokenizer.getStrictInstance()"""

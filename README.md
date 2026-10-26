@@ -54,6 +54,39 @@ files), pass `dictionary_path` or set `LANGTOOL_DICT_PATH`:
 tool = langtool.LanguageTool('de-DE', dictionary_path='/opt/LanguageTool-6.6', download=False)
 ```
 
+## Disk cache
+
+Loading a language means parsing thousands of XML rules, compiling their
+regular expressions and building word lists and other tables from the data
+files, which takes a few seconds for the large languages. The results are
+cached on disk the first time, after which creating a `LanguageTool` and
+the first checks are several times faster (e.g. German: about 1 second
+instead of 5 to 6 seconds until the first result). The results of the
+checks are the same with and without the cache.
+
+The cache is in the `derived` directory of the cache directory (see above,
+e.g. `~/.cache/langtool/derived`), or in the directory given by the
+`LANGTOOL_DISK_CACHE_DIR` environment variable. It takes up to about 20 MB
+per language (English, German), less than 1 MB for most languages, about
+90 MB for all of them. Entries are invalidated automatically when the package (its
+version, code or data files), the Python version, the use of the C
+extension or the downloaded dictionaries they were built from change.
+Entries are written atomically, so concurrent processes can share the
+cache, and an unreadable or corrupt entry is silently rebuilt. The
+directory must not be writable by other users (the entries are Python
+pickles). The rules of languages added with
+`langtool.languages.register_language()` are not cached (changing the
+built-in language definitions in place requires disabling the cache).
+
+To disable the cache set `LANGTOOL_DISK_CACHE=0` (or use `--no-disk-cache`
+on the command line), or call:
+
+```python
+langtool.set_disk_cache(False)                         # process-wide
+langtool.set_disk_cache(True, directory='/srv/lt-derived')   # another directory
+langtool.clear_disk_cache()                            # remove all entries
+```
+
 ## Spell checking
 
 Spell checking is optional and off by default. When it is on, misspelled
@@ -123,11 +156,13 @@ LanguageTool's own speller dictionaries, as in Java.
 * `langtool.languages()` — the supported language codes
 * `langtool.download_dictionaries(code, spelling=False)`
 * `langtool.set_cache_dir(path)`, `langtool.get_cache_dir()`
+* `langtool.set_disk_cache(enabled=True, directory=None)`, `langtool.get_disk_cache_dir()`,
+  `langtool.clear_disk_cache()` — the disk cache of derived data (see above)
 * `langtool.spell_check_languages()`, `langtool.hunspell_dictionary_info(code)`
 
 There is also a command line interface: `python -m langtool check -l en-US file.txt`
 (`-s` for spell checking, `--hunspell-dict [CODE=]PATH` for a dictionary,
-`--cache-dir DIR`).
+`--cache-dir DIR`, `--no-disk-cache`, `--clear-disk-cache`).
 
 ## Status
 

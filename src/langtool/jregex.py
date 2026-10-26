@@ -19,6 +19,8 @@ import threading
 
 import regex
 
+from . import diskcache
+
 __all__ = ['translate', 'compile', 'JavaRegexError', 'IGNORECASE']
 
 IGNORECASE = 1
@@ -916,16 +918,34 @@ def compile(pattern, flags=0):
     r = _cache.get(key)
     if r is not None:
         return r
-    py = translate(pattern, flags)
-    rflags = regex.V1
-    if flags & IGNORECASE:
-        rflags |= regex.IGNORECASE
-    try:
-        r = regex.compile('(?-f)' + py, rflags)
-    except regex.error as e:
-        raise JavaRegexError('Cannot compile %r (translated: %r): %s' % (pattern, py, e)) from e
+    # (compiled regular expressions are stored on disk, see langtool.diskcache)
+    r = diskcache.stored_regex(key)
+    if r is None:
+        py = translate(pattern, flags)
+        rflags = regex.V1
+        if flags & IGNORECASE:
+            rflags |= regex.IGNORECASE
+        try:
+            r = regex.compile('(?-f)' + py, rflags)
+        except regex.error as e:
+            raise JavaRegexError('Cannot compile %r (translated: %r): %s' % (pattern, py, e)) from e
+        diskcache.add_regex(key, r)
     with _cache_lock:
         _cache[key] = r
+    return r
+
+
+def _shared_compiled(key, pickled_data):
+    """(unpickling, see langtool.diskcache) the compiled expression of
+    compile(*key): the one compiled already in this process, else the
+    pickled one (pickled_data: the state of the compiled expression)"""
+    r = _cache.get(key)
+    if r is None:
+        # (what unpickling a compiled expression does, see regex._main._pickle)
+        from regex import _regex
+        r = _regex.compile(*pickled_data)
+        with _cache_lock:
+            r = _cache.setdefault(key, r)
     return r
 
 

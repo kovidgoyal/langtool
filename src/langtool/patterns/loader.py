@@ -11,7 +11,7 @@ import re
 
 from lxml import etree
 
-from .. import jregex
+from .. import diskcache, jregex
 from ..analysis import AnalyzedToken
 from ..chunking import ChunkTag
 from ..rules.base import Category, Example, its_issue_type
@@ -47,6 +47,7 @@ class _EntityResolver(etree.Resolver):
             p = re.sub(r'.*/resource/', '', url).replace('../', '')
             path = os.path.join(self.resource_dir, p)
             if os.path.exists(path):
+                diskcache.note_dependency(path)
                 return self.resolve_filename(path, context)
         return None
 

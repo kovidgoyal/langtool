@@ -74,6 +74,102 @@ at_dealloc(AnalyzedTokenBase *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+
+/* ------------------------------------------------------------------------ */
+/* pickle support of the base types with C members (used by the persistent
+ * cache of langtool.diskcache): the state is (values, null_mask, dict) where
+ * values are the members in the order of the PyMemberDef table, bit i of
+ * null_mask is set if the object member i is NULL (not set, unlike None) and
+ * dict is the instance __dict__ of a Python subclass (or None). Python
+ * subclasses must not add other slots than __weakref__ (checked by the
+ * pickler of langtool.diskcache). */
+
+static Py_ssize_t
+members_count(PyMemberDef *members)
+{
+    Py_ssize_t n = 0;
+    while (members[n].name != NULL) n++;
+    return n;
+}
+
+static PyObject *
+members_getstate(PyObject *self, PyMemberDef *members)
+{
+    Py_ssize_t n = members_count(members);
+    unsigned long long mask = 0;
+    PyObject *vals = PyTuple_New(n);
+    if (vals == NULL) return NULL;
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *v;
+        if (members[i].type == T_OBJECT && *(PyObject **)((char *)self + members[i].offset) == NULL) {
+            mask |= 1ULL << i;
+            v = Py_None;
+            Py_INCREF(v);
+        } else {
+            v = PyMember_GetOne((const char *)self, &members[i]);
+            if (v == NULL) { Py_DECREF(vals); return NULL; }
+        }
+        PyTuple_SET_ITEM(vals, i, v);
+    }
+    PyObject *dict = PyObject_GetAttrString(self, "__dict__");
+    if (dict == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_AttributeError)) { Py_DECREF(vals); return NULL; }
+        PyErr_Clear();
+        dict = Py_None;
+        Py_INCREF(dict);
+    } else if (PyDict_Check(dict) && PyDict_GET_SIZE(dict) == 0) {
+        Py_DECREF(dict);
+        dict = Py_None;
+        Py_INCREF(dict);
+    }
+    PyObject *r = Py_BuildValue("(NKN)", vals, mask, dict);
+    return r;
+}
+
+static PyObject *
+members_setstate(PyObject *self, PyObject *state, PyMemberDef *members)
+{
+    PyObject *vals, *dict;
+    unsigned long long mask;
+    if (!PyArg_ParseTuple(state, "O!KO;invalid pickle state", &PyTuple_Type, &vals, &mask, &dict)) return NULL;
+    Py_ssize_t n = members_count(members);
+    if (PyTuple_GET_SIZE(vals) != n) {
+        PyErr_SetString(PyExc_ValueError, "invalid pickle state: wrong number of members");
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        if (members[i].type == T_OBJECT && (mask & (1ULL << i))) {
+            PyObject **addr = (PyObject **)((char *)self + members[i].offset);
+            Py_CLEAR(*addr);
+        } else if (PyMember_SetOne((char *)self, &members[i], PyTuple_GET_ITEM(vals, i)) < 0) {
+            return NULL;
+        }
+    }
+    if (dict != Py_None) {
+        if (!PyDict_Check(dict)) {
+            PyErr_SetString(PyExc_ValueError, "invalid pickle state: the dict is not a dict");
+            return NULL;
+        }
+        Py_ssize_t pos = 0;
+        PyObject *k, *v;
+        while (PyDict_Next(dict, &pos, &k, &v)) {
+            if (PyObject_SetAttr(self, k, v) < 0) return NULL;
+        }
+    }
+    Py_RETURN_NONE;
+}
+
+#define MEMBERS_PICKLE_METHODS(prefix, members)                                                         \
+    static PyObject *prefix##_getstate(PyObject *self, PyObject *Py_UNUSED(ignored))                    \
+    { return members_getstate(self, members); }                                                          \
+    static PyObject *prefix##_setstate(PyObject *self, PyObject *state)                                  \
+    { return members_setstate(self, state, members); }                                                   \
+    static PyMethodDef prefix##_pickle_methods[] = {                                                     \
+        {"__getstate__", (PyCFunction)prefix##_getstate, METH_NOARGS, "pickle support"},               \
+        {"__setstate__", (PyCFunction)prefix##_setstate, METH_O, "pickle support"},                    \
+        {NULL}                                                                                           \
+    };
+
 static PyMemberDef at_members[] = {
     {"token", T_OBJECT, offsetof(AnalyzedTokenBase, token), 0, NULL},
     {"pos_tag", T_OBJECT, offsetof(AnalyzedTokenBase, pos_tag), 0, NULL},
@@ -149,6 +245,8 @@ at_init(AnalyzedTokenBase *self, PyObject *args, PyObject *kwds)
     return 0;
 }
 
+MEMBERS_PICKLE_METHODS(at, at_members)
+
 static PyTypeObject AnalyzedTokenBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "langtool._speedups.AnalyzedTokenBase",
@@ -158,6 +256,7 @@ static PyTypeObject AnalyzedTokenBaseType = {
     .tp_dealloc = (destructor)at_dealloc,
     .tp_traverse = (traverseproc)at_traverse,
     .tp_clear = (inquiry)at_clear,
+    .tp_methods = at_pickle_methods,
     .tp_members = at_members,
     .tp_init = (initproc)at_init,
 };
@@ -388,7 +487,7 @@ atr_init(ATRBase *self, PyObject *args, PyObject *kwds)
 
 /* set_fallbacks(is_whitespace, atr_init) */
 static PyObject *
-py_set_fallbacks(PyObject *self, PyObject *args)
+py_set_fallbacks(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *iw, *ai;
     if (!PyArg_ParseTuple(args, "OO", &iw, &ai)) return NULL;
@@ -396,6 +495,8 @@ py_set_fallbacks(PyObject *self, PyObject *args)
     Py_INCREF(ai); Py_XSETREF(fallback_atr_init, ai);
     Py_RETURN_NONE;
 }
+
+MEMBERS_PICKLE_METHODS(atr, atr_members)
 
 static PyTypeObject ATRBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
@@ -406,6 +507,7 @@ static PyTypeObject ATRBaseType = {
     .tp_dealloc = (destructor)atr_dealloc,
     .tp_traverse = (traverseproc)atr_traverse,
     .tp_clear = (inquiry)atr_clear,
+    .tp_methods = atr_pickle_methods,
     .tp_members = atr_members,
     .tp_init = (initproc)atr_init,
 };
@@ -467,6 +569,8 @@ static PyMemberDef sm_members[] = {
     {NULL}
 };
 
+MEMBERS_PICKLE_METHODS(sm, sm_members)
+
 static PyTypeObject StringMatcherBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "langtool._speedups.StringMatcherBase",
@@ -476,6 +580,7 @@ static PyTypeObject StringMatcherBaseType = {
     .tp_dealloc = (destructor)sm_dealloc,
     .tp_traverse = (traverseproc)sm_traverse,
     .tp_clear = (inquiry)sm_clear,
+    .tp_methods = sm_pickle_methods,
     .tp_members = sm_members,
 };
 
@@ -522,6 +627,8 @@ static PyMemberDef pos_members[] = {
     {NULL}
 };
 
+MEMBERS_PICKLE_METHODS(pos, pos_members)
+
 static PyTypeObject PosTokenBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "langtool._speedups.PosTokenBase",
@@ -531,6 +638,7 @@ static PyTypeObject PosTokenBaseType = {
     .tp_dealloc = (destructor)pos_dealloc,
     .tp_traverse = (traverseproc)pos_traverse,
     .tp_clear = (inquiry)pos_clear,
+    .tp_methods = pos_pickle_methods,
     .tp_members = pos_members,
 };
 
@@ -619,6 +727,8 @@ static PyMemberDef pt_members[] = {
     {NULL}
 };
 
+MEMBERS_PICKLE_METHODS(pt, pt_members)
+
 static PyTypeObject PatternTokenBaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "langtool._speedups.PatternTokenBase",
@@ -628,6 +738,7 @@ static PyTypeObject PatternTokenBaseType = {
     .tp_dealloc = (destructor)pt_dealloc,
     .tp_traverse = (traverseproc)pt_traverse,
     .tp_clear = (inquiry)pt_clear,
+    .tp_methods = pt_pickle_methods,
     .tp_members = pt_members,
 };
 
@@ -980,7 +1091,7 @@ cp_token_ref(PatternTokenBase *pt, long *out)
 }
 
 static int
-cp_init(CompiledPattern *self, PyObject *args, PyObject *kwds)
+cp_init(CompiledPattern *self, PyObject *args, PyObject *Py_UNUSED(kwds))
 {
     PyObject *tokens, *element_no;
     int moc, gou, ci;
@@ -1637,7 +1748,7 @@ static PyTypeObject CompiledPatternType = {
  * for the matching that is not done by CompiledPattern) */
 
 static PyObject *
-py_pt_is_matched(PyObject *self, PyObject *args)
+py_pt_is_matched(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *pt, *at;
     if (!PyArg_ParseTuple(args, "O!O!", &PatternTokenBaseType, &pt, &AnalyzedTokenBaseType, &at)) return NULL;
@@ -1647,7 +1758,7 @@ py_pt_is_matched(PyObject *self, PyObject *args)
 }
 
 static PyObject *
-py_sm_matches(PyObject *self, PyObject *args)
+py_sm_matches(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *sm, *s;
     if (!PyArg_ParseTuple(args, "O!U", &StringMatcherBaseType, &sm, &s)) return NULL;
@@ -1677,7 +1788,7 @@ rh_dealloc(RuleHints *self)
 }
 
 static int
-rh_init(RuleHints *self, PyObject *args, PyObject *kwds)
+rh_init(RuleHints *self, PyObject *args, PyObject *Py_UNUSED(kwds))
 {
     PyObject *hints, *pos_hints;
     long mtc;
@@ -1810,8 +1921,20 @@ rh_ignorable(RuleHints *self, PyObject *args)
     return PyBool_FromLong(r);
 }
 
+/* pickle support: RuleHints(min_token_count, hints, pos_hints) */
+static PyObject *
+rh_reduce(RuleHints *self, PyObject *Py_UNUSED(ignored))
+{
+    if (self->hints == NULL) {
+        PyErr_SetString(PyExc_TypeError, "cannot pickle an uninitialized RuleHints");
+        return NULL;
+    }
+    return Py_BuildValue("O(lOO)", (PyObject *)Py_TYPE(self), self->min_token_count, self->hints, self->pos_hints);
+}
+
 static PyMethodDef rh_methods[] = {
     {"ignorable", (PyCFunction)rh_ignorable, METH_VARARGS, "canBeIgnoredFor"},
+    {"__reduce__", (PyCFunction)rh_reduce, METH_NOARGS, "pickle support"},
     {NULL}
 };
 
@@ -1923,7 +2046,7 @@ rs_dealloc(RuleSelector *self)
 
 /* RuleSelector(by_token, by_lemma, unclassified, items, hints, check_pos) */
 static int
-rs_init(RuleSelector *self, PyObject *args, PyObject *kwds)
+rs_init(RuleSelector *self, PyObject *args, PyObject *Py_UNUSED(kwds))
 {
     PyObject *by_token, *by_lemma, *unclassified, *items, *hints, *check_pos;
     if (!PyArg_ParseTuple(args, "O!OOO!O!O", &PyDict_Type, &by_token, &by_lemma, &unclassified, &PyTuple_Type,
@@ -2173,7 +2296,7 @@ mt_dealloc(MatcherTable *self)
 
 /* MatcherTable(n) */
 static int
-mt_init(MatcherTable *self, PyObject *args, PyObject *kwds)
+mt_init(MatcherTable *self, PyObject *args, PyObject *Py_UNUSED(kwds))
 {
     Py_ssize_t n;
     if (!PyArg_ParseTuple(args, "n", &n)) return -1;
@@ -2640,7 +2763,7 @@ fsa_dealloc(FSADict *self)
 }
 
 static int
-fsa_init(FSADict *self, PyObject *args, PyObject *kwds)
+fsa_init(FSADict *self, PyObject *args, PyObject *Py_UNUSED(kwds))
 {
     PyObject *arcs, *mapping;
     int kind, gtl, ndl, has_numbers, sep, prefix_bytes;
@@ -3121,7 +3244,7 @@ sp_find_key(const SpKey *keys, int n, unsigned long long key)
 /* SpellerSearch(eq_func, any_to_one_items, any_to_two_items, utf8, table (list of 256 ints, -1: undecodable),
  *               separator_char, separator_byte) */
 static int
-sp_init(SpellerSearch *self, PyObject *args, PyObject *kwds)
+sp_init(SpellerSearch *self, PyObject *args, PyObject *Py_UNUSED(kwds))
 {
     PyObject *eq, *m1, *m2, *table, *sepc;
     int utf8, sep;
@@ -3901,7 +4024,7 @@ gis_make_list(const double *values, Py_ssize_t n)
 
 /* gis_sum(prior, pmap, context) -> new list: prior plus the parameters of the context predicates */
 static PyObject *
-py_gis_sum(PyObject *self, PyObject *args)
+py_gis_sum(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *prior, *pmap, *context, *patterns = Py_None, *params = Py_None;
     double sums[GIS_MAX_OUTCOMES];
@@ -3936,7 +4059,7 @@ py_gis_sum(PyObject *self, PyObject *args)
 /* gis_eval(prior, pmap, context) -> the probabilities of GISModel.eval (exp and normalization of the sums), or
  * None if the sum of the exps is 0 or infinite (the caller handles these cases) */
 static PyObject *
-py_gis_eval(PyObject *self, PyObject *args)
+py_gis_eval(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *prior, *pmap, *context, *patterns = Py_None, *params = Py_None;
     double sums[GIS_MAX_OUTCOMES];
@@ -3977,7 +4100,7 @@ py_gis_eval(PyObject *self, PyObject *args)
 
 /* levenshtein(s1, s2) -> int: org.apache.commons.text.similarity.LevenshteinDistance (unlimited) */
 static PyObject *
-py_levenshtein(PyObject *self, PyObject *args)
+py_levenshtein(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *a, *b;
     if (!PyArg_ParseTuple(args, "UU", &a, &b))
@@ -4090,7 +4213,7 @@ cached_lower(PyObject **slot, PyObject *src)
  * token_offsets, lemma_offsets, pos_tag_set), or None if the tokens are not
  * all AnalyzedTokenReadings (with AnalyzedToken readings) */
 static PyObject *
-py_sentence_index(PyObject *self, PyObject *args)
+py_sentence_index(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *tokens, *pre, *previous;
     int readings_unchanged;
@@ -4375,7 +4498,7 @@ bs_sequence(double score, PyObject *names, BSExp *ex, Py_ssize_t p, PyObject *pa
 /* beam_search(size, num_sequences, length, outcome_names, evaluate, allowed_outcomes, min_sequence_score,
  * empty_sequence) -> the best sequences (see BeamSearch.best_sequences) */
 static PyObject *
-py_beam_search(PyObject *self, PyObject *args)
+py_beam_search(PyObject *Py_UNUSED(self), PyObject *args)
 {
     Py_ssize_t size, num_sequences, length;
     PyObject *names, *evaluate, *allowed_outcomes, *empty;
@@ -4587,7 +4710,7 @@ tnode_add_arc(TrieNode *node, unsigned char label)
  * sequences, numbered like the Python implementation (first, ends and dests are arrays of C ints as bytes,
  * node 0 is the terminal node) */
 static PyObject *
-py_build_trie(PyObject *self, PyObject *arg)
+py_build_trie(PyObject *Py_UNUSED(self), PyObject *arg)
 {
     PyObject *seqs = PySequence_Fast(arg, "sequences must be a sequence");
     if (seqs == NULL) return NULL;

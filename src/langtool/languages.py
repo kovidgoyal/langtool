@@ -805,6 +805,19 @@ for _short, _d in LANGUAGES.items():
     _ALIASES.setdefault(_short.lower(), (_short, _d.get('default_variant') or _d['variants'][0]['code']))
 
 
+# the definitions of the package (not added or replaced with register_language(): data derived from these languages
+# can be cached on disk, see langtool.diskcache)
+_BUILTIN = dict(LANGUAGES)
+
+
+def is_builtin(language):
+    """Whether the Language has a definition of the package (not one given
+    to register_language())."""
+    d = _BUILTIN.get(language.short_code)
+    return d is not None and language.definition is d and any(v is language.variant_definition
+                                                              for v in d['variants'])
+
+
 def resolve_code(code):
     """Return (short_code, variant_code) for a language code like 'en',
     'en-US', 'en_GB', 'de-DE', 'pt'. Note that a bare language code maps to the

@@ -235,14 +235,25 @@ class Language:
                     from .patterns.loader import load_pattern_rules
                     from .rules.filters import default_filter_factory
                     from .messages import messages_for
-                    ff = filter_factory or default_filter_factory()
-                    rules = []
-                    problems = []
-                    msgs = messages_for(self.short_code)
-                    for f in self.get_rule_file_names():
-                        r, skipped = load_pattern_rules(f, self, self.resource_root, ff, msgs)
-                        rules.extend(r)
-                        problems.extend(skipped)
+                    files = self.get_rule_file_names()
+
+                    def load(ff):
+                        rules = []
+                        problems = []
+                        msgs = messages_for(self.short_code)
+                        for f in files:
+                            r, skipped = load_pattern_rules(f, self, self.resource_root, ff, msgs)
+                            rules.extend(r)
+                            problems.extend(skipped)
+                        return rules, problems
+
+                    if filter_factory is None:
+                        # (from the persistent cache if possible, see langtool.diskcache)
+                        from .patterns.rulecache import load_rules
+                        rules, problems = load_rules('grammar', self, files, load, default_filter_factory(),
+                                                     self.unifier_config)
+                    else:
+                        rules, problems = load(filter_factory)
                     self._pattern_rule_problems = problems
                     self._pattern_rules = rules
         return self._pattern_rules

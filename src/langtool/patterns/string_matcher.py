@@ -289,6 +289,28 @@ class StringMatcher(StringMatcherBase):
 
 _interned = {}
 
+_STATE = ('pattern', 'value', 'value_lower', 'values', 'compiled', 'cache', 'possible_values', 'kind', 'case_sensitive',
+          'is_regexp')
+
+
+def _state(m):
+    """(pickling, see langtool.patterns.rulecache) the state of a matcher"""
+    return tuple(getattr(m, n) for n in _STATE)
+
+
+def _interned_matcher(state):
+    """(unpickling) the interned matcher with the pattern, regexp flag and
+    case sensitivity of state (the one of this process if there is one,
+    as when loading rules from XML), else a matcher with the state"""
+    key = (state[0], state[9], state[8])
+    m = _interned.get(key)
+    if m is None:
+        m = StringMatcher.__new__(StringMatcher)
+        for n, v in zip(_STATE, state):
+            setattr(m, n, v)
+        m = _interned.setdefault(key, m)
+    return m
+
 
 def create(pattern, is_regexp, case_sensitive):
     key = (pattern, is_regexp, case_sensitive)

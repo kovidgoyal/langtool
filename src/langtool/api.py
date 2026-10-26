@@ -61,7 +61,9 @@ def set_cache_dir(path):
     cached. This is a process-wide setting (the dictionaries are shared by
     all LanguageTool instances); None restores the default, the
     LANGTOOL_CACHE_DIR environment variable or else the user cache
-    directory (~/.cache/langtool on Linux)."""
+    directory (~/.cache/langtool on Linux). The disk cache of derived data
+    (see set_disk_cache()) is in its ``derived`` sub directory by
+    default."""
     from . import dictionaries
     dictionaries.set_cache_dir(path)
 
@@ -70,6 +72,53 @@ def get_cache_dir():
     """The directory where downloaded resources are cached."""
     from . import dictionaries
     return dictionaries.cache_root()
+
+
+def set_disk_cache(enabled=True, directory=None):
+    """Configure the disk cache of derived data (process-wide).
+
+    Loading a language (parsing its XML rules, compiling regular
+    expressions, building word lists and other tables from the data files)
+    takes seconds; the results are cached on disk, which makes creating a
+    LanguageTool and the first checks several times faster in later
+    processes. The results of the checks are the same with and without the
+    cache. Entries are invalidated automatically when the package (its
+    version, code or data files), the Python version, the C extension or
+    the dictionaries they were built from change, and any unreadable or
+    corrupt entry is silently rebuilt.
+
+    :param enabled: False disables the cache (nothing is read or written),
+           None restores the default: enabled unless the environment
+           variable LANGTOOL_DISK_CACHE is 0, off, no or false
+    :param directory: the directory of the cache; None means the
+           LANGTOOL_DISK_CACHE_DIR environment variable, else the
+           ``derived`` sub directory of the cache directory (see
+           set_cache_dir(), e.g. ~/.cache/langtool/derived on Linux). The
+           directory must not be writable by other users (the entries are
+           pickles).
+
+    The cache takes up to about 20 MB per language (less than 1 MB for
+    most languages) and is safe to use from concurrent processes (entries
+    are written atomically).
+    Directories of other package versions that were not used for a week
+    are removed automatically; clear_disk_cache() removes everything."""
+    from . import diskcache
+    diskcache.set_disk_cache(enabled, directory)
+
+
+def get_disk_cache_dir():
+    """The directory of the disk cache of derived data (see
+    set_disk_cache()); the entries are in sub directories for the package
+    versions."""
+    from . import diskcache
+    return diskcache.base_directory()
+
+
+def clear_disk_cache():
+    """Remove all entries of the disk cache of derived data (see
+    set_disk_cache())."""
+    from . import diskcache
+    diskcache.clear()
 
 
 def spell_check_languages():
@@ -191,7 +240,9 @@ class LanguageTool:
            variant code (en-US) is looked up first, then the language (en).
     :param cache_dir: the directory where downloaded resources (all
            dictionaries) are cached; a process-wide setting, see
-           set_cache_dir()
+           set_cache_dir(). By default the disk cache of derived data
+           (rules etc. loaded from the data files, which makes creating
+           a LanguageTool much faster, see set_disk_cache()) is there too.
     """
 
     def __init__(self, language, dictionary_path=None, download=True, mother_tongue=None, picky=False,

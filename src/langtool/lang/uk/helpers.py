@@ -685,6 +685,13 @@ def _load_case_map(path):
 
 @functools.lru_cache(maxsize=None)
 def _case_maps():
+    # (cached on disk, see langtool.diskcache; the files are package resources)
+    from ... import diskcache
+    return diskcache.cached('uk-case-maps', (_resource('/uk/case_government.txt'), _resource('/uk/derivats.txt')),
+                            _build_case_maps, types=(_JavaSet,))
+
+
+def _build_case_maps():
     case_government_map = _load_case_map('/uk/case_government.txt')
     derivatives_map = _load_case_map('/uk/derivats.txt')
     case_government_map['згідно з'] = _JavaSet(['v_oru'], linked=False)

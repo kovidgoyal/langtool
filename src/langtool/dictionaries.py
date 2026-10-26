@@ -17,15 +17,13 @@ found in (in order):
    checksums verified and the dictionary files extracted.
 """
 
-import hashlib
-import json
 import os
-import shutil
 import sys
-import tempfile
 import threading
-import zipfile
 from functools import lru_cache
+
+# (json, zipfile, shutil, tempfile and hashlib are imported when needed: importing them takes about half of the
+# import time of the package)
 
 _lock = threading.RLock()
 
@@ -36,6 +34,7 @@ class DictionaryNotFound(Exception):
 
 @lru_cache()
 def manifest():
+    import json
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dictionaries.json'), encoding='utf-8') as f:
         return json.load(f)
 
@@ -110,6 +109,7 @@ def _manifest_jar_paths(name):
 
 
 def _find_in_jar(jar, name):
+    import zipfile
     try:
         with zipfile.ZipFile(jar) as z:
             for cand in ('org/languagetool/resource/' + name, name) + _manifest_jar_paths(name):
@@ -124,6 +124,9 @@ def _find_in_jar(jar, name):
 
 
 def _extract_from_jar(jar, entry, dest):
+    import shutil
+    import tempfile
+    import zipfile
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with zipfile.ZipFile(jar) as z, z.open(entry) as src:
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest))
@@ -181,6 +184,7 @@ def locate(name, dictionary_path=None, download=True):
                         continue
                     if os.path.dirname(ip2) != os.path.dirname(p):
                         # make sure the .info is next to the .dict
+                        import shutil
                         dest = os.path.join(cache_dir(), 'extracted', name)
                         os.makedirs(os.path.dirname(dest), exist_ok=True)
                         shutil.copy2(p, dest)
@@ -210,6 +214,8 @@ def is_available(lang, dictionary_path=None):
 
 
 def download_file(url, dest, expected_sha256, progress=None):
+    import hashlib
+    import tempfile
     import urllib.request
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest))
@@ -281,3 +287,18 @@ def main(argv=None):
 
 if __name__ == '__main__':
     main()
+
+
+def dependency_files(language):
+    """The paths of the (downloadable) dictionary files of a language as
+    they are found now (where a missing file would be downloaded to): the
+    dependencies of data derived from them that is cached on disk (see
+    langtool.diskcache). Nothing is downloaded."""
+    from .extensions import resource_language
+    out = []
+    for name in required_files(resource_language(language).split('-')[0]):
+        try:
+            out.append(locate(name, language.dictionary_path, False))
+        except DictionaryNotFound:
+            out.append(os.path.join(cache_dir(), name))
+    return out

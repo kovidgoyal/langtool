@@ -2,9 +2,10 @@
 MultiWordChunker, MultiWordChunker2, XmlRuleDisambiguator and the
 "hybrid" disambiguators that chain several of them."""
 
-import regex
-
+import os
 import threading
+
+import regex
 
 from .analysis import AnalyzedToken, AnalyzedTokenReadings, AnalyzedSentence
 from .tools import (is_camel_case, uppercase_first_char, all_start_with_lowercase, titlecase_global,
@@ -91,13 +92,23 @@ class MultiWordChunker:
     def _init_maps(self):
         """(called once, with the lock held; the maps are built before
         they are published, so other threads never see incomplete maps)"""
+        from . import diskcache
+        path = os.path.abspath(self.path)
+        key = (type(self).__qualname__, path, self.allow_first_capitalized, self.allow_all_uppercase,
+               self.allow_titlecase, self.default_tag)
+        (self.separator, self.m_start_space, self.m_start_no_space, self.m_full_space,
+         self.m_full_no_space) = diskcache.cached('multiwords', key, self._build_maps, deps=[path],
+                                                  types=(AnalyzedToken,))
+        self._initialized = True
+
+    def _build_maps(self):
+        """the maps of _init_maps()"""
         m_start_space = {}
         m_start_no_space = {}
         m_full_space = {}
         m_full_no_space = {}
         from . import jregex
         lines, sep = self._load_words_and_separator()
-        self.separator = sep
         sep_re = None if sep == '\t' else jregex.compile(sep)
         for line in lines:
             parts = line.split('\t') if sep_re is None else sep_re.split(line)
@@ -126,11 +137,7 @@ class MultiWordChunker:
                     if m_start_space.get(first, -1) < len(toks):
                         m_start_space[first] = len(toks)
                     m_full_space[v] = AnalyzedToken(v, tag, original)
-        self.m_start_space = m_start_space
-        self.m_start_no_space = m_start_no_space
-        self.m_full_space = m_full_space
-        self.m_full_no_space = m_full_no_space
-        self._initialized = True
+        return sep, m_start_space, m_start_no_space, m_full_space, m_full_no_space
 
     def _lettercase_variants(self, original, token_map):
         out = []

@@ -20,7 +20,6 @@ The manifest maps every language code to a LibreOffice dictionary (or to
 none, see unavailable_languages()).
 """
 
-import json
 import os
 import threading
 from functools import lru_cache
@@ -38,6 +37,7 @@ class SpellCheckUnavailable(DictionaryNotFound):
 
 @lru_cache()
 def manifest():
+    import json
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hunspell_dictionaries.json'),
               encoding='utf-8') as f:
         return json.load(f)

@@ -23,6 +23,7 @@ Java (fdlibm); math.exp/math.log are used here, which may differ in the last
 bit for some values (this only matters for exact ties, which are resolved
 the same way for equal values)."""
 
+import os
 import io
 from array import array
 import heapq
@@ -238,6 +239,11 @@ class GISModel:
 def read_gis_model(data):
     """GenericModelReader for a binary GIS model (the *.model entries of
     the model packages)"""
+    return GISModel(*read_gis_model_data(data))
+
+
+def read_gis_model_data(data):
+    """the GISModel arguments for read_gis_model()"""
     r = _DataReader(data)
     model_type = r.read_utf()
     if model_type != 'GIS':
@@ -267,7 +273,7 @@ def read_gis_model(data):
             # LinkedHashMap.put: a later duplicate predicate replaces the earlier one
             pmap[pred_labels[pid]] = (off + j * n) * npat + pi
             pid += 1
-    return GISModel(outcome_labels, pmap, patterns, params)
+    return outcome_labels, pmap, patterns, params
 
 
 class ModelPackage:
@@ -275,8 +281,11 @@ class ModelPackage:
     manifest properties and artifacts"""
 
     def __init__(self, path_or_bytes):
+        self.path = None
         if isinstance(path_or_bytes, (bytes, bytearray)):
             path_or_bytes = io.BytesIO(path_or_bytes)
+        elif isinstance(path_or_bytes, (str, os.PathLike)):
+            self.path = os.path.abspath(path_or_bytes)
         with zipfile.ZipFile(path_or_bytes) as z:
             self.artifacts = {name: z.read(name) for name in z.namelist()}
         self.manifest = read_properties(self.artifacts['manifest.properties'].decode('iso-8859-1'))
@@ -285,7 +294,20 @@ class ModelPackage:
         return self.manifest.get(key)
 
     def gis_model(self, name):
-        return read_gis_model(self.artifacts[name])
+        if self.path is None:
+            return read_gis_model(self.artifacts[name])
+        # (the model data is cached on disk, see langtool.diskcache)
+        from . import diskcache
+        return GISModel(*diskcache.cached('opennlp-gis', (self.path, name),
+                                          lambda: read_gis_model_data(self.artifacts[name]), deps=[self.path]))
+
+    def cached(self, kind, name, build):
+        """build() (data derived from the artifact name), cached on disk
+        if the package is a file"""
+        if self.path is None:
+            return build()
+        from . import diskcache
+        return diskcache.cached(kind, (self.path, name), build, deps=[self.path])
 
     def beam_size(self, default):
         v = self.get_manifest_property('BeamSize')
@@ -773,7 +795,8 @@ class POSTaggerME:
         self.beam = BeamSearch(package.beam_size(self.DEFAULT_BEAM_SIZE), self.model)
         tagdict = package.artifacts.get('tags.tagdict')
         if tagdict is not None:
-            self.tag_dictionary, self.case_sensitive = read_pos_dictionary(tagdict)
+            self.tag_dictionary, self.case_sensitive = package.cached('opennlp-tagdict', 'tags.tagdict',
+                                                                     lambda: read_pos_dictionary(tagdict))
         else:
             self.tag_dictionary, self.case_sensitive = None, True
 

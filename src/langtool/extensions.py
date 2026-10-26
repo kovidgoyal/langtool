@@ -275,20 +275,26 @@ def disambiguation_rules(language, use_global=False):
     with _lock:
         r = _xml_cache.get(key)
         if r is None:
-            rules = []
-            problems = []
-            ff = default_filter_factory()
+            files = []
             path = os.path.join(language.resource_dir, 'disambiguation.xml')
             if os.path.exists(path):
-                rr, p = load_disambiguation_rules(path, language, language.resource_root, ff)
-                rules.extend(rr)
-                problems.extend(p)
+                files.append(path)
             if use_global:
-                rr, p = load_disambiguation_rules(language.resource_path('disambiguation-global.xml'), language,
-                                                  language.resource_root, ff)
-                rules.extend(rr)
-                problems.extend(p)
-            r = _xml_cache[key] = (rules, problems)
+                files.append(language.resource_path('disambiguation-global.xml'))
+
+            def load(ff):
+                rules = []
+                problems = []
+                for f in files:
+                    rr, p = load_disambiguation_rules(f, language, language.resource_root, ff)
+                    rules.extend(rr)
+                    problems.extend(p)
+                return rules, problems
+
+            # (from the persistent cache if possible, see langtool.diskcache)
+            from .patterns.rulecache import load_rules
+            r = _xml_cache[key] = load_rules('disambiguation', language, files, load, default_filter_factory(),
+                                             language.disambiguation_unifier_config)
         return r
 
 

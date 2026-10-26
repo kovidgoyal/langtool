@@ -7,6 +7,7 @@ SpaceInCompoundRule, WordCoherencyRule and the helper class Tools
 The Java rules that use a Locale("nl") for case conversion (it has no
 special case mapping) use the default lower() here."""
 
+import os
 import threading
 
 from ... import jregex
@@ -299,37 +300,45 @@ def _space_in_compound_data_for(path):
         r = _space_in_compound_data.get(path)
         if r is not None:
             return r
-        result = set()
-        normalized_compound2message = {}
-        lines = _read_lines(path)
-        line_counts = {}
-        for line in lines:
-            line_counts[line] = line_counts.get(line, 0) + 1
-        for line in lines:
-            if line.startswith('#'):
-                continue
-            line_parts = java_split(line, '|')
-            word_parts = line_parts[0]
-            if ' ' not in word_parts:
-                raise ValueError('Unexpected format in ' + _SPACE_IN_COMPOUND_FILE + ", expected multi-word (i.e. "
-                                 "spaces) left of the '|': " + line)
-            words = java_split(word_parts, ' ')
-            generate_variants('', words, result)
-            # Spaces in different places should not be counted as duplicates
-            if line_counts.get(word_parts, 0) > 1:
-                raise ValueError("Duplicate item '" + word_parts + "' in file " + _SPACE_IN_COMPOUND_FILE)
-            message = 'Waarschijnlijk bedoelt u: ' + glue_parts(words)
-            if len(line_parts) == 2:
-                message += ' (' + line_parts[1] + ')'
-            normalized_compound2message[glue_parts(words)] = message
-        trie = {}
-        for variant in result:
-            node = trie
-            for c in variant:
-                node = node.setdefault(c, {})
-            node[None] = True
-        r = _space_in_compound_data[path] = (normalized_compound2message, trie)
+        # (cached on disk, see langtool.diskcache)
+        from ... import diskcache
+        r = _space_in_compound_data[path] = diskcache.cached(
+            'nl-space-in-compound', (os.path.abspath(path),), lambda: _build_space_in_compound_data(path),
+            deps=[os.path.abspath(path)])
         return r
+
+
+def _build_space_in_compound_data(path):
+    result = set()
+    normalized_compound2message = {}
+    lines = _read_lines(path)
+    line_counts = {}
+    for line in lines:
+        line_counts[line] = line_counts.get(line, 0) + 1
+    for line in lines:
+        if line.startswith('#'):
+            continue
+        line_parts = java_split(line, '|')
+        word_parts = line_parts[0]
+        if ' ' not in word_parts:
+            raise ValueError('Unexpected format in ' + _SPACE_IN_COMPOUND_FILE + ", expected multi-word (i.e. "
+                             "spaces) left of the '|': " + line)
+        words = java_split(word_parts, ' ')
+        generate_variants('', words, result)
+        # Spaces in different places should not be counted as duplicates
+        if line_counts.get(word_parts, 0) > 1:
+            raise ValueError("Duplicate item '" + word_parts + "' in file " + _SPACE_IN_COMPOUND_FILE)
+        message = 'Waarschijnlijk bedoelt u: ' + glue_parts(words)
+        if len(line_parts) == 2:
+            message += ' (' + line_parts[1] + ')'
+        normalized_compound2message[glue_parts(words)] = message
+    trie = {}
+    for variant in result:
+        node = trie
+        for c in variant:
+            node = node.setdefault(c, {})
+        node[None] = True
+    return normalized_compound2message, trie
 
 
 def _is_boundary(c):

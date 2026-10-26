@@ -256,16 +256,36 @@ def plain_text_speller_lines(plain_text_paths, prepare_line=None, language_varia
     return lines
 
 
+def cached_plain_text_speller_lines(plain_text_paths, prepare_line=None, language_variant_path=None,
+                                    prepare_line_key=None):
+    """plain_text_speller_lines(), cached on disk (see langtool.diskcache)
+    if prepare_line_key (a name of prepare_line, see diskcache.function_key())
+    is given"""
+    if prepare_line_key is None or not plain_text_paths:
+        return plain_text_speller_lines(plain_text_paths, prepare_line, language_variant_path)
+    from . import diskcache
+    paths = tuple(os.path.abspath(p) for p in plain_text_paths)
+    variant = os.path.abspath(language_variant_path) if language_variant_path is not None else None
+    return diskcache.cached('speller-lines', (paths, variant, prepare_line_key),
+                            lambda: plain_text_speller_lines(plain_text_paths, prepare_line, language_variant_path),
+                            deps=paths + ((variant,) if variant else ()))
+
+
 class MorfologikMultiSpeller:
     """MorfologikMultiSpeller.isMisspelled: a word is accepted if one of the
     spellers (the binary dictionary and the plain text word lists, which use
     the metadata of the binary dictionary) accepts it. No user dictionaries
     (UserConfig) are supported."""
 
-    def __init__(self, binary_dict, plain_text_paths=(), prepare_line=None, language_variant_path=None):
+    def __init__(self, binary_dict, plain_text_paths=(), prepare_line=None, language_variant_path=None,
+                 prepare_line_key=None):
+        """prepare_line_key: a name for prepare_line (see
+        diskcache.function_key()), the lines of the plain text word lists are
+        then cached on disk"""
         md = SpellerMetadata(binary_dict.metadata)
         self.spellers = [MorfologikSpeller(_FSAWords(binary_dict.fsa), md)]
-        lines = plain_text_speller_lines(plain_text_paths, prepare_line, language_variant_path)
+        lines = cached_plain_text_speller_lines(plain_text_paths, prepare_line, language_variant_path,
+                                                prepare_line_key)
         if lines:
             self.spellers.append(MorfologikSpeller(_PlainWords(lines, md.separator), md))
         self._converts_case = md.convert_case
@@ -397,8 +417,10 @@ class MorfologikMisspellingCheck:
             with _cache_lock:
                 speller = _multi_speller_cache.get(key)
                 if speller is None or speller[0] is not binary_dict:
+                    from . import diskcache
                     speller = _multi_speller_cache[key] = (binary_dict, MorfologikMultiSpeller(
-                        binary_dict, plain_text, self.prepare_line_for_speller, variant))
+                        binary_dict, plain_text, self.prepare_line_for_speller, variant,
+                        diskcache.function_key(type(self).prepare_line_for_speller)))
             self._speller1 = speller[1]
             return self._speller1
 
@@ -406,23 +428,43 @@ class MorfologikMisspellingCheck:
         with self._lock:
             if self._ignored is not None:
                 return
-            ignored = set()
             names = [self.get_ignore_file_name(), self.get_spelling_file_name()]
             names.extend(self.get_additional_spelling_file_names())
             names.extend(self.get_additional_ignore_file_names())
-            tokenizer = self.language.word_tokenizer if self.tokenize_new_words() else None
-            for name in names:
-                for line in _cached_words(self.resource_file(name)):
-                    # SpellingCheckRule.addIgnoreWords: lines of several tokens become anti-patterns
-                    # (multi-word ignore entries), which never match a single word
-                    if tokenizer is None or len(tokenizer.tokenize(line)) <= 1:
-                        ignored.add(line)
-            prohibited = set()
-            for name in [self.get_prohibit_file_name()] + list(self.get_additional_prohibit_file_names()):
-                for line in _cached_words(self.resource_file(name)):
-                    prohibited.update(self.expand_line(line))
-            self._prohibited = frozenset(prohibited)
-            self._ignored = frozenset(ignored)
+            ignore_files = [self.resource_file(name) for name in names]
+            prohibit_files = [self.resource_file(name) for name in
+                              [self.get_prohibit_file_name()] + list(self.get_additional_prohibit_file_names())]
+            from . import diskcache
+            from .dictionaries import dependency_files
+            cls_key = diskcache.function_key(type(self))
+            build = lambda: self._build_word_lists(ignore_files, prohibit_files)  # noqa: E731
+            if cls_key is None or diskcache.language_key(self.language) is None:
+                ignored, prohibited = build()
+            else:
+                # (cached on disk, see langtool.diskcache: the result depends on the files, the class (the
+                # methods used) and the language (the tokenizer, which may use the dictionaries))
+                files = [os.path.abspath(f) for f in ignore_files + prohibit_files if f is not None]
+                ignored, prohibited = diskcache.cached(
+                    'speller-word-lists', (cls_key, self.language.code, tuple(ignore_files), tuple(prohibit_files)),
+                    build, deps=files + dependency_files(self.language))
+            self._prohibited = prohibited
+            self._ignored = ignored
+
+    def _build_word_lists(self, ignore_files, prohibit_files):
+        """the ignored and the prohibited words (frozensets)"""
+        ignored = set()
+        tokenizer = self.language.word_tokenizer if self.tokenize_new_words() else None
+        for path in ignore_files:
+            for line in _cached_words(path):
+                # SpellingCheckRule.addIgnoreWords: lines of several tokens become anti-patterns
+                # (multi-word ignore entries), which never match a single word
+                if tokenizer is None or len(tokenizer.tokenize(line)) <= 1:
+                    ignored.add(line)
+        prohibited = set()
+        for path in prohibit_files:
+            for line in _cached_words(path):
+                prohibited.update(self.expand_line(line))
+        return frozenset(ignored), frozenset(prohibited)
 
     # --- checks ---
 
@@ -1614,7 +1656,9 @@ class MorfologikSuggestions:
         with _cache_lock:
             spellers = _suggestion_multi_spellers.get(key)
             if spellers is None or spellers[0] is not binary_dict:
-                lines = plain_text_speller_lines(plain_text, self.prepare_line_for_speller, variant)
+                from . import diskcache
+                lines = cached_plain_text_speller_lines(plain_text, self.prepare_line_for_speller, variant,
+                                                        diskcache.function_key(type(self).prepare_line_for_speller))
                 spellers = _suggestion_multi_spellers[key] = (binary_dict, tuple(
                     SuggestionMultiSpeller(binary_dict, lines, distance) for distance in (1, 2, 3)))
         with self._lock:

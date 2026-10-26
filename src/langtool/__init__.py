@@ -15,18 +15,24 @@ LANGTOOL_DICT_PATH environment variable).
 Spell checking with Hunspell dictionaries is optional::
 
     tool = langtool.LanguageTool('en-US', spell_check=True)
+
+The rules and other data loaded for a language are cached on disk, which
+makes loading a language several times faster after the first time (see
+set_disk_cache(); LANGTOOL_DISK_CACHE=0 disables the cache).
 """
 
-from .api import (LanguageTool, Match, RuleInfo, check, download_dictionaries, get_cache_dir, get_language,
-                  hunspell_dictionary_info, language_names, languages, set_cache_dir, spell_check_languages)
+__version__ = '0.1.0'  # (defined before the imports: langtool.diskcache uses it)
+
+from .api import (LanguageTool, Match, RuleInfo, check, clear_disk_cache, download_dictionaries, get_cache_dir,
+                  get_disk_cache_dir, get_language, hunspell_dictionary_info, language_names, languages, set_cache_dir,
+                  set_disk_cache, spell_check_languages)
 from .dictionaries import DictionaryNotFound
 from .hunspell_dictionaries import SpellCheckUnavailable
 
-__version__ = '0.1.0'
-
 __all__ = ['LanguageTool', 'Match', 'RuleInfo', 'check', 'download_dictionaries', 'get_language',
            'language_names', 'languages', 'DictionaryNotFound', 'SpellCheckUnavailable', 'have_speedups',
-           'set_cache_dir', 'get_cache_dir', 'spell_check_languages', 'hunspell_dictionary_info']
+           'set_cache_dir', 'get_cache_dir', 'set_disk_cache', 'get_disk_cache_dir', 'clear_disk_cache',
+           'spell_check_languages', 'hunspell_dictionary_info']
 
 
 def have_speedups():

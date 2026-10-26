@@ -4,6 +4,7 @@
 AhoCorasickDoubleArrayTrie.parseText) with the hit order of the Java
 library, also used by ProhibitedCompoundRule."""
 
+import os
 import threading
 
 from ... import jregex
@@ -133,10 +134,20 @@ class SpellingData:
     the synthesizer of German (Germany))."""
 
     def __init__(self, language, file_path):
-        lines = _read_lines(_resource_file(language, file_path))
+        from ... import diskcache
+        from ...api import get_language
+        from ...dictionaries import dependency_files
+        path = os.path.abspath(_resource_file(language, file_path))
+        # (the maps are cached on disk, see langtool.diskcache; they depend on the synthesizer of de-DE)
+        m1, m2 = diskcache.cached('de-old-spelling', (path,), lambda: self._maps(path, file_path),
+                                  deps=[path] + dependency_files(get_language('de-DE')))
+        self.trie = AhoCorasickSearch(m1.items())
+        self.sentence_start_trie = AhoCorasickSearch(m2.items())
+
+    def _maps(self, path, file_path):
+        lines = _read_lines(path)
         self._forms = {}  # synthesized forms, computed once for both maps
-        self.trie = AhoCorasickSearch(self._coherency_map(lines, file_path, False).items())
-        self.sentence_start_trie = AhoCorasickSearch(self._coherency_map(lines, file_path, True).items())
+        return self._coherency_map(lines, file_path, False), self._coherency_map(lines, file_path, True)
 
     @staticmethod
     def _synthesizer():
