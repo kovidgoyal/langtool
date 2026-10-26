@@ -236,24 +236,21 @@ class Language:
                     from .rules.filters import default_filter_factory
                     from .messages import messages_for
                     files = self.get_rule_file_names()
+                    msgs = messages_for(self.short_code)
 
-                    def load(ff):
-                        rules = []
-                        problems = []
-                        msgs = messages_for(self.short_code)
-                        for f in files:
-                            r, skipped = load_pattern_rules(f, self, self.resource_root, ff, msgs)
-                            rules.extend(r)
-                            problems.extend(skipped)
-                        return rules, problems
+                    def load_file(f, ff):
+                        return load_pattern_rules(f, self, self.resource_root, ff, msgs)
 
                     if filter_factory is None:
                         # (from the persistent cache if possible, see langtool.diskcache)
                         from .patterns.rulecache import load_rules
-                        rules, problems = load_rules('grammar', self, files, load, default_filter_factory(),
-                                                     self.unifier_config)
+                        rules, problems = load_rules('grammar', self, files, load_file, default_filter_factory())
                     else:
-                        rules, problems = load(filter_factory)
+                        rules, problems = [], []
+                        for f in files:
+                            r, skipped = load_file(f, filter_factory)
+                            rules.extend(r)
+                            problems.extend(skipped)
                     self._pattern_rule_problems = problems
                     self._pattern_rules = rules
         return self._pattern_rules
@@ -291,10 +288,16 @@ class Language:
             rules = _mother_tongue_rules.get(key)
             if rules is None:
                 from .patterns.loader import load_pattern_rules
+                from .patterns.rulecache import load_rules
                 from .rules.filters import default_filter_factory
                 from .messages import messages_for
-                rules = _mother_tongue_rules[key] = load_pattern_rules(
-                    path, self, self.resource_root, default_filter_factory(), messages_for(self.short_code))[0]
+                msgs = messages_for(self.short_code)
+
+                def load_file(f, ff):
+                    return load_pattern_rules(f, self, self.resource_root, ff, msgs)
+                # (from the persistent cache if possible, see langtool.diskcache)
+                rules = _mother_tongue_rules[key] = load_rules('grammar', self, [path], load_file,
+                                                               default_filter_factory())[0]
         return list(rules)
 
     def get_default_enabled_rules_for_variant(self):

@@ -78,12 +78,22 @@ pickles). The rules of languages added with
 `langtool.languages.register_language()` are not cached (changing the
 built-in language definitions in place requires disabling the cache).
 
+The rules are cached per rule file, so the variants of a language (e.g.
+en-US, en-GB, en-AU) share the entries of the common files and loading a
+further variant takes about a second even the first time.
+
+The cache directory is kept below 512 MB: when it grows beyond that, the
+least recently used entries (of all package versions) are removed. The
+limit can be set with `LANGTOOL_DISK_CACHE_MAX_MB` (0 for no limit) or the
+`max_size` argument of `set_disk_cache()`.
+
 To disable the cache set `LANGTOOL_DISK_CACHE=0` (or use `--no-disk-cache`
 on the command line), or call:
 
 ```python
 langtool.set_disk_cache(False)                         # process-wide
 langtool.set_disk_cache(True, directory='/srv/lt-derived')   # another directory
+langtool.set_disk_cache(True, max_size=200 << 20)      # at most 200 MB
 langtool.clear_disk_cache()                            # remove all entries
 ```
 
@@ -156,7 +166,7 @@ LanguageTool's own speller dictionaries, as in Java.
 * `langtool.languages()` — the supported language codes
 * `langtool.download_dictionaries(code, spelling=False)`
 * `langtool.set_cache_dir(path)`, `langtool.get_cache_dir()`
-* `langtool.set_disk_cache(enabled=True, directory=None)`, `langtool.get_disk_cache_dir()`,
+* `langtool.set_disk_cache(enabled=True, directory=None, max_size=None)`, `langtool.get_disk_cache_dir()`,
   `langtool.clear_disk_cache()` — the disk cache of derived data (see above)
 * `langtool.spell_check_languages()`, `langtool.hunspell_dictionary_info(code)`
 

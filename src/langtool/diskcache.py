@@ -29,6 +29,12 @@ directory) silently falls back to building the data (and replacing the
 entry if possible). Errors writing are ignored too. Problems are logged to
 the ``langtool.diskcache`` logger (debug level).
 
+Size: the cache directory (all package versions) is kept below 512 MB by
+default: when a write makes it larger, the least recently used entries
+are removed (down to 80% of the limit). The limit can be set with
+``langtool.set_disk_cache(max_size=bytes)`` or the
+``LANGTOOL_DISK_CACHE_MAX_MB`` environment variable (0: no limit).
+
 Disabling: set the environment variable ``LANGTOOL_DISK_CACHE=0`` (also
 ``off``, ``no`` or ``false``) or call ``langtool.set_disk_cache(False)``.
 """
@@ -62,6 +68,7 @@ _TMP_MAX_AGE = 24 * 3600
 _lock = threading.RLock()
 _enabled = None  # None: the environment variable decides
 _directory = None
+_max_size = None
 _fingerprint = None
 _dir_checked = set()
 _dir_used = set()
@@ -76,17 +83,37 @@ def _env_enabled():
     return v not in ('0', 'off', 'no', 'false')
 
 
-def set_disk_cache(enabled=True, directory=None):
+DEFAULT_MAX_SIZE = 512 << 20
+
+
+def set_disk_cache(enabled=True, directory=None, max_size=None):
     """Enable or disable the persistent cache of derived data (see the
     module documentation) for this process, optionally with a directory to
     use instead of the default (LANGTOOL_DISK_CACHE_DIR, else
-    ``<cache dir>/derived``). enabled=None
-    restores the default (enabled unless the LANGTOOL_DISK_CACHE environment
-    variable is 0/off/no/false)."""
-    global _enabled, _directory
+    ``<cache dir>/derived``) and a maximum size in bytes (None: the
+    LANGTOOL_DISK_CACHE_MAX_MB environment variable (in MB, 0 for no
+    limit), else 512 MB). enabled=None restores the default (enabled unless
+    the LANGTOOL_DISK_CACHE environment variable is 0/off/no/false)."""
+    global _enabled, _directory, _max_size
     with _lock:
         _enabled = enabled if enabled is None else bool(enabled)
         _directory = os.path.abspath(os.fspath(directory)) if directory is not None else None
+        _max_size = max_size
+
+
+def max_size():
+    """The maximum size of the cache directory in bytes (0: no limit): when
+    it is exceeded, the least recently used entries are removed."""
+    m = _max_size
+    if m is not None:
+        return max(0, int(m))
+    v = os.environ.get('LANGTOOL_DISK_CACHE_MAX_MB', '').strip()
+    if v:
+        try:
+            return max(0, int(float(v) * (1 << 20)))
+        except ValueError:
+            pass
+    return DEFAULT_MAX_SIZE
 
 
 def is_enabled():
@@ -452,6 +479,71 @@ def _mark_used(d):
         pass
 
 
+def _touch(path):
+    """mark an entry as used (its modification time, at most once an hour;
+    the least recently used entries are removed when the cache is too
+    large)"""
+    try:
+        if time.time() - os.path.getmtime(path) > 3600:
+            os.utime(path)
+    except OSError:
+        pass
+
+
+def _enforce_max_size(keep):
+    """remove the least recently used files of the cache directory (all the
+    package versions) if it is larger than max_size(), down to 80% of it
+    (not the file keep, just written)"""
+    limit = max_size()
+    if not limit:
+        return
+    base = base_directory()
+    files = []
+    total = 0
+    try:
+        dirs = [os.path.join(base, n) for n in os.listdir(base)]
+    except OSError:
+        return
+    for d in dirs:
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for n in names:
+            if n == 'last-used':
+                continue
+            p = os.path.join(d, n)
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            total += st.st_size
+            files.append((st.st_mtime, st.st_size, p))
+    if total <= limit:
+        return
+    files.sort()
+    target = limit * 0.8
+    keep = os.path.abspath(keep)
+    for mtime, size, p in files:
+        if total <= target:
+            break
+        if p == keep:
+            continue
+        try:
+            os.unlink(p)
+            total -= size
+            log.debug('removed %s (cache size limit)', p)
+        except OSError:
+            pass
+    for d in dirs:
+        try:
+            if set(os.listdir(d)) <= {'last-used'} and os.path.basename(d) != os.path.basename(directory()):
+                import shutil
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def _prepare_dir(d):
     """create the directory (and once per process: mark it as used, remove
     old directories and stale temporary files)"""
@@ -532,6 +624,7 @@ def load_or_build(kind, key, build, persist=None, resolve=None, deps=()):
         value = _read(path, kind, key, resolve)
         _count(kind, 'hit')
         _mark_used(os.path.dirname(path))
+        _touch(path)
         return value
     except FileNotFoundError:
         pass
@@ -555,6 +648,7 @@ def load_or_build(kind, key, build, persist=None, resolve=None, deps=()):
     try:
         _write(path, kind, key, sorted((p, _file_stat(p)) for p in noted), value, persist)
         _count(kind, 'write')
+        _enforce_max_size(path)
         if len(_regex_new) >= 200:
             flush_regex_store()
     except Uncacheable as e:
@@ -681,6 +775,7 @@ def _load_regex_store():
             try:
                 store = _open_regex_store(_regex_path())
                 _count('regex', 'hit')
+                _touch(_regex_path())
             except FileNotFoundError:
                 _count('regex', 'miss')
             except Exception as e:
@@ -832,6 +927,7 @@ def flush_regex_store():
                 pass
             raise
         _count('regex', 'write')
+        _enforce_max_size(path)
     except Exception as e:
         _count('regex', 'error')
         log.debug('regex store not written: %r', e)

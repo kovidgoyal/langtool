@@ -74,7 +74,7 @@ def get_cache_dir():
     return dictionaries.cache_root()
 
 
-def set_disk_cache(enabled=True, directory=None):
+def set_disk_cache(enabled=True, directory=None, max_size=None):
     """Configure the disk cache of derived data (process-wide).
 
     Loading a language (parsing its XML rules, compiling regular
@@ -96,6 +96,10 @@ def set_disk_cache(enabled=True, directory=None):
            set_cache_dir(), e.g. ~/.cache/langtool/derived on Linux). The
            directory must not be writable by other users (the entries are
            pickles).
+    :param max_size: the maximum size of the cache directory in bytes (0:
+           no limit); when it is exceeded the least recently used entries
+           are removed. None means the LANGTOOL_DISK_CACHE_MAX_MB
+           environment variable (in MB), else 512 MB.
 
     The cache takes up to about 20 MB per language (less than 1 MB for
     most languages) and is safe to use from concurrent processes (entries
@@ -103,7 +107,7 @@ def set_disk_cache(enabled=True, directory=None):
     Directories of other package versions that were not used for a week
     are removed automatically; clear_disk_cache() removes everything."""
     from . import diskcache
-    diskcache.set_disk_cache(enabled, directory)
+    diskcache.set_disk_cache(enabled, directory, max_size)
 
 
 def get_disk_cache_dir():

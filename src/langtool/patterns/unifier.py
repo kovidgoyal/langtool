@@ -1,9 +1,15 @@
 """Port of org.languagetool.rules.patterns.Unifier and UnifierConfiguration:
 unification of features (e.g. gender, number) over tokens."""
 
+import threading
+
 from ..analysis import AnalyzedTokenReadings
 
 UNIFY_IGNORE = 'unify-ignore'
+
+# the set_equivalence() calls of this thread are appended to the list _recording.calls (if it is not None):
+# langtool.patterns.rulecache replays the calls of the loading of a rule file
+_recording = threading.local()
 
 
 class UnifierConfiguration:
@@ -13,6 +19,9 @@ class UnifierConfiguration:
         self.equivalence_features = {}  # feature -> [types]
 
     def set_equivalence(self, feature, type_, elem):
+        calls = getattr(_recording, 'calls', None)
+        if calls is not None:
+            calls.append((self, feature, type_, elem))
         key = (feature, type_)
         if key in self.equivalence_types:
             return

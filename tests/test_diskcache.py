@@ -25,13 +25,13 @@ SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 @pytest.fixture
 def cache_dir(tmp_path):
     """an empty disk cache directory for the test (restores the settings)"""
-    old_enabled, old_dir = diskcache._enabled, diskcache._directory
+    old_enabled, old_dir, old_max = diskcache._enabled, diskcache._directory, diskcache._max_size
     old_store, old_new = diskcache._regex_store, dict(diskcache._regex_new)
     diskcache.set_disk_cache(True, tmp_path / 'derived')
     diskcache._regex_store = None
     diskcache._regex_new.clear()
     yield tmp_path / 'derived'
-    diskcache._enabled, diskcache._directory = old_enabled, old_dir
+    diskcache._enabled, diskcache._directory, diskcache._max_size = old_enabled, old_dir, old_max
     diskcache._regex_store = old_store
     diskcache._regex_new.clear()
     diskcache._regex_new.update(old_new)
@@ -470,10 +470,10 @@ def _compare(a, b, ctx, memo, path='rules'):
     if isinstance(a, (type, enum.Enum, types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
         assert a is b or a == b, path
         return
-    if ta.__name__ not in ('StringMatcher', 'PosToken') and ta not in (tuple, frozenset):
-        # (the sharing of the mutable objects must be the same; the interned StringMatchers and the PosTokens of the
-        # language's cache are shared by the rules of different files, those loaded from the cache by the rules of
-        # the same file only: they are compared by value)
+    if ta.__name__ != 'StringMatcher' and ta not in (tuple, frozenset):
+        # (the sharing of the mutable objects must be the same, e.g. of the PosTokens of the language's cache by the
+        # rules of different files; the interned StringMatchers are shared by the rules of all languages, those of
+        # other languages may be in the process: they are compared by value)
         seen = memo.get(id(a))
         if seen is not None:
             assert seen is b, ('sharing differs', path)
@@ -548,7 +548,9 @@ def test_cached_rules_are_identical(cache_dir, xml_cache, code):
         xml_cache.clear()
         rules_b = lang_b.get_pattern_rules()
         disamb_b = extensions.disambiguation_rules(lang_b)
-    assert (_hits('rules-grammar'), _hits('rules-disambiguation')) == (hits[0] + 1, hits[1] + 1)
+    # (an entry per file)
+    assert (_hits('rules-grammar'), _hits('rules-disambiguation')) == (hits[0] + len(lang_b.get_rule_file_names()),
+                                                                       hits[1] + 1)
     ctx = {'lang_a': lang_a, 'lang_b': lang_b, 'keep': []}
     _compare(rules_a, rules_b, ctx, {})
     _compare(disamb_a, disamb_b, ctx, {})
@@ -603,8 +605,9 @@ def test_same_results_with_and_without_cache(tmp_path, code):
     assert results['cold']['matches'] == results['disabled']['matches']
     assert results['warm']['matches'] == results['disabled']['matches']
     assert not results['disabled']['stats']
-    assert results['cold']['stats']['rules-grammar']['write'] == 1
-    assert results['warm']['stats']['rules-grammar'] == {'hit': 1, 'miss': 0, 'write': 0, 'error': 0}
+    n = results['cold']['stats']['rules-grammar']['write']  # (an entry per rule file)
+    assert n >= 2
+    assert results['warm']['stats']['rules-grammar'] == {'hit': n, 'miss': 0, 'write': 0, 'error': 0}
     assert all(s['miss'] == 0 and s['error'] == 0 for s in results['warm']['stats'].values())
 
 
@@ -617,3 +620,131 @@ def test_registered_languages_are_not_cached(cache_dir, xml_cache):
     assert lang.get_pattern_rules()
     extensions.disambiguation_rules(lang)
     assert not [f for f in _entries(cache_dir) if 'rules-' in os.path.basename(f)]
+
+
+def _writes(kind):
+    return diskcache.stats.get(kind, {}).get('write', 0)
+
+
+def test_variants_share_entries(cache_dir, xml_cache):
+    from langtool.patterns.string_matcher import StringMatcher
+    codes = ['en-US', 'en-GB', 'en-AU']
+    diskcache.set_disk_cache(False)
+    fresh = {}
+    for code in codes:
+        fresh[code] = _fresh_language(code)
+        fresh[code].get_pattern_rules()
+    diskcache.set_disk_cache(True, cache_dir)
+    loaded = {}
+    for code in codes:
+        lang = loaded[code] = _fresh_language(code)
+        files = lang.get_rule_file_names()
+        writes, hits = _writes('rules-grammar'), _hits('rules-grammar')
+        lang.get_pattern_rules()
+        built = _writes('rules-grammar') - writes
+        if code == 'en-US':
+            assert built == len(files)
+        else:
+            # (only the files of the variant are loaded from XML, grammar.xml etc. come from the cache)
+            assert built == len([f for f in files if os.sep + code + os.sep in f])
+            assert _hits('rules-grammar') - hits == len(files) - built >= 2
+    entries = [f for f in _entries(cache_dir) if os.path.basename(f).startswith('rules-grammar')]
+    assert len(entries) == len(set(f for c in codes for f in loaded[c].get_rule_file_names()))
+    # the same rules as loaded from XML, a variant loaded from entries built for another variant too
+    for code in codes:
+        lang_b = _fresh_language(code)
+        rules_b = lang_b.get_pattern_rules()
+        ctx = {'lang_a': fresh[code], 'lang_b': lang_b, 'keep': []}
+        _compare(fresh[code].get_pattern_rules(), rules_b, ctx, {})
+    # as when loading from XML: the variants have their own rules, the interned StringMatchers are shared
+    for langs in (fresh, loaded):
+        us, gb = langs['en-US'].get_pattern_rules(), langs['en-GB'].get_pattern_rules()
+        assert not set(map(id, us)) & set(map(id, gb))
+        m_us = {id(t.text_matcher) for r in us for t in (r.pattern_tokens or ()) if type(t.text_matcher) is StringMatcher}
+        m_gb = {id(t.text_matcher) for r in gb for t in (r.pattern_tokens or ()) if type(t.text_matcher) is StringMatcher}
+        assert len(m_us & m_gb) > 1000
+
+
+def test_mother_tongue_rules(cache_dir):
+    from langtool import language as L
+    saved = dict(L._mother_tongue_rules)
+    L._mother_tongue_rules.clear()
+    try:
+        diskcache.set_disk_cache(False)
+        lang_a = _fresh_language('en-US')
+        mt_a = lang_a.get_mother_tongue_rules('de')
+        rules_a = lang_a.get_pattern_rules()
+        diskcache.set_disk_cache(True, cache_dir)
+        # the grammar entries don't depend on the state of the unifier configuration: those built without the rules
+        # for German speakers are used with them
+        L._mother_tongue_rules.clear()
+        _fresh_language('en-US').get_pattern_rules()
+        writes = _writes('rules-grammar')
+        for _ in range(2):
+            L._mother_tongue_rules.clear()
+            lang_b = _fresh_language('en-US')
+            mt_b = lang_b.get_mother_tongue_rules('de')
+            rules_b = lang_b.get_pattern_rules()
+        assert _writes('rules-grammar') == writes + 1  # (the file of the rules for German speakers)
+        ctx = {'lang_a': lang_a, 'lang_b': lang_b, 'keep': []}
+        memo = {}
+        _compare(mt_a, mt_b, ctx, memo)
+        _compare(rules_a, rules_b, ctx, memo)
+        ua, ub = lang_a.unifier_config, lang_b.unifier_config
+        assert list(ua.equivalence_types) == list(ub.equivalence_types)
+        assert ua.equivalence_features == ub.equivalence_features
+        _compare(list(ua.equivalence_types.values()), list(ub.equivalence_types.values()), ctx, memo)
+    finally:
+        L._mother_tongue_rules.clear()
+        L._mother_tongue_rules.update(saved)
+
+
+def test_size_limit(cache_dir, monkeypatch):
+    big = list(range(50000))  # (about 100 KB compressed)
+    diskcache.set_disk_cache(True, cache_dir, max_size=0)
+    for i in range(10):
+        diskcache.cached('test-size', i, lambda: big + [i])
+    paths = {i: diskcache._entry_path('test-size', i) for i in range(10)}
+    sizes = {i: os.path.getsize(p) for i, p in paths.items()}
+    assert all(os.path.exists(p) for p in paths.values())  # (no limit)
+    # the least recently used entries (by modification time) are removed first
+    now = 2000000000
+    for i, p in paths.items():
+        os.utime(p, (now - 10000 + i * 10, now - 10000 + i * 10))
+    os.utime(paths[0], (now - 5000, now - 5000))  # (entry 0 used recently)
+    limit = sum(sizes.values()) - 1
+    diskcache.set_disk_cache(True, cache_dir, max_size=limit)
+    diskcache.cached('test-size', 'new', lambda: [1])
+    remaining = [i for i, p in paths.items() if os.path.exists(p)]
+    assert os.path.exists(diskcache._entry_path('test-size', 'new'))
+    total = sum(os.path.getsize(f) for f in _entries(cache_dir))
+    assert total <= limit * 0.8
+    assert 0 in remaining and 1 not in remaining
+    assert remaining == [0] + list(range(10 - len(remaining) + 1, 10))
+    # a hit marks the entry as used
+    p = paths[9]
+    os.utime(p, (1, 1))
+    build, calls = _counting_build(None)
+    assert diskcache.cached('test-size', 9, build) == big + [9] and not calls
+    assert os.path.getmtime(p) > 1
+    # the setting: argument, environment variable (MB), default
+    diskcache.set_disk_cache(True, cache_dir)
+    monkeypatch.setenv('LANGTOOL_DISK_CACHE_MAX_MB', '2.5')
+    assert diskcache.max_size() == int(2.5 * (1 << 20))
+    monkeypatch.setenv('LANGTOOL_DISK_CACHE_MAX_MB', '0')
+    assert diskcache.max_size() == 0
+    monkeypatch.delenv('LANGTOOL_DISK_CACHE_MAX_MB')
+    assert diskcache.max_size() == diskcache.DEFAULT_MAX_SIZE
+    diskcache.set_disk_cache(True, cache_dir, max_size=12345)
+    assert diskcache.max_size() == 12345
+    # other package versions are removed when they are least recently used
+    monkeypatch.setattr(diskcache, '_fingerprint', 'e' * 64)
+    diskcache.set_disk_cache(True, cache_dir, max_size=10 ** 9)
+    diskcache.cached('test-size', 'other', lambda: big)
+    other = diskcache._entry_path('test-size', 'other')
+    os.utime(other, (1, 1))
+    diskcache._dir_checked.clear()
+    monkeypatch.setattr(diskcache, '_fingerprint', 'f' * 64)
+    diskcache.set_disk_cache(True, cache_dir, max_size=sum(os.path.getsize(f) for f in _entries(cache_dir)))
+    diskcache.cached('test-size', 'x', lambda: big)
+    assert not os.path.exists(os.path.dirname(other))

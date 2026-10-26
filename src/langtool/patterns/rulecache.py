@@ -1,18 +1,23 @@
 """Persistent caching (langtool.diskcache) of the rules loaded from the XML
 rule files (grammar.xml etc. and disambiguation.xml) of a language.
 
-The rules are pickled as they are right after loading (with the regular
-expressions compiled while loading them: pickled compiled regular
-expressions load much faster than they compile; those compiled later are in
-the store of compiled expressions, see langtool.diskcache). References to
-objects that are not created by the loading are stored by name and
-resolved when loading: the Language, its unifier configurations, the
-filters (created again with the filter factory) and module level constants.
-The side effects of the loading on the language (the unification
-definitions added to its unifier configuration, its cache of PosTokens)
-are recorded and replayed. When loading, StringMatchers are interned and
-the compiled regular expressions are shared with jregex.compile() (as when
-the rules are loaded from XML: the variants of a language share them).
+There is an entry per rule file, shared by the variants of a language: the
+loading of a file only depends on the file, the short code of the language
+(its messages) and its resource directory. The rules are pickled as they
+are right after loading (with the regular expressions compiled while
+loading them: pickled compiled regular expressions load much faster than
+they compile; those compiled later are in the store of compiled
+expressions, see langtool.diskcache). References to objects that are not
+created by the loading are stored by name and bound when loading: the
+Language, its unifier configurations, the filters (created again with the
+filter factory), the PosTokens of the cache of the language (those of the
+language are used, as when loading from XML, which shares them between the
+rule files) and module level constants. The calls to set_equivalence() of
+the unifier configurations are recorded and replayed (so an entry does not
+depend on the definitions the configuration has already). When loading,
+StringMatchers are interned and the compiled regular expressions are shared
+with jregex.compile() (as when the rules are loaded from XML: the variants
+of a language share them).
 
 Only objects of the types listed here are pickled by value; if a rule
 references something else, the rules are not cached (they are then loaded
@@ -122,43 +127,61 @@ class _RecordingFilterFactory:
         return f
 
 
-def _unifier_keys(u):
-    return list(u.equivalence_types)
+def load_rules(kind, language, files, load_file, filter_factory):
+    """The rules loaded by load_file(path, filter_factory) -> (rules,
+    problems) from the given XML files (concatenated), each file from the
+    disk cache if possible. An entry is shared by the variants of the
+    language (which load the same files, e.g. grammar.xml)."""
+    rules = []
+    problems = []
+    for path in files:
+        r, p = load_rules_file(kind, language, path, load_file, filter_factory)
+        rules.extend(r)
+        problems.extend(p)
+    return rules, problems
 
 
-def load_rules(kind, language, files, load, filter_factory, unifier_config):
-    """The rules loaded by load(filter_factory) -> (rules, problems) from
-    the given XML files, from the disk cache if possible. The loading may
-    add unification definitions to unifier_config (the configuration of
-    the language)."""
-    lang_code = diskcache.language_key(language)
-    if lang_code is None or not diskcache.is_enabled():
-        return load(filter_factory)
-    unifier_before = _unifier_keys(unifier_config)
-    # (the loading depends on the unification definitions that the unifier configuration has already)
-    key = (lang_code, language.resource_root, language.rules_root, tuple(files), tuple(unifier_before))
+def load_rules_file(kind, language, path, load_file, filter_factory):
+    """The rules loaded by load_file(path, filter_factory) from a rule file,
+    from the disk cache if possible.
+
+    The loading of a file only depends on the file (and the entity files it
+    includes), the short code of the language (the messages) and its
+    resource directory; the language, its unifier configurations, its
+    PosTokens and the filters are bound when the entry is loaded, so one
+    entry serves all the variants of a language. Its side effects on the
+    unifier configurations (the set_equivalence() calls) are recorded and
+    replayed."""
+    from . import unifier
+    if diskcache.language_key(language) is None or not diskcache.is_enabled():
+        return load_file(path, filter_factory)
+    key = (language.short_code, language.resource_root, path)
     state = {}
 
     def build():
         rec = _RecordingFilterFactory(filter_factory)
+        outer = getattr(unifier._recording, 'calls', None)
+        calls = unifier._recording.calls = []
         pos_before = set(language.pos_token_cache)
-        rules, problems = load(rec)
+        try:
+            rules, problems = load_file(path, rec)
+        finally:
+            unifier._recording.calls = outer
+            if outer is not None:
+                outer.extend(calls)
         state['filters'] = rec.created
-        added = [(k, unifier_config.equivalence_types[k]) for k in unifier_config.equivalence_types
-                 if k not in unifier_before_set]
-        payload = {
+        return {
             'rules': rules,
             'problems': problems,
-            'unifier_before': unifier_before,
-            'unifier_added': added,
-            'pos_tokens': [(k, v) for k, v in language.pos_token_cache.items() if k not in pos_before],
+            'unifier_calls': calls,
+            # (the PosTokens that the loading added to the cache of the language, in their order)
+            'pos_tokens': [k for k in language.pos_token_cache if k not in pos_before],
         }
-        return payload
 
-    unifier_before_set = set(unifier_before)
     types = _by_value_types()
     by_slots = frozenset(t for t in types if diskcache.uses_slots_reduced(t))
     import regex
+    from .pattern_token import PosToken
     pattern_type = type(regex.compile(''))
     persist_state = {}
 
@@ -189,6 +212,14 @@ def load_rules(kind, language, files, load, filter_factory, unifier_config):
             if t is StringMatcher:
                 # (interned when loading, as when loading the rules from XML)
                 return diskcache.Reduced((string_matcher._interned_matcher, (string_matcher._state(obj),)))
+            if t is PosToken:
+                # (one of the cache of the language: the one of the loading language, as when loading from XML)
+                pos_keys = persist_state.get('pos')
+                if pos_keys is None:
+                    pos_keys = persist_state['pos'] = {id(v): k for k, v in language.pos_token_cache.items()}
+                k = pos_keys.get(id(obj))
+                if k is not None and language.pos_token_cache.get(k) is obj:
+                    return ('P', k, obj.pos_tag, obj.negation, obj.pos_pattern, obj.pos_unknown)
             if t is pattern_type:
                 # (a compiled expression of jregex.compile(): the one compiled already when loading, if there is one)
                 key = _jregex_key(obj, persist_state)
@@ -203,9 +234,10 @@ def load_rules(kind, language, files, load, filter_factory, unifier_config):
             return None  # (pickled by name)
         if isinstance(obj, enum.Enum):
             return None  # (pickled by name)
-        raise diskcache.Uncacheable('%s rules reference a %s' % (lang_code, t.__qualname__))
+        raise diskcache.Uncacheable('%s rules reference a %s' % (language.code, t.__qualname__))
 
     filters = {}
+    pos_created = {}
 
     def resolve(pid):
         tag = pid[0]
@@ -220,6 +252,15 @@ def load_rules(kind, language, files, load, filter_factory, unifier_config):
             if f is None:
                 f = filters[pid[1]] = getattr(filter_factory, pid[2])(pid[3], language)
             return f
+        if tag == 'P':
+            k = pid[1]
+            t = language.pos_token_cache.get(k)
+            if t is None:
+                t = pos_created.get(k)
+                if t is None:
+                    t = pos_created[k] = PosToken.__new__(PosToken)
+                    t.pos_tag, t.negation, t.pos_pattern, t.pos_unknown = pid[2:]
+            return t
         if tag == 'G':
             import importlib
             return getattr(importlib.import_module(pid[1]), pid[2])
@@ -227,16 +268,16 @@ def load_rules(kind, language, files, load, filter_factory, unifier_config):
 
     # (the regular expressions compiled when loading the rules are stored with them)
     with diskcache.regex_store_paused():
-        payload = diskcache.load_or_build('rules-' + kind, key, build, persist=persist, resolve=resolve, deps=files)
+        payload = diskcache.load_or_build('rules-' + kind, key, build, persist=persist, resolve=resolve,
+                                          deps=[path])
     if 'filters' in state:
         # built now: the side effects happened
         return payload['rules'], payload['problems']
-    if payload['unifier_before'] != _unifier_keys(unifier_config):
-        # (the unifier configuration of the language is not in the state the cached rules were loaded with)
-        return load(filter_factory)
-    for k, elem in payload['unifier_added']:
-        unifier_config.set_equivalence(k[0], k[1], elem)
     cache = language.pos_token_cache
-    for k, v in payload['pos_tokens']:
-        cache.setdefault(k, v)
+    for k in payload['pos_tokens']:
+        t = pos_created.get(k)
+        if t is not None:
+            cache.setdefault(k, t)
+    for config, feature, type_, elem in payload['unifier_calls']:
+        config.set_equivalence(feature, type_, elem)
     return payload['rules'], payload['problems']
