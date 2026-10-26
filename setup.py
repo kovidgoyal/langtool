@@ -11,7 +11,7 @@ if sys.platform != 'win32':
 # implementation is used. Set LANGTOOL_NO_EXTENSION=1 to skip it.
 ext_modules = []
 if not os.environ.get('LANGTOOL_NO_EXTENSION'):
-    ext_modules.append(Extension('langtool._speedups', sources=['src/langtool/_speedups.c'],
+    ext_modules.append(Extension('langtool._speedups', sources=['src/langtool/_speedups.c', 'src/langtool/_hunspell.c'],
                                  extra_compile_args=extra, optional=True))
 
 setup(ext_modules=ext_modules)

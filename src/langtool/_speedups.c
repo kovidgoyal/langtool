@@ -4674,199 +4674,8 @@ done:
     return result;
 }
 
-/* ------------------------------------------------------------------------ */
-/* the dictionary scan of Hunspell's ngram suggestions
- * (langtool.hunspell.Hunspell._ngsuggest, the case without complex prefixes
- * and non-BMP characters) */
-
-/* the code point mapped with the lowercase table (a dict code -> code), -1 if the value is not an int */
-static long
-ng_lower(PyObject *lower_tr, Py_UCS4 c)
-{
-    PyObject *k = PyLong_FromLong((long)c);
-    if (k == NULL) return -2;
-    PyObject *v = PyDict_GetItemWithError(lower_tr, k);
-    Py_DECREF(k);
-    if (v == NULL) return PyErr_Occurred() ? -2 : (long)c;
-    if (!PyLong_Check(v)) return -1;
-    return PyLong_AsLong(v);
-}
-
-/* the number of the grams (a list of strings) contained in s, -1 on error */
-static Py_ssize_t
-ng_count(PyObject *s, PyObject *grams)
-{
-    Py_ssize_t n = 0;
-    for (Py_ssize_t i = 0; i < PyList_GET_SIZE(grams); i++) {
-        int r = PyUnicode_Contains(s, PyList_GET_ITEM(grams, i));
-        if (r < 0) return -1;
-        n += r;
-    }
-    return n;
-}
-
-/* ng_scan(positions, info, units_list, lowered_list, w_word, g1, g2, g3, nocap_skip, lower_tr, roots, scores,
- *         lp, phon_score) -> lp
- * For each position (in order): skip the entry (info[pos] = (entry, skip, initcap, phon)) like _ngsuggest,
- * else compute its score (phon_score(pos, score) gives the score of the entries with a phonetic field) and
- * update the best roots / scores (lists, changed in place) like _ngsuggest. */
-static PyObject *
-py_ng_scan(PyObject *self, PyObject *args)
-{
-    PyObject *positions, *info, *units_list, *lowered, *w_word, *g1, *g2, *g3, *lower_tr, *roots, *scores_l, *phon_cb;
-    int nocap_skip;
-    Py_ssize_t lp;
-    if (!PyArg_ParseTuple(args, "OO!O!O!UO!O!O!pO!O!O!nO", &positions, &PyList_Type, &info, &PyList_Type, &units_list,
-                          &PyList_Type, &lowered, &w_word, &PyList_Type, &g1, &PyList_Type, &g2, &PyList_Type, &g3,
-                          &nocap_skip, &PyDict_Type, &lower_tr, &PyList_Type, &roots, &PyList_Type, &scores_l, &lp,
-                          &phon_cb))
-        return NULL;
-    Py_ssize_t nroots = PyList_GET_SIZE(roots);
-    if (PyList_GET_SIZE(scores_l) != nroots || lp < 0 || lp >= nroots) {
-        PyErr_SetString(PyExc_ValueError, "bad roots / scores");
-        return NULL;
-    }
-    long *scores = PyMem_Calloc(nroots + 1, sizeof(long));
-    if (scores == NULL) return PyErr_NoMemory();
-    for (Py_ssize_t j = 0; j < nroots; j++) {
-        scores[j] = PyLong_AsLong(PyList_GET_ITEM(scores_l, j));
-        if (scores[j] == -1 && PyErr_Occurred()) { PyMem_Free(scores); return NULL; }
-    }
-    Py_ssize_t n = PyUnicode_GET_LENGTH(w_word);
-    int wk = PyUnicode_KIND(w_word);
-    const void *wd = PyUnicode_DATA(w_word);
-    PyObject *it = PyObject_GetIter(positions);
-    if (it == NULL) { PyMem_Free(scores); return NULL; }
-    PyObject *item;
-    Py_ssize_t nent = PyList_GET_SIZE(info);
-    int changed = 0;
-    while ((item = PyIter_Next(it)) != NULL) {
-        Py_ssize_t pos = PyLong_AsSsize_t(item);
-        Py_DECREF(item);
-        if (pos == -1 && PyErr_Occurred()) goto error;
-        if (pos < 0 || pos >= nent || pos >= PyList_GET_SIZE(units_list) || pos >= PyList_GET_SIZE(lowered)) {
-            PyErr_SetString(PyExc_IndexError, "entry index out of range");
-            goto error;
-        }
-        PyObject *inf = PyList_GET_ITEM(info, pos);
-        if (!PyTuple_Check(inf) || PyTuple_GET_SIZE(inf) != 4) {
-            PyErr_SetString(PyExc_TypeError, "bad entry info");
-            goto error;
-        }
-        int skip = PyObject_IsTrue(PyTuple_GET_ITEM(inf, 1));
-        if (skip < 0) goto error;
-        if (skip) continue;
-        PyObject *phon = PyTuple_GET_ITEM(inf, 3);
-        if (nocap_skip && phon == Py_None) {
-            int initcap = PyObject_IsTrue(PyTuple_GET_ITEM(inf, 2));
-            if (initcap < 0) goto error;
-            if (initcap) continue;
-        }
-        PyObject *f = PyList_GET_ITEM(units_list, pos);
-        PyObject *fl = PyList_GET_ITEM(lowered, pos);
-        if (!PyUnicode_Check(f) || !PyUnicode_Check(fl)) {
-            PyErr_SetString(PyExc_TypeError, "the entries must be strings");
-            goto error;
-        }
-        /* leftcommonsubstring */
-        Py_ssize_t lf = PyUnicode_GET_LENGTH(f);
-        long leftcommon;
-        Py_UCS4 c0 = n > 0 ? PyUnicode_READ(wk, wd, 0) : 0;
-        int same_first;
-        if (n == 0 || lf == 0) {
-            same_first = n == lf;
-        } else {
-            Py_UCS4 f0 = PyUnicode_READ_CHAR(f, 0);
-            same_first = c0 == f0;
-            if (!same_first) {
-                long m = ng_lower(lower_tr, f0);
-                if (m == -2) goto error;
-                if (m == -1) {
-                    /* not a code point: like idx.translate(lower_tr) */
-                    PyObject *idx = PyUnicode_Substring(f, 0, 1);
-                    if (idx == NULL) goto error;
-                    PyObject *tr = PyObject_CallMethod(idx, "translate", "O", lower_tr);
-                    Py_DECREF(idx);
-                    if (tr == NULL) goto error;
-                    PyObject *first = PyUnicode_Substring(w_word, 0, 1);
-                    if (first == NULL) { Py_DECREF(tr); goto error; }
-                    int eq = PyObject_RichCompareBool(first, tr, Py_EQ);
-                    Py_DECREF(first);
-                    Py_DECREF(tr);
-                    if (eq < 0) goto error;
-                    same_first = eq;
-                } else {
-                    same_first = (long)c0 == m;
-                }
-            }
-        }
-        if (!same_first) {
-            leftcommon = 0;
-        } else {
-            Py_ssize_t i = 1;
-            int fk = PyUnicode_KIND(f);
-            const void *fd = PyUnicode_DATA(f);
-            while (i < n && i < lf && PyUnicode_READ(wk, wd, i) == PyUnicode_READ(fk, fd, i)) i++;
-            leftcommon = (long)i;
-        }
-        Py_ssize_t l2 = PyUnicode_GET_LENGTH(fl);
-        long sc;
-        if (l2 == 0) {
-            sc = leftcommon;
-        } else {
-            Py_ssize_t ns = ng_count(fl, g1);
-            if (ns < 0) goto error;
-            long nscore = (long)ns;
-            if (ns >= 2) {
-                ns = ng_count(fl, g2);
-                if (ns < 0) goto error;
-                nscore += (long)ns;
-                if (ns >= 2) {
-                    ns = ng_count(fl, g3);
-                    if (ns < 0) goto error;
-                    nscore += (long)ns;
-                }
-            }
-            long pen = (long)l2 - (long)n - 2;
-            sc = nscore - (pen > 0 ? pen : 0) + leftcommon;
-        }
-        if (phon != Py_None) {
-            PyObject *r = PyObject_CallFunction(phon_cb, "nl", pos, sc);
-            if (r == NULL) goto error;
-            sc = PyLong_AsLong(r);
-            Py_DECREF(r);
-            if (sc == -1 && PyErr_Occurred()) goto error;
-        }
-        if (sc > scores[lp]) {
-            scores[lp] = sc;
-            PyObject *e = PyTuple_GET_ITEM(inf, 0);
-            Py_INCREF(e);
-            if (PyList_SetItem(roots, lp, e) < 0) goto error;
-            long lval = sc;
-            for (Py_ssize_t j = 0; j < nroots; j++) {
-                if (scores[j] < lval) { lp = j; lval = scores[j]; }
-            }
-            changed = 1;
-        }
-    }
-    if (PyErr_Occurred()) goto error;
-    Py_DECREF(it);
-    (void)changed;
-    for (Py_ssize_t j = 0; j < nroots; j++) {
-        PyObject *v = PyLong_FromLong(scores[j]);
-        if (v == NULL || PyList_SetItem(scores_l, j, v) < 0) { PyMem_Free(scores); return NULL; }
-    }
-    PyMem_Free(scores);
-    return PyLong_FromSsize_t(lp);
-error:
-    Py_DECREF(it);
-    PyMem_Free(scores);
-    return NULL;
-}
-
 static PyMethodDef module_methods[] = {
     {"levenshtein", py_levenshtein, METH_VARARGS, NULL},
-    {"ng_scan", py_ng_scan, METH_VARARGS, NULL},
     {"build_trie", py_build_trie, METH_O, NULL},
     {"beam_search", py_beam_search, METH_VARARGS, NULL},
     {"set_fallbacks", py_set_fallbacks, METH_VARARGS, NULL},
@@ -4878,9 +4687,12 @@ static PyMethodDef module_methods[] = {
     {NULL}
 };
 
+int lt_hunspell_init(PyObject *m);  /* _hunspell.c */
+
 static int
 exec_module(PyObject *m)
 {
+    if (lt_hunspell_init(m) < 0) return -1;
 #define ADD_TYPE(t, name) do { if (PyType_Ready(&t) < 0) return -1; Py_INCREF(&t); if (PyModule_AddObject(m, name, (PyObject *)&t) < 0) return -1; } while (0)
     ADD_TYPE(AnalyzedTokenBaseType, "AnalyzedTokenBase");
     ADD_TYPE(ATRBaseType, "AnalyzedTokenReadingsBase");

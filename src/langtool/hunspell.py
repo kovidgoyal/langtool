@@ -34,8 +34,23 @@ character tables are derived from Python's codecs and the Unicode table
 
 Use get_dictionary(dic_path, aff_path) to get a (cached, shared) Hunspell
 instance; Hunspell.spell(word) is thread-safe.
+
+C implementation: when the C extension is available, the .aff file is
+parsed here and the word list, spell() and suggest() are implemented in C
+(_speedups.HunDict, src/langtool/_hunspell.c, a literal port of this module
+with compact data structures: an open-addressing hash table with a Bloom
+filter for the words, arrays for the affix entries and their NextEQ/NextNE
+search links). The results are exactly the same as the ones of this pure
+Python implementation, which stays the reference (Hunspell(...,
+use_c=False), or LANGTOOL_PURE_PYTHON=1). Two exact shortcuts of the C
+version: the second (compound) pass of SuggestMgr::suggest is skipped for
+dictionaries without compounding (all its checks fail), and the search of
+the MAP suggestions in the first pass skips the partial candidates that
+can not lead to a word accepted by the affix checks (see _hunspell.c).
+suggest() releases the GIL while searching.
 """
 
+import array
 import os
 import re
 import threading
@@ -286,7 +301,7 @@ class _AffEntry:
     """PfxEntry/SfxEntry"""
 
     __slots__ = ('appnd', 'strip', 'aflag', 'opts', 'conds', 'numconds', 'cont', 'key', 'next', 'nexteq', 'nextne',
-                 'utf8', 'mgr')
+                 'utf8', 'mgr', 'idx')
 
     def __init__(self, mgr):
         self.mgr = mgr
@@ -481,10 +496,18 @@ class Hunspell:
     Hunspell::spell, suggest(word) Hunspell::suggest, add(word)
     Hunspell::add."""
 
-    def __init__(self, dic_path, aff_path):
+    def __init__(self, dic_path, aff_path, use_c=None):
+        """use_c: whether to use the C implementation (None: if the C
+        extension is available). In the C mode the word list and the
+        checks live in a _speedups.HunDict; the attributes of the word list
+        (words, _all_entries, _phon) stay empty."""
         self.dic_path = dic_path
         self.aff_path = aff_path
         self._lock = threading.RLock()
+        if use_c is None:
+            use_c = _speedups is not None and hasattr(_speedups, 'HunDict')
+        self._use_c = bool(use_c)
+        self._c = None
         # state of AffixMgr (pfx, sfx etc. are not stateless in Hunspell)
         self.pfx = None
         self.sfx = None
@@ -500,7 +523,15 @@ class Hunspell:
         self._sflag = {}
         self._load_config(aff_path)
         self._parse_aff(aff_path)
-        self._load_tables(dic_path)
+        if use_c:
+            self._c = _speedups.HunDict(self._c_config())
+            with open(dic_path, 'rb') as f:
+                data = f.read()
+            for in_word, desc, captype in self._c.load_dic(data):
+                self._ph_reptable(in_word, desc, captype)
+            self._c.set_reptable(self.reptable)
+        else:
+            self._load_tables(dic_path)
         self._sug_data = None
         self._deadline = None  # the time limit of the running suggest() call (perf_counter), None: no limit
         self._time_limit = None
@@ -996,10 +1027,15 @@ class Hunspell:
                 if not self._parse_affix(line, ft, it, dupflags):
                     error = True
                     break
+        # (the lists of AffixMgr::pFlag/sFlag have the last added entry first)
+        for lists in (self._pflag, self._sflag):
+            for lst in lists.values():
+                lst.reverse()
         # finishFileMgr: convert the affix trees to sorted lists
         for start in (self.pstart, self.sstart):
             for k in range(1, 256):
                 start[k] = self._process_in_order(start[k], None)
+        self._ordered = not error  # (the NextEQ/NextNE links of the lists are computed)
         if not error:
             self._process_order(self.pstart)
             self._process_order(self.sstart)
@@ -1180,6 +1216,8 @@ class Hunspell:
 
     @staticmethod
     def _reverse_condition(piece):
+        if 91 not in piece and 93 not in piece and 94 not in piece:
+            return piece  # (only [, ] and ^ are changed)
         piece = bytearray(piece)
         n = len(piece)
         neg = False
@@ -1210,6 +1248,10 @@ class Hunspell:
         return bytes(piece)
 
     def _condlen(self, s):
+        if 91 not in s and 93 not in s:
+            if not self.a_utf8 or s.isascii():
+                return len(s)
+            return sum(1 for c in s if c < 0xc0)
         n = 0
         group = False
         for c in s:
@@ -1355,11 +1397,11 @@ class Hunspell:
             if at == 'P':
                 entry.key = entry.appnd
                 self._build_tree(self.pstart, entry)
-                self._pflag.setdefault(ord(entry.aflag) & 0xff, []).insert(0, entry)
+                self._pflag.setdefault(ord(entry.aflag) & 0xff, []).append(entry)
             else:
                 entry.key = entry.appnd[::-1]
                 self._build_tree(self.sstart, entry)
-                self._sflag.setdefault(ord(entry.aflag) & 0xff, []).insert(0, entry)
+                self._sflag.setdefault(ord(entry.aflag) & 0xff, []).append(entry)
         return True
 
     @staticmethod
@@ -1408,31 +1450,35 @@ class Hunspell:
 
     @staticmethod
     def _process_order(start):
+        """AffixMgr::process_pfx_order/process_sfx_order: the NextEQ/NextNE
+        links of the sorted lists. For each entry, Hunspell scans the
+        following entries whose key extends its key (isSubset); the end of
+        that run is computed here from the back of the list, jumping over
+        the runs of the following entries (isSubset is transitive), which
+        avoids the quadratic scan of long runs of equal keys."""
         for k in range(1, 256):
+            lst = []
             ptr = start[k]
             while ptr is not None:
-                nptr = ptr.next
-                while nptr is not None:
-                    if not _is_subset_keys(ptr.key, nptr.key):
-                        break
-                    nptr = nptr.next
-                ptr.nextne = nptr
-                ptr.nexteq = None
-                if ptr.next is not None and _is_subset_keys(ptr.key, ptr.next.key):
-                    ptr.nexteq = ptr.next
+                lst.append(ptr)
                 ptr = ptr.next
-            ptr = start[k]
-            while ptr is not None:
-                nptr = ptr.next
-                mptr = None
-                while nptr is not None:
-                    if not _is_subset_keys(ptr.key, nptr.key):
-                        break
-                    mptr = nptr
-                    nptr = nptr.next
-                if mptr is not None:
-                    mptr.nextne = None
-                ptr = ptr.next
+            n = len(lst)
+            end = [n] * n  # end[i]: the first entry after i whose key does not extend the key of i
+            for i in range(n - 1, -1, -1):
+                key = lst[i].key
+                j = i + 1
+                while j < n and _is_subset_keys(key, lst[j].key):
+                    j = end[j]
+                end[i] = j
+            for i in range(n):
+                e = end[i]
+                ptr = lst[i]
+                ptr.nextne = lst[e] if e < n else None
+                ptr.nexteq = lst[i + 1] if e > i + 1 else None
+            # the last entry of a run has no NextNE
+            for i in range(n):
+                if end[i] > i + 1:
+                    lst[end[i] - 1].nextne = None
 
     def _post_init(self):
         """HunspellImpl/AffixMgr/SuggestMgr initialization after parsing"""
@@ -1478,8 +1524,9 @@ class Hunspell:
                     e = e.next
         self._sfx_cache = {}
         self._pfx_cache = {}
-        self._sfx_groups, self._sfx_lengths = self._affix_groups(self.sstart, lambda e: e.appnd)
-        self._pfx_groups, self._pfx_lengths = self._affix_groups(self.pstart, lambda e: e.appnd)
+        if not self._use_c:  # (the caches of the Python implementation)
+            self._sfx_groups, self._sfx_lengths = self._affix_groups(self.sstart, lambda e: e.appnd)
+            self._pfx_groups, self._pfx_lengths = self._affix_groups(self.pstart, lambda e: e.appnd)
 
     @staticmethod
     def _affix_groups(start, affix):
@@ -1496,6 +1543,103 @@ class Hunspell:
                 prev = e
                 e = e.next
         return {a: tuple(g) for a, g in groups.items()}, sorted(set(len(a) for a in groups))
+
+    # ------------------------------------------------------------------
+    # the data of the C implementation (_speedups.HunDict)
+
+    def _c_config(self):
+        def table(m):
+            key = tuple(sorted(m.items()))
+            t = _TABLE_CACHE.get(key)
+            if t is None:
+                a = array.array('H', range(65536))
+                for k, v in key:
+                    a[k] = v
+                t = _TABLE_CACHE[key] = a.tobytes()
+            return t
+
+        def affixes(start, flag_lists):
+            order = []
+            seen = set()
+
+            def add(e):
+                if e is not None and id(e) not in seen:
+                    seen.add(id(e))
+                    e.idx = len(order)
+                    order.append(e)
+            for k in range(256):
+                e = start[k]
+                while e is not None:
+                    add(e)
+                    e = e.next
+            k = 0
+            while k < len(order):  # (the tree links point to entries of the lists)
+                add(order[k].nexteq)
+                add(order[k].nextne)
+                k += 1
+            for lst in flag_lists.values():
+                for e in lst:
+                    add(e)
+
+            def ix(e):
+                return -1 if e is None else e.idx
+            entries = [(e.appnd, e.strip, ord(e.aflag), e.opts, e.conds, e.numconds, e.cont, e.key, ix(e.next),
+                        ix(e.nexteq), ix(e.nextne), e.utf8) for e in order]
+            heads = [ix(start[k]) for k in range(256)]
+            lists = [[ix(e) for e in flag_lists.get(k, ())] for k in range(256)]
+            return entries, heads, lists
+
+        # the affix search: _pfx_matches/_sfx_matches use the groups by affix if the keys have no '.' (and the
+        # lists are sorted), else the NextEQ/NextNE links. C always follows the links: with the links of
+        # _process_order this gives the entries of the groups in the same order (a parse error skips
+        # _process_order: computed here then).
+        pfx_groups = self._affix_groups(self.pstart, lambda e: e.appnd)[0] is not None
+        sfx_groups = self._affix_groups(self.sstart, lambda e: e.appnd)[0] is not None
+        if not self._ordered:
+            if pfx_groups:
+                self._process_order(self.pstart)
+            if sfx_groups:
+                self._process_order(self.sstart)
+        pentries, pstart, pflag = affixes(self.pstart, self._pflag)
+        sentries, sstart, sflag = affixes(self.sstart, self._sflag)
+        return {
+            'pfx_groups': pfx_groups,
+            'h_utf8': self.utf8, 'h_cpx': self.complexprefixes, 'h_langnum': self.langnum,
+            'flag_mode': self.flag_mode, 'h_forbidden': ord(self.forbiddenword), 'h_ignore': self.ignorechars,
+            'aliasf': list(self.aliasf), 'aliasm': list(self.aliasm), 'has_aliasm': self.has_aliasm,
+            'a_utf8': self.a_utf8, 'a_cpx': self.a_complexprefixes, 'a_langnum': self.a_langnum,
+            'a_forbidden': ord(self.a_forbiddenword), 'a_ignore': self.a_ignorechars,
+            'compoundflag': ord(self.compoundflag), 'compoundbegin': ord(self.compoundbegin),
+            'compoundmiddle': ord(self.compoundmiddle), 'compoundend': ord(self.compoundend),
+            'compoundroot': ord(self.compoundroot), 'compoundpermitflag': ord(self.compoundpermitflag),
+            'compoundforbidflag': ord(self.compoundforbidflag), 'nosuggest': ord(self.nosuggest),
+            'nongramsuggest': ord(self.nongramsuggest), 'needaffix': ord(self.needaffix),
+            'circumfix': ord(self.circumfix), 'onlyincompound': ord(self.onlyincompound),
+            'keepcase': ord(self.keepcase), 'forceucase': ord(self.forceucase), 'warn': ord(self.warn),
+            'substandard': ord(self.substandard),
+            'compoundmoresuffixes': self.compoundmoresuffixes, 'checkcompounddup': self.checkcompounddup,
+            'checkcompoundrep': self.checkcompoundrep, 'checkcompoundcase': self.checkcompoundcase,
+            'checkcompoundtriple': self.checkcompoundtriple, 'simplifiedtriple': self.simplifiedtriple,
+            'fullstrip': self.fullstrip, 'checksharps': self.checksharps, 'forbidwarn': self.forbidwarn,
+            'havecontclass': self.havecontclass, 'nosplitsugs': self.nosplitsugs,
+            'sugswithdots': self.sugswithdots, 'onlymaxdiff': self.onlymaxdiff, 'simplifiedcpd': self.simplifiedcpd,
+            'is_compound': self.is_compound, 'lang_with_dash_usage': self.lang_with_dash_usage,
+            'cpdwordmax': self.cpdwordmax, 'cpdmin': self.cpdmin, 'cpdmaxsyllable': self.cpdmaxsyllable,
+            'maxngramsugs': self.maxngramsugs, 'maxdiff': self.maxdiff, 's_maxngramsugs': self.s_maxngramsugs,
+            's_maxcpdsugs': self.s_maxcpdsugs, 'maxsug': self.maxsug,
+            'max_pfx_key': self._max_pfx_key, 'max_sfx_key': self._max_sfx_key,
+            'cpdvowels': self.cpdvowels, 'ckey': self.ckey, 'ctry': self.ctry,
+            'contclasses': ''.join(sorted(self.contclasses)),
+            'upper': table(self._upper_map), 'lower': table(self._lower_map), 'plain_upper': table(_UPPER),
+            'wordbreak': list(self.wordbreak), 'reptable': self.reptable,
+            'iconv': self.iconvtable.dat if self.iconvtable is not None else None,
+            'oconv': self.oconvtable.dat if self.oconvtable is not None else None,
+            'checkcpd': [(p1, p2, p3, ord(c1), ord(c2)) for p1, p2, p3, c1, c2 in self.checkcpdtable],
+            'defcpd': [''.join(rule) for rule in self.defcpdtable],
+            'maptable': self.maptable,
+            'pentries': pentries, 'sentries': sentries, 'pstart': pstart, 'sstart': sstart,
+            'pflag': pflag, 'sflag': sflag,
+        }
 
     # ------------------------------------------------------------------
     # case helpers (csutil)
@@ -1681,7 +1825,11 @@ class Hunspell:
             v = desc[k + 3:]
             m = re.match(rb'[^ \t\n]*', v)
             self._phon[e] = m.group(0)
-        in_word = word
+        self._ph_reptable(word, desc, captype)
+
+    def _ph_reptable(self, in_word, desc, captype):
+        """the REP replacements of the ph: fields of a description (the
+        rest of HashMgr::add_word for a word with a description)"""
         for field in _pieces(desc):
             if not field.startswith(b'ph:'):
                 continue
@@ -2689,7 +2837,7 @@ class Hunspell:
             return r
         b = self._encode(word)
         with self._lock:
-            r = self._spell(b, [])
+            r = self._c.spell(b) if self._c is not None else self._spell(b, [])
             if len(self._spell_cache) >= 100000:
                 self._spell_cache.clear()
             self._spell_cache[word] = r
@@ -2905,6 +3053,9 @@ class Hunspell:
         with self._lock:
             self._spell_cache.clear()
             b = self._encode(word)
+            if self._c is not None:
+                self._c.add(b)
+                return
             dp = self.words.get(b)
             if dp is not None:
                 # remove_forbidden_flag
@@ -3333,14 +3484,6 @@ class Hunspell:
         data = self._sug_data = (units_list, info, by_len)
         return data
 
-    def _ngram_lowered(self, units_list):
-        """the lowercase versions of the entries of _ngram_data (cached)"""
-        c = getattr(self, '_sug_lowered', None)
-        if c is None or c[0] is not units_list:
-            lower_tr = self._lower_tr
-            c = self._sug_lowered = (units_list, [u.translate(lower_tr) for u in units_list])
-        return c[1]
-
     def _leftcommon(self, su1, su2):
         """SuggestMgr::leftcommonsubstring (UTF-16 units)"""
         l1 = len(su1)
@@ -3570,22 +3713,6 @@ class Hunspell:
             # with a time limit: the scan of the dictionary stops at the deadline (or half the limit after its start)
             ng_deadline = max(self._deadline, perf_counter() + self._time_limit / 2)
             positions = _until(positions, ng_deadline)
-        if _speedups is not None and not complexprefixes and not nonbmp:
-            # the loop below in C
-            lowered = self._ngram_lowered(units_list)
-
-            def phon_score(pos, sc):
-                phon = info[pos][3]
-                fu = u8_u16(phon) if utf8 else phon.decode('latin-1')
-                lc2 = self._leftcommon(w_word, fu) if utf8 else self._leftcommon_8bit(word, phon)
-                if low:
-                    fu = fu.translate(lower_tr)
-                sc2 = self._ngram(3, w_word, fu, 1) + lc2
-                return sc2 if sc2 > sc else sc
-
-            lp = _speedups.ng_scan(positions, info, units_list, lowered, w_word, g1, g2, g3,
-                                   captype == NOCAP and ph is None and not de, lower_tr, roots, scores, lp, phon_score)
-            positions = ()
         for pos in positions:
             e, skip, initcap, phon = info[pos]
             if skip or (captype == NOCAP and initcap and ph is None and not de and phon is None):
@@ -3786,6 +3913,10 @@ class Hunspell:
         compound suggestions after the limit, the ngram search after the
         limit or at least half the limit after its start."""
         b = self._encode(word)
+        if self._c is not None:
+            with self._lock:
+                sugs = self._c.suggest(b, time_limit)
+            return [s.decode('utf-8', 'replace') if self.utf8 else s.decode(self._codec, 'replace') for s in sugs]
         with self._lock:
             if time_limit is not None:
                 self._time_limit = time_limit
@@ -4152,6 +4283,7 @@ class _RepList:
 
 _cache = {}
 _cache_lock = threading.Lock()
+_TABLE_CACHE = {}  # the case tables of the C implementation (65536 units)
 
 
 def get_dictionary(dic_path, aff_path):

@@ -69,7 +69,8 @@ tool.spell_check = False   # can be switched at any time
 ```
 
 It uses [Hunspell](https://hunspell.github.io/) dictionaries (checked with
-`langtool.hunspell`, a pure Python port of Hunspell). By default the
+`langtool.hunspell`, a port of Hunspell: in C in the extension, with an
+identical pure Python fallback). By default the
 dictionary of the language is downloaded from the
 [LibreOffice dictionaries](https://github.com/LibreOffice/dictionaries)
 (a pinned commit, checksums verified; `langtool.hunspell_dictionary_info(code)`
