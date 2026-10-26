@@ -113,6 +113,19 @@ def count_line_breaks(s):
     return s.count('\n')
 
 
+class _BlockPart:
+    """a part of the pattern rules of the language in JLanguageTool._block: a
+    StaticRules (static) without the rules of the indices in excluded, or a
+    list of rules"""
+
+    __slots__ = ('static', 'excluded', 'rules')
+
+    def __init__(self, static, excluded, rules):
+        self.static = static
+        self.excluded = excluded
+        self.rules = rules
+
+
 class JLanguageTool:
 
     def __init__(self, language, mother_tongue=None, user_config=None, rules=None, level=LEVEL_DEFAULT):
@@ -133,39 +146,126 @@ class JLanguageTool:
         self.unknown_words = set()
         self.print_stream = None
         self._lock = threading.RLock()
+        # The pattern rules of the language in the user rules: when some of them are rules of the static rule tables
+        # (langtool.patterns.static), whose objects are only created when they are needed, they are kept apart
+        # (_block, at the position _block_pos of _user_rules) until the list of the user rules is asked for.
+        self._block = None
+        self._block_pos = 0
+        self._user_rules = []
         if rules is not None:
             self.builtin_rules = list(rules)
-            self.user_rules = []
         else:
             self.builtin_rules = list(language.get_relevant_rules(self.messages, user_config, mother_tongue))
-            self.user_rules = []
             self._activate_default_pattern_rules()
         self._rule_set_cache = {}
 
     def _activate_default_pattern_rules(self):
         lang = self.language
-        prules = lang.get_pattern_rules()
+        from .patterns.static import StaticRules
+        parts = lang.get_pattern_rule_parts()
         enabled = lang.get_default_enabled_rules_for_variant()
         disabled = lang.get_default_disabled_rules_for_variant()
+        if not any(isinstance(p, StaticRules) for p in parts):
+            prules = lang.get_pattern_rules()
+            if enabled or disabled:
+                for r in prules:
+                    if r.get_id() in enabled:
+                        r.set_default_on()
+                    if r.get_id() in disabled:
+                        r.set_default_off()
+            self._user_rules.extend(transform_pattern_rules(prules, lang))
+            return
         if enabled or disabled:
-            for r in prules:
-                if r.get_id() in enabled:
-                    r.set_default_on()
-                if r.get_id() in disabled:
-                    r.set_default_off()
-        self.user_rules.extend(transform_pattern_rules(prules, lang))
+            for p in parts:
+                if isinstance(p, StaticRules):
+                    p.binding.apply_variant_defaults(enabled, disabled)
+                else:
+                    for r in p:
+                        if r.get_id() in enabled:
+                            r.set_default_on()
+                        if r.get_id() in disabled:
+                            r.set_default_off()
+        # (transform_pattern_rules() on the rules that it wraps, the others stay in the block)
+        prefix = lang.get_consistency_rule_prefix()
+
+        def wrapped(r):
+            return r.min_prev_matches > 0 or r.get_id().startswith(prefix)
+        specials = []
+        block = []
+        for p in parts:
+            if isinstance(p, StaticRules):
+                sel = set(p.select(id_prefix=prefix, min_prev_matches=True))
+                for i, o in p.materialized():  # (created rules may have been changed)
+                    if wrapped(o):
+                        sel.add(i)
+                    else:
+                        sel.discard(i)
+                specials.extend(p.rule(i) for i in sorted(sel))
+                block.append(_BlockPart(p, sel, None))
+            else:
+                sp = [r for r in p if wrapped(r)]
+                specials.extend(sp)
+                ids = set(map(id, sp))
+                block.append(_BlockPart(None, None, [r for r in p if id(r) not in ids]))
+        self._user_rules.extend(transform_pattern_rules(specials, lang))
+        self._block = block
+        self._block_pos = len(self._user_rules)
+
+    @property
+    def user_rules(self):
+        """The pattern rules of the language (as transformed by
+        transform_pattern_rules()) and the rules added with add_rule() (the
+        rule objects of the static rule tables are created)."""
+        if self._block is not None:
+            with self._lock:
+                if self._block is not None:
+                    u = self._user_rules
+                    self._user_rules = u[:self._block_pos] + self._block_rules() + u[self._block_pos:]
+                    self._block = None
+        return self._user_rules
+
+    @user_rules.setter
+    def user_rules(self, rules):
+        with self._lock:
+            self._block = None
+            self._user_rules = rules
+
+    def _block_rules(self):
+        out = []
+        for part in self._block:
+            if part.static is not None:
+                excl = part.excluded
+                out.extend(r for i, r in enumerate(part.static.all()) if i not in excl)
+            else:
+                out.extend(part.rules)
+        return out
 
     # --- rule configuration ---
 
     def add_rule(self, rule):
-        self.user_rules.append(rule)
+        self._user_rules.append(rule)
         self._rule_set_cache.clear()
 
     def remove_rule(self, rule):
         """Remove a rule added with add_rule() or a built-in rule."""
-        self.user_rules = [r for r in self.user_rules if r is not rule]
-        self.builtin_rules = [r for r in self.builtin_rules if r is not rule]
-        self._rule_set_cache.clear()
+        with self._lock:
+            if self._block is not None:
+                pos = self._block_pos
+                pre = [r for r in self._user_rules[:pos] if r is not rule]
+                post = [r for r in self._user_rules[pos:] if r is not rule]
+                self._user_rules = pre + post
+                self._block_pos = len(pre)
+                for part in self._block:
+                    if part.static is not None:
+                        i = part.static.index_of(rule)
+                        if i is not None:
+                            part.excluded.add(i)
+                    else:
+                        part.rules = [r for r in part.rules if r is not rule]
+            else:
+                self._user_rules = [r for r in self._user_rules if r is not rule]
+            self.builtin_rules = [r for r in self.builtin_rules if r is not rule]
+            self._rule_set_cache.clear()
 
     def disable_rule(self, rule_id):
         self.disabled_rules.add(rule_id)
@@ -192,7 +292,40 @@ class JLanguageTool:
         self._rule_set_cache.clear()
 
     def get_all_rules(self):
-        return self.builtin_rules + self.user_rules
+        if self._block is None:
+            return self.builtin_rules + self._user_rules
+        u = self._user_rules
+        return self.builtin_rules + u[:self._block_pos] + self._block_rules() + u[self._block_pos:]
+
+    def rules_with(self, ids=(), category_ids=()):
+        """The rules of get_all_rules() (in that order) whose id is in ids or
+        whose category id is in category_ids (only their objects are created
+        of the rules of the static rule tables)."""
+        ids = frozenset(ids)
+        cats = frozenset(category_ids)
+
+        def hit(r):
+            return (r.category is not None and r.category.id in cats) or r.get_id() in ids
+        if self._block is None:
+            return [r for r in self.get_all_rules() if hit(r)]
+        u = self._user_rules
+        pos = self._block_pos
+        out = [r for r in self.builtin_rules if hit(r)]
+        out.extend(r for r in u[:pos] if hit(r))
+        for part in self._block:
+            if part.static is not None:
+                sel = set(part.static.select(ids=ids, category_ids=cats))
+                for i, o in part.static.materialized():  # (created rules may have been changed)
+                    if hit(o):
+                        sel.add(i)
+                    else:
+                        sel.discard(i)
+                sel -= part.excluded
+                out.extend(part.static.rule(i) for i in sorted(sel))
+            else:
+                out.extend(r for r in part.rules if hit(r))
+        out.extend(r for r in u[pos:] if hit(r))
+        return out
 
     def ignore_rule(self, rule):
         cat = rule.category
@@ -212,12 +345,61 @@ class JLanguageTool:
     def get_all_active_rules(self):
         return [r for r in self.get_all_rules() if not self.ignore_rule(r)]
 
+    def get_all_active_rule_ids(self):
+        """The ids of the rules of get_all_active_rules(), in that order
+        (without creating the rule objects of the static rule tables)."""
+        if self._block is None:
+            return [r.get_id() for r in self.get_all_active_rules()]
+
+        def active(r):
+            return not self.ignore_rule(r)
+        u = self._user_rules
+        pos = self._block_pos
+        out = [r.get_id() for r in self.builtin_rules if active(r)]
+        out.extend(r.get_id() for r in u[:pos] if active(r))
+        for part in self._block:
+            if part.static is not None:
+                mask = part.static.active_mask(self.disabled_rules, self.enabled_rules, self.disabled_categories,
+                                               self.enabled_categories, 0, active)
+                for i in part.excluded:
+                    mask[i] = 0
+                info = part.static.ids()
+                out.extend(info[i] for i in range(len(mask)) if mask[i])
+            else:
+                out.extend(r.get_id() for r in part.rules if active(r))
+        out.extend(r.get_id() for r in u[pos:] if active(r))
+        return out
+
     def _active_rule_set(self, level):
         rs = self._rule_set_cache.get(level)
         if rs is None:
-            rules = [r for r in self.get_all_active_rules() if is_rule_active_for_level(r, level)]
-            rs = self._rule_set_cache[level] = RuleSet(rules, with_lemma_hints=True)
-            rs.text_level_rules = [r for r in rules if r.is_text_level_rule()]
+            if self._block is None:
+                rules = [r for r in self.get_all_active_rules() if is_rule_active_for_level(r, level)]
+                rs = RuleSet(rules, with_lemma_hints=True)
+                rs.text_level_rules = [r for r in rules if r.is_text_level_rule()]
+            else:
+                from .patterns.ruleset import StaticPart
+
+                def active(r):
+                    return not self.ignore_rule(r) and is_rule_active_for_level(r, level)
+                u = self._user_rules
+                pos = self._block_pos
+                rules = [r for r in self.builtin_rules if active(r)]
+                rules.extend(r for r in u[:pos] if active(r))
+                for part in self._block:
+                    if part.static is not None:
+                        mask = part.static.active_mask(self.disabled_rules, self.enabled_rules,
+                                                       self.disabled_categories, self.enabled_categories,
+                                                       1 if level == LEVEL_DEFAULT else 2, active)
+                        for i in part.excluded:
+                            mask[i] = 0
+                        rules.append(StaticPart(part.static, mask))
+                    else:
+                        rules.extend(r for r in part.rules if active(r))
+                rules.extend(r for r in u[pos:] if active(r))
+                rs = RuleSet(rules, with_lemma_hints=True)
+                rs.text_level_rules = [r for r in rules if not isinstance(r, StaticPart) and r.is_text_level_rule()]
+            self._rule_set_cache[level] = rs
         return rs
 
     def _active_rule_ids(self, level):
@@ -225,7 +407,15 @@ class JLanguageTool:
         rs = self._active_rule_set(level)
         ids = getattr(rs, 'all_rule_ids', None)
         if ids is None:
-            ids = rs.all_rule_ids = frozenset(r.get_id() for r in rs.all_rules)
+            parts = rs.static_parts()
+            if not parts:
+                ids = frozenset(r.get_id() for r in rs.all_rules)
+            else:
+                s = set(r.get_id() for r in rs._entries if r is not None)
+                for p in parts:
+                    s |= p.rules.rule_ids(p.mask)
+                ids = frozenset(s)
+            rs.all_rule_ids = ids
         return ids
 
     # --- analysis ---

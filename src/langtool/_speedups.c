@@ -167,7 +167,7 @@ members_setstate(PyObject *self, PyObject *state, PyMemberDef *members)
     static PyMethodDef prefix##_pickle_methods[] = {                                                     \
         {"__getstate__", (PyCFunction)prefix##_getstate, METH_NOARGS, "pickle support"},               \
         {"__setstate__", (PyCFunction)prefix##_setstate, METH_O, "pickle support"},                    \
-        {NULL}                                                                                           \
+        {NULL, NULL, 0, NULL}                                                                           \
     };
 
 static PyMemberDef at_members[] = {
@@ -180,7 +180,7 @@ static PyMemberDef at_members[] = {
     {"_lemma_lower", T_OBJECT, offsetof(AnalyzedTokenBase, lemma_lower), 0, NULL},
     {"whitespace_before", T_BOOL, offsetof(AnalyzedTokenBase, whitespace_before), 0, NULL},
     {"has_no_pos_tag", T_BOOL, offsetof(AnalyzedTokenBase, has_no_pos_tag), 0, NULL},
-    {NULL}
+    {NULL, 0, 0, 0, NULL}
 };
 
 
@@ -337,7 +337,7 @@ static PyMemberDef atr_members[] = {
     {"has_same_lemmas", T_BOOL, offsetof(ATRBase, has_same_lemmas), 0, NULL},
     {"ignored_by_speller", T_BOOL, offsetof(ATRBase, ignored_by_speller), 0, NULL},
     {"typographic_apostrophe", T_BOOL, offsetof(ATRBase, typographic_apostrophe), 0, NULL},
-    {NULL}
+    {NULL, 0, 0, 0, NULL}
 };
 
 
@@ -566,7 +566,7 @@ static PyMemberDef sm_members[] = {
     {"kind", T_INT, offsetof(StringMatcherBase, kind), 0, NULL},
     {"case_sensitive", T_BOOL, offsetof(StringMatcherBase, case_sensitive), 0, NULL},
     {"is_regexp", T_BOOL, offsetof(StringMatcherBase, is_regexp), 0, NULL},
-    {NULL}
+    {NULL, 0, 0, 0, NULL}
 };
 
 MEMBERS_PICKLE_METHODS(sm, sm_members)
@@ -624,7 +624,7 @@ static PyMemberDef pos_members[] = {
     {"pos_pattern", T_OBJECT, offsetof(PosTokenBase, pos_pattern), 0, NULL},
     {"negation", T_BOOL, offsetof(PosTokenBase, negation), 0, NULL},
     {"pos_unknown", T_BOOL, offsetof(PosTokenBase, pos_unknown), 0, NULL},
-    {NULL}
+    {NULL, 0, 0, 0, NULL}
 };
 
 MEMBERS_PICKLE_METHODS(pos, pos_members)
@@ -724,7 +724,7 @@ static PyMemberDef pt_members[] = {
     {"unification_neutral", T_BOOL, offsetof(PatternTokenBase, unification_neutral), 0, NULL},
     {"uni_negation", T_BOOL, offsetof(PatternTokenBase, uni_negation), 0, NULL},
     {"last_in_unification", T_BOOL, offsetof(PatternTokenBase, last_in_unification), 0, NULL},
-    {NULL}
+    {NULL, 0, 0, 0, NULL}
 };
 
 MEMBERS_PICKLE_METHODS(pt, pt_members)
@@ -1730,7 +1730,7 @@ error:
 
 static PyMethodDef cp_methods[] = {
     {"match", (PyCFunction)cp_match, METH_VARARGS, "Match the pattern against a list of tokens"},
-    {NULL}
+    {NULL, NULL, 0, NULL}
 };
 
 static PyTypeObject CompiledPatternType = {
@@ -1935,7 +1935,7 @@ rh_reduce(RuleHints *self, PyObject *Py_UNUSED(ignored))
 static PyMethodDef rh_methods[] = {
     {"ignorable", (PyCFunction)rh_ignorable, METH_VARARGS, "canBeIgnoredFor"},
     {"__reduce__", (PyCFunction)rh_reduce, METH_NOARGS, "pickle support"},
-    {NULL}
+    {NULL, NULL, 0, NULL}
 };
 
 static PyTypeObject RuleHintsType = {
@@ -1949,792 +1949,8 @@ static PyTypeObject RuleHintsType = {
     .tp_methods = rh_methods,
 };
 
-/* ------------------------------------------------------------------------ */
-/* RuleSelector: port of RuleSet.rules_for_sentence plus the canBeIgnoredFor
- * check of the selected rules, and the rule loop of XmlRuleDisambiguator. */
-
-static PyObject *str_non_blank_tokens = NULL;
-static PyObject *str_token_offsets = NULL;
-static PyObject *str_lemma_offsets = NULL;
-static PyObject *str_pos_tag_set = NULL;
-
-typedef struct {
-    PyObject_HEAD
-    Py_ssize_t n;
-    PyObject *by_token;      /* dict: str -> list/tuple of rule indices */
-    PyObject *by_lemma;      /* dict or None */
-    PyObject *items;         /* tuple of n objects (returned by select / called by disambiguate) */
-    PyObject *hints;         /* tuple of n RuleHints or None */
-    Py_ssize_t *unclassified;
-    Py_ssize_t n_unclassified;
-    char *check_pos;
-} RuleSelector;
-
-/* the attributes of an AnalyzedSentence needed for the hint checks */
-typedef struct {
-    PyObject *sentence;      /* borrowed */
-    long nnb;
-    PyObject *to, *lo, *tags;  /* new references */
-} SentenceHints;
-
-static void
-shints_clear(SentenceHints *sh)
-{
-    Py_CLEAR(sh->to);
-    Py_CLEAR(sh->lo);
-    Py_CLEAR(sh->tags);
-    sh->sentence = NULL;
-}
-
-static int
-shints_load(SentenceHints *sh, PyObject *sentence)
-{
-    if (sh->sentence == sentence) return 0;
-    shints_clear(sh);
-    PyObject *nb = PyObject_GetAttr(sentence, str_non_blank_tokens);
-    if (nb == NULL) return -1;
-    Py_ssize_t nnb = PyObject_Length(nb);
-    Py_DECREF(nb);
-    if (nnb < 0) return -1;
-    sh->to = PyObject_GetAttr(sentence, str_token_offsets);
-    if (sh->to == NULL) goto error;
-    sh->lo = PyObject_GetAttr(sentence, str_lemma_offsets);
-    if (sh->lo == NULL) goto error;
-    sh->tags = PyObject_GetAttr(sentence, str_pos_tag_set);
-    if (sh->tags == NULL) goto error;
-    if (!PyDict_Check(sh->to) || !PyDict_Check(sh->lo)) {
-        PyErr_SetString(PyExc_TypeError, "token_offsets and lemma_offsets must be dicts");
-        goto error;
-    }
-    sh->nnb = (long)nnb;
-    sh->sentence = sentence;
-    return 0;
-error:
-    shints_clear(sh);
-    return -1;
-}
-
-static int
-rs_traverse(RuleSelector *self, visitproc visit, void *arg)
-{
-    Py_VISIT(self->by_token);
-    Py_VISIT(self->by_lemma);
-    Py_VISIT(self->items);
-    Py_VISIT(self->hints);
-    return 0;
-}
-
-static int
-rs_clear(RuleSelector *self)
-{
-    Py_CLEAR(self->by_token);
-    Py_CLEAR(self->by_lemma);
-    Py_CLEAR(self->items);
-    Py_CLEAR(self->hints);
-    return 0;
-}
-
-static void
-rs_dealloc(RuleSelector *self)
-{
-    PyObject_GC_UnTrack(self);
-    rs_clear(self);
-    PyMem_Free(self->unclassified);
-    PyMem_Free(self->check_pos);
-    Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-/* RuleSelector(by_token, by_lemma, unclassified, items, hints, check_pos) */
-static int
-rs_init(RuleSelector *self, PyObject *args, PyObject *Py_UNUSED(kwds))
-{
-    PyObject *by_token, *by_lemma, *unclassified, *items, *hints, *check_pos;
-    if (!PyArg_ParseTuple(args, "O!OOO!O!O", &PyDict_Type, &by_token, &by_lemma, &unclassified, &PyTuple_Type,
-                          &items, &PyTuple_Type, &hints, &check_pos))
-        return -1;
-    if (by_lemma != Py_None && !PyDict_Check(by_lemma)) {
-        PyErr_SetString(PyExc_TypeError, "by_lemma must be a dict or None");
-        return -1;
-    }
-    Py_ssize_t n = PyTuple_GET_SIZE(items);
-    if (PyTuple_GET_SIZE(hints) != n) {
-        PyErr_SetString(PyExc_ValueError, "items and hints must have the same length");
-        return -1;
-    }
-    for (Py_ssize_t i = 0; i < n; i++) {
-        PyObject *h = PyTuple_GET_ITEM(hints, i);
-        if (h != Py_None && !PyObject_TypeCheck(h, &RuleHintsType)) {
-            PyErr_SetString(PyExc_TypeError, "hints must be RuleHints or None");
-            return -1;
-        }
-    }
-    PyObject *cp = PySequence_Fast(check_pos, "check_pos must be a sequence");
-    if (cp == NULL) return -1;
-    if (PySequence_Fast_GET_SIZE(cp) != n) {
-        Py_DECREF(cp);
-        PyErr_SetString(PyExc_ValueError, "check_pos must have the length of items");
-        return -1;
-    }
-    char *cpos = PyMem_Calloc(n + 1, 1);
-    if (cpos == NULL) { Py_DECREF(cp); PyErr_NoMemory(); return -1; }
-    for (Py_ssize_t i = 0; i < n; i++) {
-        int t = PyObject_IsTrue(PySequence_Fast_GET_ITEM(cp, i));
-        if (t < 0) { Py_DECREF(cp); PyMem_Free(cpos); return -1; }
-        cpos[i] = (char)t;
-    }
-    Py_DECREF(cp);
-    PyObject *uc = PySequence_Fast(unclassified, "unclassified must be a sequence");
-    if (uc == NULL) { PyMem_Free(cpos); return -1; }
-    Py_ssize_t nu = PySequence_Fast_GET_SIZE(uc);
-    Py_ssize_t *ucl = PyMem_Calloc(nu + 1, sizeof(Py_ssize_t));
-    if (ucl == NULL) { Py_DECREF(uc); PyMem_Free(cpos); PyErr_NoMemory(); return -1; }
-    for (Py_ssize_t i = 0; i < nu; i++) {
-        Py_ssize_t v = PyLong_AsSsize_t(PySequence_Fast_GET_ITEM(uc, i));
-        if (v == -1 && PyErr_Occurred()) { Py_DECREF(uc); PyMem_Free(cpos); PyMem_Free(ucl); return -1; }
-        if (v < 0 || v >= n) {
-            Py_DECREF(uc); PyMem_Free(cpos); PyMem_Free(ucl);
-            PyErr_SetString(PyExc_IndexError, "rule index out of range");
-            return -1;
-        }
-        ucl[i] = v;
-    }
-    Py_DECREF(uc);
-    Py_INCREF(by_token); Py_XSETREF(self->by_token, by_token);
-    Py_INCREF(by_lemma); Py_XSETREF(self->by_lemma, by_lemma);
-    Py_INCREF(items); Py_XSETREF(self->items, items);
-    Py_INCREF(hints); Py_XSETREF(self->hints, hints);
-    PyMem_Free(self->unclassified);
-    self->unclassified = ucl;
-    self->n_unclassified = nu;
-    PyMem_Free(self->check_pos);
-    self->check_pos = cpos;
-    self->n = n;
-    return 0;
-}
-
-/* marks the rules of index (str -> rule indices) for the keys of offsets */
-static int
-rs_mark(RuleSelector *self, char *mark, PyObject *index, PyObject *offsets)
-{
-    if (!PyDict_Check(offsets)) {
-        PyErr_SetString(PyExc_TypeError, "offsets must be a dict");
-        return -1;
-    }
-    Py_ssize_t pos = 0;
-    PyObject *key, *value;
-    while (PyDict_Next(offsets, &pos, &key, &value)) {
-        PyObject *idx = PyDict_GetItemWithError(index, key);
-        if (idx == NULL) {
-            if (PyErr_Occurred()) return -1;
-            continue;
-        }
-        if (!PyList_Check(idx) && !PyTuple_Check(idx)) {
-            PyErr_SetString(PyExc_TypeError, "rule indices must be a list or tuple");
-            return -1;
-        }
-        Py_ssize_t m = PySequence_Fast_GET_SIZE(idx);
-        PyObject **it = PySequence_Fast_ITEMS(idx);
-        for (Py_ssize_t j = 0; j < m; j++) {
-            Py_ssize_t v = PyLong_AsSsize_t(it[j]);
-            if (v == -1 && PyErr_Occurred()) return -1;
-            if (v < 0 || v >= self->n) {
-                PyErr_SetString(PyExc_IndexError, "rule index out of range");
-                return -1;
-            }
-            mark[v] = 1;
-        }
-    }
-    return 0;
-}
-
-/* the marks of the rules selected by the tokens (and lemmas) of the
- * sentence. Returns a new buffer (PyMem) or NULL on error. */
-static char *
-rs_select_marks(RuleSelector *self, PyObject *sentence)
-{
-    char *mark = PyMem_Calloc(self->n + 1, 1);
-    if (mark == NULL) { PyErr_NoMemory(); return NULL; }
-    for (Py_ssize_t i = 0; i < self->n_unclassified; i++) mark[self->unclassified[i]] = 1;
-    if (self->by_lemma != Py_None && PyDict_GET_SIZE(self->by_lemma) > 0) {
-        PyObject *lo = PyObject_GetAttr(sentence, str_lemma_offsets);
-        if (lo == NULL) goto error;
-        int r = rs_mark(self, mark, self->by_lemma, lo);
-        Py_DECREF(lo);
-        if (r < 0) goto error;
-    }
-    PyObject *to = PyObject_GetAttr(sentence, str_token_offsets);
-    if (to == NULL) goto error;
-    int r = rs_mark(self, mark, self->by_token, to);
-    Py_DECREF(to);
-    if (r < 0) goto error;
-    return mark;
-error:
-    PyMem_Free(mark);
-    return NULL;
-}
-
-/* select(sentence, use_hints): the items (that are not None) of the rules
- * selected for the sentence (in rule order); with use_hints, without the rules whose hints
- * show that they can be ignored for the sentence. */
-static PyObject *
-rs_select(RuleSelector *self, PyObject *args)
-{
-    PyObject *sentence;
-    int use_hints;
-    if (!PyArg_ParseTuple(args, "Op", &sentence, &use_hints)) return NULL;
-    char *mark = rs_select_marks(self, sentence);
-    if (mark == NULL) return NULL;
-    SentenceHints sh = {NULL, 0, NULL, NULL, NULL};
-    PyObject *out = PyList_New(0);
-    if (out == NULL) goto error;
-    for (Py_ssize_t i = 0; i < self->n; i++) {
-        if (!mark[i]) continue;
-        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
-        if (use_hints && h != Py_None) {
-            if (shints_load(&sh, sentence) < 0) goto error;
-            int r = rh_check((RuleHints *)h, sh.nnb, sh.to, sh.lo, sh.tags, self->check_pos[i]);
-            if (r < 0) goto error;
-            if (r) continue;
-        }
-        PyObject *item = PyTuple_GET_ITEM(self->items, i);
-        if (item == Py_None) continue;
-        if (PyList_Append(out, item) < 0) goto error;
-    }
-    shints_clear(&sh);
-    PyMem_Free(mark);
-    return out;
-error:
-    shints_clear(&sh);
-    PyMem_Free(mark);
-    Py_XDECREF(out);
-    return NULL;
-}
-
-/* ------------------------------------------------------------------------ */
-/* MatcherTable: the per thread matchers of the rules of a RuleSelector, for
- * matching the pattern rules (applying the disambiguation rules) without
- * calling Python code for every rule. The entries are initialized lazily by
- * calling init(i), which returns None (the rule's item is called) or the
- * tuple (compiled pattern, on_match, finish, unify, resolver,
- * anchor_inflected, anchor_values, anchor_value_set, anchor_index, sent_start,
- * pre_disambig, pattern_size, min_occur_correction):
- *   - the tokens are sentence.non_blank_pre_disambig_tokens if pre_disambig,
- *     else sentence.non_blank_tokens
- *   - the start positions: like AbstractPatternRulePerformer.do_match (the
- *     anchor hint is not used if anchor_values is None or pre_disambig)
- *   - on_match(sentence, tokens, scratch, positions, first, last,
- *     first_marker, last_marker) is called for each match (scratch: a list,
- *     the same for the matches of one sentence), the results that are not None
- *     are collected
- *   - if there was a match, finish(sentence, scratch, results) gives the
- *     result: the list of rule matches (match_sentence), the new sentence
- *     (disambiguate). */
-
-typedef struct {
-    char state;            /* 0: not initialized, 1: matched here, 2: the item is called */
-    char anchor_inflected;
-    char sent_start;
-    char pre_disambig;
-    PyObject *compiled, *on_match, *finish, *unify, *resolver, *anchor_values, *anchor_value_set;
-    long anchor_index, pattern_size, moc;
-} MTEntry;
-
-typedef struct {
-    PyObject_HEAD
-    Py_ssize_t n;
-    MTEntry *entries;
-} MatcherTable;
-
-static void
-mte_clear(MTEntry *e)
-{
-    Py_CLEAR(e->compiled);
-    Py_CLEAR(e->on_match);
-    Py_CLEAR(e->finish);
-    Py_CLEAR(e->unify);
-    Py_CLEAR(e->resolver);
-    Py_CLEAR(e->anchor_values);
-    Py_CLEAR(e->anchor_value_set);
-    e->state = 0;
-}
-
-static int
-mt_traverse(MatcherTable *self, visitproc visit, void *arg)
-{
-    if (self->entries != NULL) {
-        for (Py_ssize_t i = 0; i < self->n; i++) {
-            MTEntry *e = &self->entries[i];
-            Py_VISIT(e->compiled);
-            Py_VISIT(e->on_match);
-            Py_VISIT(e->finish);
-            Py_VISIT(e->unify);
-            Py_VISIT(e->resolver);
-            Py_VISIT(e->anchor_values);
-            Py_VISIT(e->anchor_value_set);
-        }
-    }
-    return 0;
-}
-
-static int
-mt_clear(MatcherTable *self)
-{
-    if (self->entries != NULL) {
-        for (Py_ssize_t i = 0; i < self->n; i++) mte_clear(&self->entries[i]);
-    }
-    return 0;
-}
-
-static void
-mt_dealloc(MatcherTable *self)
-{
-    PyObject_GC_UnTrack(self);
-    mt_clear(self);
-    PyMem_Free(self->entries);
-    Py_TYPE(self)->tp_free((PyObject *)self);
-}
-
-/* MatcherTable(n) */
-static int
-mt_init(MatcherTable *self, PyObject *args, PyObject *Py_UNUSED(kwds))
-{
-    Py_ssize_t n;
-    if (!PyArg_ParseTuple(args, "n", &n)) return -1;
-    if (n < 0) { PyErr_SetString(PyExc_ValueError, "n must be >= 0"); return -1; }
-    if (self->entries != NULL) {
-        for (Py_ssize_t i = 0; i < self->n; i++) mte_clear(&self->entries[i]);
-        PyMem_Free(self->entries);
-        self->entries = NULL;
-        self->n = 0;
-    }
-    self->entries = PyMem_Calloc(n + 1, sizeof(MTEntry));
-    if (self->entries == NULL) { PyErr_NoMemory(); return -1; }
-    self->n = n;
-    return 0;
-}
-
-static PyTypeObject MatcherTableType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "langtool._speedups.MatcherTable",
-    .tp_basicsize = sizeof(MatcherTable),
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
-    .tp_new = PyType_GenericNew,
-    .tp_init = (initproc)mt_init,
-    .tp_dealloc = (destructor)mt_dealloc,
-    .tp_traverse = (traverseproc)mt_traverse,
-    .tp_clear = (inquiry)mt_clear,
-};
-
-/* the (initialized) entry i, NULL on error */
-static MTEntry *
-mt_entry(MatcherTable *t, Py_ssize_t i, PyObject *init)
-{
-    MTEntry *e = &t->entries[i];
-    if (e->state != 0) return e;
-    PyObject *idx = PyLong_FromSsize_t(i);
-    if (idx == NULL) return NULL;
-    PyObject *spec = PyObject_CallOneArg(init, idx);
-    Py_DECREF(idx);
-    if (spec == NULL) return NULL;
-    if (e->state != 0) {  /* initialized by the init call */
-        Py_DECREF(spec);
-        return e;
-    }
-    if (spec == Py_None) {
-        Py_DECREF(spec);
-        e->state = 2;
-        return e;
-    }
-    PyObject *compiled, *on_match, *finish, *unify, *resolver, *avalues, *aset;
-    int ainfl, sent_start, pre;
-    long aindex, psize, moc;
-    if (!PyArg_ParseTuple(spec, "O!OOOOpOOlppll;bad matcher spec", &CompiledPatternType, &compiled, &on_match,
-                          &finish, &unify, &resolver, &ainfl, &avalues, &aset, &aindex, &sent_start, &pre, &psize,
-                          &moc)) {
-        Py_DECREF(spec);
-        return NULL;
-    }
-    if (avalues != Py_None && (!PyTuple_Check(avalues) || !PyAnySet_Check(aset))) {
-        Py_DECREF(spec);
-        PyErr_SetString(PyExc_TypeError, "the anchor values must be a tuple and a set");
-        return NULL;
-    }
-#define MT_SET(f, v) do { Py_INCREF(v); Py_XSETREF(e->f, v); } while (0)
-    MT_SET(compiled, compiled);
-    MT_SET(on_match, on_match);
-    MT_SET(finish, finish);
-    MT_SET(unify, unify);
-    MT_SET(resolver, resolver);
-    MT_SET(anchor_values, avalues);
-    MT_SET(anchor_value_set, aset);
-#undef MT_SET
-    e->anchor_inflected = (char)ainfl;
-    e->anchor_index = aindex;
-    e->sent_start = (char)sent_start;
-    e->pre_disambig = (char)pre;
-    e->pattern_size = psize;
-    e->moc = moc;
-    e->state = 1;
-    Py_DECREF(spec);
-    return e;
-}
-
-/* the token lists of a sentence (and their checked copies) */
-typedef struct {
-    PyObject *sentence;    /* borrowed */
-    PyObject *nb, *nb_copy, *pre, *pre_copy;   /* new references or NULL */
-} SentenceTokens;
-
-static void
-stoks_clear(SentenceTokens *st)
-{
-    Py_CLEAR(st->nb);
-    Py_CLEAR(st->nb_copy);
-    Py_CLEAR(st->pre);
-    Py_CLEAR(st->pre_copy);
-    st->sentence = NULL;
-}
-
-static PyObject *str_non_blank_pre_disambig_tokens = NULL;
-
-/* sets *list and *copy (borrowed) to the token list for the matching */
-static int
-stoks_get(SentenceTokens *st, PyObject *sentence, int pre, PyObject **list, PyObject **copy)
-{
-    if (st->sentence != sentence) {
-        stoks_clear(st);
-        st->sentence = sentence;
-    }
-    PyObject **l = pre ? &st->pre : &st->nb;
-    PyObject **c = pre ? &st->pre_copy : &st->nb_copy;
-    if (*l == NULL) {
-        PyObject *v = PyObject_GetAttr(sentence, pre ? str_non_blank_pre_disambig_tokens : str_non_blank_tokens);
-        if (v == NULL) return -1;
-        PyObject *cp = checked_tokens_copy(v);
-        if (cp == NULL) { Py_DECREF(v); return -1; }
-        *l = v;
-        *c = cp;
-    }
-    *list = *l;
-    *copy = *c;
-    return 0;
-}
-
-/* runs the entry's pattern on the sentence. Returns the result of finish (a new
- * reference) if there was a match, Py_None (new reference) if not, NULL on
- * error. */
-static PyObject *mt_run_entry(MTEntry *e, PyObject *sentence, SentenceHints *sh, SentenceTokens *st, int collect);
-
-static PyObject *
-mt_run(MTEntry *e, PyObject *sentence, SentenceHints *sh, SentenceTokens *st, int collect)
-{
-    /* a copy of the entry with strong references (the entry could be cleared while Python code runs) */
-    MTEntry c = *e;
-    Py_XINCREF(c.compiled); Py_XINCREF(c.on_match); Py_XINCREF(c.finish); Py_XINCREF(c.unify);
-    Py_XINCREF(c.resolver); Py_XINCREF(c.anchor_values); Py_XINCREF(c.anchor_value_set);
-    PyObject *r = mt_run_entry(&c, sentence, sh, st, collect);
-    Py_XDECREF(c.compiled); Py_XDECREF(c.on_match); Py_XDECREF(c.finish); Py_XDECREF(c.unify);
-    Py_XDECREF(c.resolver); Py_XDECREF(c.anchor_values); Py_XDECREF(c.anchor_value_set);
-    return r;
-}
-
-static PyObject *
-mt_run_entry(MTEntry *e, PyObject *sentence, SentenceHints *sh, SentenceTokens *st, int collect)
-{
-    PyObject *tokens, *copy;
-    if (stoks_get(st, sentence, e->pre_disambig, &tokens, &copy) < 0) return NULL;
-    Py_ssize_t ntokens = PyList_GET_SIZE(copy);
-    long limit;
-    if (e->sent_start) {
-        limit = 1;
-    } else {
-        limit = (long)ntokens - e->pattern_size + 1;
-        if (limit < 0) limit = 0;
-        limit += e->moc;
-    }
-    long *starts = NULL;
-    Py_ssize_t nstarts = 0;
-    long from = 0, to = -1;
-    int use_anchor = e->anchor_values != Py_None && !e->pre_disambig;
-    if (use_anchor) {
-        if (shints_load(sh, sentence) < 0) return NULL;
-        PyObject *offsets = e->anchor_inflected ? sh->lo : sh->to;
-        Py_ssize_t nnb = sh->nnb;
-        char *mark = PyMem_Calloc(nnb + 1, 1);
-        if (mark == NULL) return PyErr_NoMemory();
-        Py_ssize_t nv = PyTuple_GET_SIZE(e->anchor_values);
-        int found = 0;
-        PyObject *key, *value;
-        Py_ssize_t pos = 0, vi = 0;
-        /* get_possible_indices: the sorted union of the offsets of the values */
-        for (;;) {
-            PyObject *lst;
-            if (nv <= PyDict_GET_SIZE(offsets)) {
-                if (vi >= nv) break;
-                lst = PyDict_GetItemWithError(offsets, PyTuple_GET_ITEM(e->anchor_values, vi++));
-                if (lst == NULL) {
-                    if (PyErr_Occurred()) { PyMem_Free(mark); return NULL; }
-                    continue;
-                }
-            } else {
-                if (!PyDict_Next(offsets, &pos, &key, &value)) break;
-                int c = PySet_Contains(e->anchor_value_set, key);
-                if (c < 0) { PyMem_Free(mark); return NULL; }
-                if (!c) continue;
-                lst = value;
-            }
-            if (!PyList_Check(lst)) {
-                PyMem_Free(mark);
-                PyErr_SetString(PyExc_TypeError, "offsets must be lists");
-                return NULL;
-            }
-            for (Py_ssize_t j = 0; j < PyList_GET_SIZE(lst); j++) {
-                Py_ssize_t ai = PyLong_AsSsize_t(PyList_GET_ITEM(lst, j));
-                if (ai == -1 && PyErr_Occurred()) { PyMem_Free(mark); return NULL; }
-                if (ai < 0 || ai >= nnb) {
-                    PyMem_Free(mark);
-                    PyErr_SetString(PyExc_IndexError, "token offset out of range");
-                    return NULL;
-                }
-                mark[ai] = 1;
-                found = 1;
-            }
-        }
-        if (found) {
-            starts = PyMem_Calloc(nnb + 1, sizeof(long));
-            if (starts == NULL) { PyMem_Free(mark); return PyErr_NoMemory(); }
-            for (Py_ssize_t ai = 0; ai < nnb; ai++) {
-                if (!mark[ai]) continue;
-                long s = (long)ai - e->anchor_index;
-                if (s >= 0 && s < limit) starts[nstarts++] = s;
-            }
-        }
-        PyMem_Free(mark);
-        if (nstarts == 0) {
-            PyMem_Free(starts);
-            Py_RETURN_NONE;
-        }
-    } else {
-        from = 0;
-        to = limit - 1;
-        if (from > to) Py_RETURN_NONE;
-    }
-    PyObject *scratch = NULL, *prefix = NULL, *results = NULL, *ret = NULL;
-    scratch = PyList_New(0);
-    if (scratch == NULL) goto done;
-    prefix = PyTuple_Pack(3, sentence, tokens, scratch);
-    if (prefix == NULL) goto done;
-    if (collect) {
-        results = PyList_New(0);
-        if (results == NULL) goto done;
-    }
-    /* keep the token copy alive while the callbacks run */
-    Py_INCREF(copy);
-    Py_ssize_t nm = 0;
-    int r = cp_run((CompiledPattern *)e->compiled, &PyList_GET_ITEM(copy, 0), ntokens, starts, nstarts, from, to,
-                   e->on_match, prefix, results, e->unify, e->resolver, &nm);
-    Py_DECREF(copy);
-    if (r < 0) goto done;
-    if (nm == 0) {
-        ret = Py_None;
-        Py_INCREF(ret);
-    } else {
-        ret = PyObject_CallFunctionObjArgs(e->finish, sentence, scratch, results != NULL ? results : Py_None, NULL);
-    }
-done:
-    PyMem_Free(starts);
-    Py_XDECREF(scratch);
-    Py_XDECREF(prefix);
-    Py_XDECREF(results);
-    return ret;
-}
-
-static PyObject *str_check_cancelled_callback = NULL;
-
-/* owner.check_cancelled_callback is set and returns true: 1, 0 if not, -1 on error */
-static int
-is_cancelled(PyObject *owner)
-{
-    if (owner == Py_None) return 0;
-    PyObject *cb = PyObject_GetAttr(owner, str_check_cancelled_callback);
-    if (cb == NULL) return -1;
-    if (cb == Py_None) { Py_DECREF(cb); return 0; }
-    PyObject *r = PyObject_CallNoArgs(cb);
-    Py_DECREF(cb);
-    if (r == NULL) return -1;
-    int t = PyObject_IsTrue(r);
-    Py_DECREF(r);
-    return t;
-}
-
-/* match_sentence(sentence, table, init, owner): the rule matches of the
- * selected rules (the items that are not None) for the sentence:
- *   for each rule: if owner.check_cancelled_callback is set and returns true,
- *   stop; if the hints show that the rule can be ignored, skip it; else add
- *   the matches of the rule (computed with the table's entry, or the result of
- *   item(sentence)). */
-static PyObject *
-rs_match_sentence(RuleSelector *self, PyObject *args)
-{
-    PyObject *sentence, *table, *init, *owner;
-    if (!PyArg_ParseTuple(args, "OO!OO", &sentence, &MatcherTableType, &table, &init, &owner)) return NULL;
-    MatcherTable *t = (MatcherTable *)table;
-    if (t->n != self->n) {
-        PyErr_SetString(PyExc_ValueError, "the matcher table does not fit the rule selector");
-        return NULL;
-    }
-    char *mark = rs_select_marks(self, sentence);
-    if (mark == NULL) return NULL;
-    Py_INCREF(table);
-    SentenceHints sh = {NULL, 0, NULL, NULL, NULL};
-    SentenceTokens st = {NULL, NULL, NULL, NULL, NULL};
-    PyObject *out = PyList_New(0);
-    if (out == NULL) goto error;
-    for (Py_ssize_t i = 0; i < self->n; i++) {
-        if (!mark[i]) continue;
-        PyObject *item = PyTuple_GET_ITEM(self->items, i);
-        if (item == Py_None) continue;
-        int c = is_cancelled(owner);
-        if (c < 0) goto error;
-        if (c) break;
-        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
-        if (h != Py_None) {
-            if (shints_load(&sh, sentence) < 0) goto error;
-            int r = rh_check((RuleHints *)h, sh.nnb, sh.to, sh.lo, sh.tags, self->check_pos[i]);
-            if (r < 0) goto error;
-            if (r) continue;
-        }
-        MTEntry *e = mt_entry(t, i, init);
-        if (e == NULL) goto error;
-        PyObject *res;
-        if (e->state == 1) {
-            res = mt_run(e, sentence, &sh, &st, 1);
-        } else {
-            res = PyObject_CallOneArg(item, sentence);
-        }
-        if (res == NULL) goto error;
-        if (res != Py_None) {
-            Py_ssize_t len = PyList_GET_SIZE(out);
-            if (PyList_SetSlice(out, len, len, res) < 0) { Py_DECREF(res); goto error; }
-        } else if (e->state != 1) {
-            Py_DECREF(res);
-            PyErr_SetString(PyExc_TypeError, "a rule's match() returned None");
-            goto error;
-        }
-        Py_DECREF(res);
-    }
-    shints_clear(&sh);
-    stoks_clear(&st);
-    PyMem_Free(mark);
-    Py_DECREF(table);
-    return out;
-error:
-    shints_clear(&sh);
-    stoks_clear(&st);
-    PyMem_Free(mark);
-    Py_DECREF(table);
-    Py_XDECREF(out);
-    return NULL;
-}
-
-/* disambiguate(sentence, before_first=None, table=None, init=None): for the
- * rules selected by the tokens of the sentence, in order: unless the hints of
- * the rule show that it can be ignored for the current sentence, sentence =
- * item(sentence) (or the result of the table's entry, see MatcherTable). If
- * before_first is given, sentence = before_first(sentence) before the first
- * rule is applied. Returns the final sentence. */
-static PyObject *
-rs_disambiguate(RuleSelector *self, PyObject *args)
-{
-    PyObject *sentence, *before_first = Py_None, *table = Py_None, *init = Py_None;
-    if (!PyArg_ParseTuple(args, "O|OOO", &sentence, &before_first, &table, &init)) return NULL;
-    if (table != Py_None) {
-        if (!PyObject_TypeCheck(table, &MatcherTableType) || ((MatcherTable *)table)->n != self->n) {
-            PyErr_SetString(PyExc_TypeError, "table must be a MatcherTable for the rule selector");
-            return NULL;
-        }
-    }
-    char *mark = rs_select_marks(self, sentence);
-    if (mark == NULL) return NULL;
-    Py_INCREF(table);
-    SentenceHints sh = {NULL, 0, NULL, NULL, NULL};
-    SentenceTokens st = {NULL, NULL, NULL, NULL, NULL};
-    PyObject *cur = sentence;
-    Py_INCREF(cur);
-    for (Py_ssize_t i = 0; i < self->n; i++) {
-        if (!mark[i]) continue;
-        PyObject *item = PyTuple_GET_ITEM(self->items, i);
-        if (item == Py_None) continue;
-        PyObject *h = PyTuple_GET_ITEM(self->hints, i);
-        if (h != Py_None) {
-            if (shints_load(&sh, cur) < 0) goto error;
-            int r = rh_check((RuleHints *)h, sh.nnb, sh.to, sh.lo, sh.tags, self->check_pos[i]);
-            if (r < 0) goto error;
-            if (r) continue;
-        }
-        if (before_first != Py_None) {
-            PyObject *b = PyObject_CallOneArg(before_first, cur);
-            if (b == NULL) goto error;
-            before_first = Py_None;
-            Py_SETREF(cur, b);
-            shints_clear(&sh);
-            stoks_clear(&st);
-        }
-        MTEntry *e = NULL;
-        if (table != Py_None) {
-            e = mt_entry((MatcherTable *)table, i, init);
-            if (e == NULL) goto error;
-        }
-        PyObject *res;
-        if (e != NULL && e->state == 1) {
-            res = mt_run(e, cur, &sh, &st, 0);
-            if (res == Py_None) {
-                Py_DECREF(res);
-                continue;
-            }
-        } else {
-            res = PyObject_CallOneArg(item, cur);
-        }
-        if (res == NULL) goto error;
-        if (res != cur) {
-            shints_clear(&sh);
-            stoks_clear(&st);
-        }
-        Py_SETREF(cur, res);
-    }
-    shints_clear(&sh);
-    stoks_clear(&st);
-    PyMem_Free(mark);
-    Py_DECREF(table);
-    return cur;
-error:
-    shints_clear(&sh);
-    stoks_clear(&st);
-    PyMem_Free(mark);
-    Py_DECREF(table);
-    Py_DECREF(cur);
-    return NULL;
-}
-
-static PyMethodDef rs_methods[] = {
-    {"select", (PyCFunction)rs_select, METH_VARARGS, "The rules for a sentence"},
-    {"disambiguate", (PyCFunction)rs_disambiguate, METH_VARARGS, "Apply the disambiguation rules to a sentence"},
-    {"match_sentence", (PyCFunction)rs_match_sentence, METH_VARARGS, "The rule matches for a sentence"},
-    {NULL}
-};
-
-static PyTypeObject RuleSelectorType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "langtool._speedups.RuleSelector",
-    .tp_basicsize = sizeof(RuleSelector),
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
-    .tp_new = PyType_GenericNew,
-    .tp_init = (initproc)rs_init,
-    .tp_dealloc = (destructor)rs_dealloc,
-    .tp_traverse = (traverseproc)rs_traverse,
-    .tp_clear = (inquiry)rs_clear,
-    .tp_methods = rs_methods,
-};
+#include "_rule_tables.h"
+#include "_rule_engine.h"
 
 /* ------------------------------------------------------------------------ */
 /* FSA dictionaries */
@@ -3103,7 +2319,7 @@ corrupt:
 
 static PyMethodDef fsa_methods[] = {
     {"lookup", (PyCFunction)fsa_lookup, METH_VARARGS, "Lookup an encoded word, returns list of (stem, tag)"},
-    {NULL}
+    {NULL, NULL, 0, NULL}
 };
 
 static PyTypeObject FSADictType = {
@@ -3863,7 +3079,7 @@ fail:
 
 static PyMethodDef sp_methods[] = {
     {"search", (PyCFunction)sp_search, METH_VARARGS, "The error-tolerant search of morfologik's Speller"},
-    {NULL}
+    {NULL, NULL, 0, NULL}
 };
 
 static PyTypeObject SpellerSearchType = {
@@ -4798,6 +4014,8 @@ done:
 }
 
 static PyMethodDef module_methods[] = {
+    {"rule_blob_names", py_rule_blob_names, METH_NOARGS, NULL},
+    {"rule_blob", py_rule_blob, METH_O, NULL},
     {"levenshtein", py_levenshtein, METH_VARARGS, NULL},
     {"build_trie", py_build_trie, METH_O, NULL},
     {"beam_search", py_beam_search, METH_VARARGS, NULL},
@@ -4807,7 +4025,7 @@ static PyMethodDef module_methods[] = {
     {"gis_eval", py_gis_eval, METH_VARARGS, NULL},
     {"pattern_token_is_matched", py_pt_is_matched, METH_VARARGS, NULL},
     {"string_matcher_matches", py_sm_matches, METH_VARARGS, NULL},
-    {NULL}
+    {NULL, NULL, 0, NULL}
 };
 
 int lt_hunspell_init(PyObject *m);  /* _hunspell.c */
@@ -4828,6 +4046,7 @@ exec_module(PyObject *m)
     ADD_TYPE(RuleSelectorType, "RuleSelector");
     ADD_TYPE(MatcherTableType, "MatcherTable");
     ADD_TYPE(SpellerSearchType, "SpellerSearch");
+    ADD_TYPE(RuleBlobType, "RuleBlob");
 #undef ADD_TYPE
     str_lower = PyUnicode_InternFromString("lower");
     str_regex_match = PyUnicode_InternFromString("_regex_match");
@@ -4855,7 +4074,12 @@ exec_module(PyObject *m)
     if (!str_non_blank_tokens || !str_token_offsets || !str_lemma_offsets || !str_pos_tag_set) return -1;
     str_non_blank_pre_disambig_tokens = PyUnicode_InternFromString("non_blank_pre_disambig_tokens");
     str_check_cancelled_callback = PyUnicode_InternFromString("check_cancelled_callback");
-    if (!str_non_blank_pre_disambig_tokens || !str_check_cancelled_callback) return -1;
+    str_text = PyUnicode_InternFromString("text");
+    if (!str_non_blank_pre_disambig_tokens || !str_check_cancelled_callback || !str_text) return -1;
+    str_get_original_position = PyUnicode_InternFromString("get_original_position");
+    str_immunize = PyUnicode_InternFromString("immunize");
+    str_tokens = PyUnicode_InternFromString("tokens");
+    if (!str_get_original_position || !str_immunize || !str_tokens) return -1;
     return 0;
 }
 

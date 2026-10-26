@@ -1,6 +1,7 @@
 include README.md LICENSE setup.py pyproject.toml
-recursive-include src/langtool *.py *.c *.json
+recursive-include src/langtool *.py *.c *.h *.json
 recursive-include src/langtool/data *
 recursive-include tests *.py *.txt *.dict *.info
 recursive-include tools *.py
 global-exclude *.so *.pyc __pycache__
+global-exclude _package_manifest.json

@@ -44,6 +44,7 @@ class Language:
         self._post_disambiguation_chunker = None
         self._sentence_tokenizer = self._word_tokenizer = None
         self._pattern_rules = None
+        self._pattern_rule_parts = None
         self._pattern_rule_problems = []
         self._unifier_config = UnifierConfiguration()
         self.pos_token_cache = {}
@@ -232,28 +233,48 @@ class Language:
         if self._pattern_rules is None:
             with self._lock:
                 if self._pattern_rules is None:
+                    if filter_factory is None:
+                        from .patterns.static import flatten
+                        rules = flatten(self.get_pattern_rule_parts())
+                    else:
+                        from .patterns.loader import load_pattern_rules
+                        from .messages import messages_for
+                        msgs = messages_for(self.short_code)
+                        rules, problems = [], []
+                        for f in self.get_rule_file_names():
+                            r, skipped = load_pattern_rules(f, self, self.resource_root, filter_factory, msgs)
+                            rules.extend(r)
+                            problems.extend(skipped)
+                        self._pattern_rule_problems = problems
+                    self._pattern_rules = rules
+        return self._pattern_rules
+
+    def get_pattern_rule_parts(self):
+        """The pattern rules of the rule files of the language: a list with,
+        per file, the rules of the static rule tables (a
+        langtool.patterns.static.StaticRules, whose rule objects are created
+        when they are needed) or the list of the rules loaded from the XML
+        file (from the persistent cache if possible, see langtool.diskcache).
+        get_pattern_rules() has the rule objects of all of them."""
+        parts = self._pattern_rule_parts
+        if parts is None:
+            with self._lock:
+                parts = self._pattern_rule_parts
+                if parts is None:
                     from .patterns.loader import load_pattern_rules
+                    from .patterns.static import rule_parts
                     from .rules.filters import default_filter_factory
                     from .messages import messages_for
-                    files = self.get_rule_file_names()
                     msgs = messages_for(self.short_code)
 
                     def load_file(f, ff):
                         return load_pattern_rules(f, self, self.resource_root, ff, msgs)
 
-                    if filter_factory is None:
-                        # (from the persistent cache if possible, see langtool.diskcache)
-                        from .patterns.rulecache import load_rules
-                        rules, problems = load_rules('grammar', self, files, load_file, default_filter_factory())
-                    else:
-                        rules, problems = [], []
-                        for f in files:
-                            r, skipped = load_file(f, filter_factory)
-                            rules.extend(r)
-                            problems.extend(skipped)
+                    parts, problems = rule_parts('grammar', self, self.get_rule_file_names(), load_file,
+                                                 default_filter_factory())
                     self._pattern_rule_problems = problems
-                    self._pattern_rules = rules
-        return self._pattern_rules
+                    self._pattern_rule_parts = parts
+        return parts
 
     def get_relevant_rules(self, messages, user_config=None, mother_tongue=None):
         """Language.getRelevantRules: the code based rules, preceded by the
@@ -288,16 +309,16 @@ class Language:
             rules = _mother_tongue_rules.get(key)
             if rules is None:
                 from .patterns.loader import load_pattern_rules
-                from .patterns.rulecache import load_rules
+                from .patterns.static import rule_parts, flatten
                 from .rules.filters import default_filter_factory
                 from .messages import messages_for
                 msgs = messages_for(self.short_code)
 
                 def load_file(f, ff):
                     return load_pattern_rules(f, self, self.resource_root, ff, msgs)
-                # (from the persistent cache if possible, see langtool.diskcache)
-                rules = _mother_tongue_rules[key] = load_rules('grammar', self, [path], load_file,
-                                                               default_filter_factory())[0]
+                # (from the static rule tables or the persistent cache if possible)
+                rules = _mother_tongue_rules[key] = flatten(rule_parts('grammar', self, [path], load_file,
+                                                                       default_filter_factory())[0])
         return list(rules)
 
     def get_default_enabled_rules_for_variant(self):

@@ -904,6 +904,8 @@ class _Translator:
 
 _cache = {}
 _cache_lock = threading.Lock()
+# (set by langtool.patterns.static when it is imported: the compiled programs of the static rule tables)
+_static_programs = None
 
 
 def translate(pattern, flags=0):
@@ -918,7 +920,17 @@ def compile(pattern, flags=0):
     r = _cache.get(key)
     if r is not None:
         return r
-    # (compiled regular expressions are stored on disk, see langtool.diskcache)
+    # (the compiled programs of the regular expressions of the rules are in the static rule tables, see
+    # langtool.patterns.static; the others are stored on disk, see langtool.diskcache)
+    r = None
+    if _static_programs is not None:
+        data = _static_programs(pattern, flags)
+        if data is not None:
+            from regex import _regex
+            r = _regex.compile(*data)
+            with _cache_lock:
+                r = _cache.setdefault(key, r)
+            return r
     r = diskcache.stored_regex(key)
     if r is None:
         py = translate(pattern, flags)

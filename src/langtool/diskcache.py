@@ -1,7 +1,9 @@
 """Persistent on-disk cache of expensive derived data.
 
-Loading a language means parsing thousands of XML rules, translating and
-compiling regular expressions and building lookup tables from data files.
+Loading a language means parsing thousands of XML rules (unless they come
+from the static rule tables of the C extension, see langtool.patterns.static),
+translating and compiling regular expressions and building lookup tables from
+data files.
 The results only depend on the package (code and data) and on a few files
 outside of it, so they are cached on disk (with pickle) and loaded from there
 by later processes, which is several times faster.
@@ -13,8 +15,14 @@ directory of the cache directory (the directory set with
 cache directory, e.g. ``~/.cache/langtool/derived``). Below it there is one directory
 per *package fingerprint*: a hash of the langtool version, the Python
 version, whether the C extension is used, the versions of the ``regex`` and
-``lxml`` modules and the size and modification time of every file of the
-package (code and data). Any change of these selects a new directory (the
+``lxml`` modules and the files of the package (code and data). For an
+installed package these are described by the manifest written when it was
+built (``_package_manifest.json``: a hash of the contents of all its files,
+which do not change after the installation; reinstalling writes a new one),
+so only the manifest and the extension module are looked at. In a source
+tree (no manifest, e.g. ``PYTHONPATH=src`` or an editable install) or with
+``LANGTOOL_DISK_CACHE_VERIFY=1`` the size and modification time of every
+file of the package are used instead. Any change of these selects a new directory (the
 directories that were not used for a week are removed). An entry is
 additionally keyed on its parameters (e.g. the language code) and records
 the size and modification time of the files outside of the package that it
@@ -190,6 +198,122 @@ def _walk_stats(top):
     return out
 
 
+MANIFEST_NAME = '_package_manifest.json'
+MANIFEST_FORMAT = 1
+
+
+def file_hash(path):
+    """the hash of the contents of a file in the manifest (and in the static
+    rule tables, see langtool.patterns.static): the first 32 hex digits of
+    its SHA-256"""
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()[:32]
+
+
+def manifest_digest(top, exclude=(MANIFEST_NAME,), hashes=None):
+    """(digest, number of files) of the contents of the files below the
+    directory top (relative paths and contents; without __pycache__,
+    compiled files and extension modules, and the names in exclude): the
+    hash in the manifest of an installed package (written by setup.py when
+    it is built). If hashes is a dict, the file_hash() of every file is
+    added to it (relative path with / -> hash)."""
+    h = hashlib.sha256()
+    n = 0
+    for rel, size, mtime in _walk_stats(top):
+        if rel in exclude or rel.endswith(('.so', '.pyd', '.dylib', '.dll')):
+            continue
+        name = rel.replace(os.sep, '/')
+        fh = file_hash(os.path.join(top, rel))
+        h.update(b'%d:%s:%s\0' % (size, name.encode('utf-8', 'surrogatepass'), fh.encode('ascii')))
+        if hashes is not None:
+            hashes[name] = fh
+        n += 1
+    return h.hexdigest(), n
+
+
+def write_manifest(top):
+    """Write the manifest of the package files below top (setup.py calls
+    this for the built package; see package_fingerprint())."""
+    import json
+    hashes = {}
+    digest, n = manifest_digest(top, hashes=hashes)
+    data = json.dumps({'format': MANIFEST_FORMAT, 'sha256': digest, 'files': n, 'hashes': hashes},
+                      sort_keys=True).encode('ascii')
+    tmp = os.path.join(top, MANIFEST_NAME + '.tmp')
+    with open(tmp, 'wb') as f:
+        f.write(data)
+    os.replace(tmp, os.path.join(top, MANIFEST_NAME))
+    return digest
+
+
+_manifest = None  # (the manifest as read, or False)
+
+
+def installed_manifest():
+    """The content of the manifest of the installed package (a dict with
+    the hash of its files), None in a source tree (no manifest) or when
+    LANGTOOL_DISK_CACHE_VERIFY is set (the files are then looked at)."""
+    global _manifest
+    if os.environ.get('LANGTOOL_DISK_CACHE_VERIFY', '').strip().lower() not in ('', '0', 'off', 'no', 'false'):
+        return None
+    m = _manifest
+    if m is None or m[0] != _PACKAGE_DIR:
+        m = _manifest = (_PACKAGE_DIR, _read_manifest())
+    return m[1]
+
+
+def _read_manifest():
+    import json
+    try:
+        with open(os.path.join(_PACKAGE_DIR, MANIFEST_NAME), 'rb') as f:
+            m = json.loads(f.read().decode('ascii'))
+        if m.get('format') != MANIFEST_FORMAT or not isinstance(m.get('sha256'), str):
+            return None
+        if not isinstance(m.get('hashes', {}), dict):
+            return None
+        return m
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _package_files_state():
+    """what the fingerprint covers of the package files: the manifest of an
+    installed package (and its stat, and the extension modules), else the
+    size and modification time of all files"""
+    m = installed_manifest()
+    if m is None:
+        return ('files', _walk_stats(_PACKAGE_DIR))
+    ext = []
+    try:
+        names = os.listdir(_PACKAGE_DIR)
+    except OSError:
+        names = []
+    for n in sorted(names):
+        if n.endswith(('.so', '.pyd', '.dylib', '.dll', MANIFEST_NAME)):
+            ext.append((n, _file_stat(os.path.join(_PACKAGE_DIR, n))))
+    return ('manifest', m['sha256'], ext)
+
+
+def _lxml_version():
+    """the version of lxml and the size and modification time of its etree
+    module (which includes or links libxml2), without importing it (that
+    takes about 10 ms, and lxml is only needed when XML files are parsed)"""
+    etree = sys.modules.get('lxml.etree')
+    try:
+        if etree is not None:
+            origin = etree.__file__
+        else:
+            import importlib.util
+            origin = importlib.util.find_spec('lxml.etree').origin
+        import lxml
+        return lxml.__version__, origin, _file_stat(origin)
+    except Exception:  # pragma: no cover
+        return None
+
+
 def package_fingerprint():
     """A hash of everything the cached data depends on inside the package
     (code and data files, versions, interpreter, C extension or not)."""
@@ -202,17 +326,13 @@ def package_fingerprint():
             regex_version = (regex.__version__, getattr(regex._regex, 'MAGIC', None))
         except Exception:  # pragma: no cover
             regex_version = None
-        try:
-            from lxml import etree
-            lxml_version = etree.LXML_VERSION, etree.LIBXML_VERSION
-        except Exception:  # pragma: no cover
-            lxml_version = None
+        lxml_version = _lxml_version()
         version = getattr(sys.modules.get(__package__), '__version__', None)
         h = hashlib.sha256()
         h.update(repr((FORMAT_VERSION, version, sys.version, sys.implementation.cache_tag, sys.platform,
                        sys.maxunicode, _PROTOCOL, _base.speedups is not None, regex_version, lxml_version,
                        _PACKAGE_DIR)).encode('utf-8', 'surrogatepass'))
-        h.update(repr(_walk_stats(_PACKAGE_DIR)).encode('utf-8', 'surrogatepass'))
+        h.update(repr(_package_files_state()).encode('utf-8', 'surrogatepass'))
         fp = _fingerprint = h.hexdigest()
     return fp
 

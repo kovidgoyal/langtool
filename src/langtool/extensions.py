@@ -264,14 +264,28 @@ def _shared_chunker(path, **kw):
         return c
 
 
-_xml_cache = {}
+_xml_cache = {}  # (the rules and, under the key + ('parts',), the parts)
 
 
 def disambiguation_rules(language, use_global=False):
-    """Load the disambiguation rules of a language (default variant)."""
+    """Load the disambiguation rules of a language (default variant):
+    (rules, problems)."""
+    key = (language.code, use_global, language.resource_root)
+    with _lock:
+        r = _xml_cache.get(key)
+        if r is None:
+            from .patterns.static import flatten
+            parts, problems = disambiguation_rule_parts(language, use_global)
+            r = _xml_cache[key] = (flatten(parts), problems)
+        return r
+
+
+def disambiguation_rule_parts(language, use_global=False):
+    """The disambiguation rules of a language (default variant) per rule
+    file, see Language.get_pattern_rule_parts(): (parts, problems)."""
     from .patterns.loader import load_disambiguation_rules
     from .rules.filters import default_filter_factory
-    key = (language.code, use_global, language.resource_root)
+    key = (language.code, use_global, language.resource_root, 'parts')
     with _lock:
         r = _xml_cache.get(key)
         if r is None:
@@ -285,17 +299,16 @@ def disambiguation_rules(language, use_global=False):
             def load_file(f, ff):
                 return load_disambiguation_rules(f, language, language.resource_root, ff)
 
-            # (from the persistent cache if possible, see langtool.diskcache)
-            from .patterns.rulecache import load_rules
-            r = _xml_cache[key] = load_rules('disambiguation', language, files, load_file,
-                                             default_filter_factory())
+            # (from the static rule tables or the persistent cache if possible)
+            from .patterns.static import rule_parts
+            r = _xml_cache[key] = rule_parts('disambiguation', language, files, load_file, default_filter_factory())
         return r
 
 
 def _xml_disambiguator(language, use_global):
     from .disambiguation import XmlRuleDisambiguator
-    rules, problems = disambiguation_rules(language, use_global)
-    return XmlRuleDisambiguator(language, rules)
+    parts, problems = disambiguation_rule_parts(language, use_global)
+    return XmlRuleDisambiguator(language, parts)
 
 
 def create_rules(language, messages, user_config=None):

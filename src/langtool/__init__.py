@@ -32,10 +32,20 @@ from .hunspell_dictionaries import SpellCheckUnavailable
 __all__ = ['LanguageTool', 'Match', 'RuleInfo', 'check', 'download_dictionaries', 'get_language',
            'language_names', 'languages', 'DictionaryNotFound', 'SpellCheckUnavailable', 'have_speedups',
            'set_cache_dir', 'get_cache_dir', 'set_disk_cache', 'get_disk_cache_dir', 'clear_disk_cache',
-           'spell_check_languages', 'hunspell_dictionary_info']
+           'spell_check_languages', 'hunspell_dictionary_info', 'static_rules_status']
 
 
 def have_speedups():
     """Whether the C extension is used."""
     from ._base import speedups
     return speedups is not None
+
+
+def static_rules_status():
+    """{language code: status} of the static rule tables in the C extension
+    (see the README): 'ok' (the rules of the language come from the tables),
+    'stale: <reason>' (the rules are loaded from the XML files; rebuild the
+    extension), 'disabled' (LANGTOOL_STATIC_RULES=0) or 'not checked' (the
+    language was not used yet). Empty without the C extension or tables."""
+    from .patterns.static import status
+    return status()

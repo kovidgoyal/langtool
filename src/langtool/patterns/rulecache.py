@@ -1,6 +1,11 @@
 """Persistent caching (langtool.diskcache) of the rules loaded from the XML
 rule files (grammar.xml etc. and disambiguation.xml) of a language.
 
+The rules of the built-in languages normally come from the static rule
+tables of the C extension (langtool.patterns.static) and are not cached; this
+is used when the tables are not (the pure Python mode, stale or missing
+tables, LANGTOOL_STATIC_RULES=0).
+
 There is an entry per rule file, shared by the variants of a language: the
 loading of a file only depends on the file, the short code of the language
 (its messages) and its resource directory. The rules are pickled as they

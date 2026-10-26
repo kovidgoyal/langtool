@@ -212,13 +212,16 @@ class AbstractTokenBasedRule(AbstractPatternRule):
         self.pos_hints = pos_hints or None
         self.max_span_tokens = max_span if bounded else -1
         self.min_token_count = min(min_token_count, 127)
+        self._native_hints = self._make_native_hints()
+
+    def _make_native_hints(self):
+        """the speedups.RuleHints of the hints (None without the speedups)"""
         from .._base import speedups
-        self._native_hints = None
-        if speedups is not None:
-            hs = tuple((th.inflected, th.lower_case_values, th.lower_case_value_set)
-                       for th in (self.token_hints or ()))
-            ph = tuple(frozenset(p) for p in self.pos_hints) if self.pos_hints else None
-            self._native_hints = speedups.RuleHints(self.min_token_count, hs, ph)
+        if speedups is None:
+            return None
+        hs = tuple((th.inflected, th.lower_case_values, th.lower_case_value_set) for th in (self.token_hints or ()))
+        ph = tuple(frozenset(p) for p in self.pos_hints) if self.pos_hints else None
+        return speedups.RuleHints(self.min_token_count, hs, ph)
 
     def is_interpret_pos_tags_pre_disambiguation(self):
         return False
@@ -313,6 +316,11 @@ class PatternRule(AbstractTokenBasedRule):
     def apply_anti_patterns(self, sentence, matches, matcher):
         """the matches without the ones prevented by the anti-patterns"""
         if matches and self.anti_patterns:
+            # (a rule matched on the static rule tables: on the tables)
+            from .static import apply_anti_patterns
+            r = apply_anti_patterns(self, sentence, matches, matcher)
+            if r is not NotImplemented:
+                return r
             immunized = self.get_sentence_with_immunization(sentence)
             # (if no anti-pattern can match, the sentence is returned and matching it again would give the
             # same matches)

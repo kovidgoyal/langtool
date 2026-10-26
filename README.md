@@ -23,6 +23,43 @@ The package is distributed as source; a C compiler is needed to build the
 optional C extension (`langtool._speedups`). Without it a pure Python
 implementation is used, which is about two times slower.
 
+Building the extension also compiles the grammar and disambiguation rules
+of all languages into static tables that are linked into it (see below).
+This needs `lxml` and `regex` at build time (they are build requirements),
+a GCC or Clang compatible compiler and assembler (`.incbin`; on other
+platforms the extension is built without the tables) and about 20 seconds
+on 16 cores (about 3 minutes of CPU time; the languages are processed in
+parallel, `LANGTOOL_RULE_TABLES_JOBS` sets the number of processes). The
+extension is about 160 MB (about 24 MB compressed with xz).
+`LANGTOOL_NO_RULE_TABLES=1` builds it without the tables.
+
+## Static rule tables
+
+The rules of the built-in languages (all rule files of all variants:
+grammar, style, the rules for speakers of other mother tongues and the
+disambiguation rules) are compiled at build time into read-only tables in
+the C extension (`tools/gen_rule_tables.py` loads them with the XML loader
+of the package, so they are the same by construction). The C extension
+selects and matches the rules on the tables in place, and applies the
+disambiguation rules and the anti-patterns there; the Python objects of a
+rule are only created when they are needed (when the rule matched, or when
+code asks for the rules, e.g. `JLanguageTool.get_all_rules()`), and they are
+the same objects as those the XML loader creates. Loading the rules takes no
+time, there is no slow first start for them, and processes share the pages
+of the tables (e.g. forked servers).
+
+The tables are not used (the rules are loaded from the XML files and the
+disk cache as before) in the pure Python mode, for languages added with
+`langtool.languages.register_language()`, with a custom filter factory and
+when they are stale: when a rule file, an entity file, a message bundle or a
+module of the XML loading changed after the extension was built (an
+installed package is checked with the hashes of its manifest, a source tree
+with the size and modification time of the files). Stale tables are logged
+on the `langtool.static` logger and shown by
+`langtool.static_rules_status()`; rebuild the extension to update them.
+`LANGTOOL_STATIC_RULES=0` disables the tables. Rules added at runtime
+(`add_rule()`, rule files of the user) work together with the static rules.
+
 ## Dictionaries
 
 Most languages need binary part-of-speech dictionaries (morfologik format).
@@ -70,7 +107,12 @@ e.g. `~/.cache/langtool/derived`), or in the directory given by the
 per language (English, German), less than 1 MB for most languages, about
 90 MB for all of them. Entries are invalidated automatically when the package (its
 version, code or data files), the Python version, the use of the C
-extension or the downloaded dictionaries they were built from change.
+extension or the downloaded dictionaries they were built from change. For
+an installed package, a manifest written when the package is built (a hash
+of all its files) stands for the code and data files, which do not change
+after the installation; in a source tree (or with
+`LANGTOOL_DISK_CACHE_VERIFY=1`) the size and modification time of every
+file are looked at.
 Entries are written atomically, so concurrent processes can share the
 cache, and an unreadable or corrupt entry is silently rebuilt. The
 directory must not be writable by other users (the entries are Python
@@ -78,7 +120,9 @@ pickles). The rules of languages added with
 `langtool.languages.register_language()` are not cached (changing the
 built-in language definitions in place requires disabling the cache).
 
-The rules are cached per rule file, so the variants of a language (e.g.
+The rules of the built-in languages normally come from the static rule
+tables (see above) and are not cached; when the tables are not used the
+rules are cached per rule file, so the variants of a language (e.g.
 en-US, en-GB, en-AU) share the entries of the common files and loading a
 further variant takes about a second even the first time.
 
@@ -169,6 +213,7 @@ LanguageTool's own speller dictionaries, as in Java.
 * `langtool.set_disk_cache(enabled=True, directory=None, max_size=None)`, `langtool.get_disk_cache_dir()`,
   `langtool.clear_disk_cache()` — the disk cache of derived data (see above)
 * `langtool.spell_check_languages()`, `langtool.hunspell_dictionary_info(code)`
+* `langtool.static_rules_status()` — whether the static rule tables are used (see above)
 
 There is also a command line interface: `python -m langtool check -l en-US file.txt`
 (`-s` for spell checking, `--hunspell-dict [CODE=]PATH` for a dictionary,

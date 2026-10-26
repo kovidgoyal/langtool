@@ -6054,7 +6054,7 @@ static PyMethodDef HunDict_methods[] = {
     {"suggest", (PyCFunction)HunDict_suggest, METH_VARARGS, NULL},
     {"add", (PyCFunction)HunDict_add, METH_O, NULL},
     {"__sizeof__", (PyCFunction)HunDict_sizeof, METH_NOARGS, NULL},
-    {NULL}
+    {NULL, NULL, 0, NULL}
 };
 
 static PyTypeObject HunDictType = {

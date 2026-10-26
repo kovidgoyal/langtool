@@ -609,7 +609,8 @@ class SuppressIfAnyRuleMatchesFilter(RuleFilter):
     @staticmethod
     def _any_rule_matches(lt, rule_ids, analyzed, match):
         # (= the rules of lt.get_all_active_rules() with the ids, in order; the cheap tests first)
-        for r in lt.get_all_rules():
+        rules_with = getattr(lt, 'rules_with', None)
+        for r in (rules_with(rule_ids) if rules_with is not None else lt.get_all_rules()):
             if r.get_id() in rule_ids and not r.is_text_level_rule() and not lt.ignore_rule(r):
                 for m in r.match(analyzed):
                     if (match.from_pos <= m.to_pos <= match.to_pos) or (m.from_pos <= match.to_pos <= m.to_pos):

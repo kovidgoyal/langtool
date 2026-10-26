@@ -90,10 +90,14 @@ class AbstractPatternRulePerformer:
             self.neutral_readings = {}
         else:
             self.to_unify = self.neutral_readings = None
-        self._compiled = None
+        self._compiled_pattern = None
+        self._compile_args = None
 
     def _compile(self, check_immunized, element_no):
-        """Prepare matching with the C extension, if possible."""
+        """Prepare matching with the C extension, if possible (the
+        CompiledPattern is created when it is first needed: the rules of the
+        static tables are matched on the tables, their matchers only provide
+        the callbacks)."""
         rule = self.rule
         if speedups is None:
             return
@@ -105,12 +109,27 @@ class AbstractPatternRulePerformer:
                 for a in t.and_group:
                     if a.token_reference is not None:
                         has_refs = True
-        self._compiled = speedups.CompiledPattern(tuple(rule.pattern_tokens), self.min_occur_correction,
-                                                  bool(rule.groups_or_unification), check_immunized, element_no)
+        self._compile_args = (check_immunized, element_no)
         # the callbacks of CompiledPattern.match (not stored in the CompiledPattern, that would be a reference
         # cycle)
         self._c_unify = self._test_unification_lists if rule.test_unification else None
         self._c_resolver = self._resolve if has_refs else None
+
+    @property
+    def _compiled(self):
+        """the speedups.CompiledPattern of the rule (None without the speedups)"""
+        c = self._compiled_pattern
+        if c is None and self._compile_args is not None:
+            check_immunized, element_no = self._compile_args
+            rule = self.rule
+            c = self._compiled_pattern = speedups.CompiledPattern(
+                tuple(rule.pattern_tokens), self.min_occur_correction, bool(rule.groups_or_unification),
+                check_immunized, element_no)
+        return c
+
+    def c_callbacks(self):
+        """(on_match, finish, unify) for the matching of the rule on the static tables (see speedups.MatcherTable)"""
+        return self._c_on_match, self._c_finish, self._c_unify
 
     def c_spec(self):
         """The entry of a speedups.MatcherTable (see there) for the rule"""

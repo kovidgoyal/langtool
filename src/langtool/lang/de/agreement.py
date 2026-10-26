@@ -540,9 +540,9 @@ class AgreementRule(Rule):
                 if self._lt is None:
                     from ...tool import JLanguageTool
                     lt = JLanguageTool(self.language)
-                    for rule in lt.get_all_active_rules():
-                        if rule.get_id() != 'DE_AGREEMENT' and rule.get_id() != 'GERMAN_SPELLER_RULE':
-                            lt.disable_rule(rule.get_id())
+                    for rule_id in lt.get_all_active_rule_ids():
+                        if rule_id != 'DE_AGREEMENT' and rule_id != 'GERMAN_SPELLER_RULE':
+                            lt.disable_rule(rule_id)
                     self._lt = lt
         return self._lt
 

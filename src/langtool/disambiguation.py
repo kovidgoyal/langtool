@@ -402,10 +402,33 @@ class XmlRuleDisambiguator:
     disambiguation-global.xml)."""
 
     def __init__(self, language, rules):
-        from .patterns.ruleset import RuleSet
+        """rules: the rules, or the parts of Language.get_pattern_rule_parts()
+        (whose static rules are matched on the static rule tables)"""
+        from .patterns.ruleset import RuleSet, StaticPart
+        from .patterns.static import StaticRules
         self.language = language
-        self.rules = rules
-        self.rule_set = RuleSet(rules, with_lemma_hints=False)
+        items = []
+        self._parts = None
+        if any(isinstance(r, (StaticRules, list)) for r in rules):
+            self._parts = list(rules)
+            for p in rules:
+                if isinstance(p, StaticRules):
+                    items.append(StaticPart(p))
+                else:
+                    items.extend(p)
+            self._rules = None
+        else:
+            self._rules = rules
+            items = list(rules)
+        self.rule_set = RuleSet(items, with_lemma_hints=False)
+
+    @property
+    def rules(self):
+        """the disambiguation rules (their objects are created)"""
+        if self._rules is None:
+            from .patterns.static import flatten
+            self._rules = flatten(self._parts)
+        return self._rules
 
     def disambiguate(self, sentence):
         # for rule in self.rule_set.rules_for_sentence(sentence): sentence = rule.replace(sentence)

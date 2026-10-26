@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=69", "lxml>=4.6", "regex>=2022.1.18"]
 build-backend = "setuptools.build_meta"
 
 [project]

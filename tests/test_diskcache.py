@@ -190,6 +190,78 @@ def test_invalidation_when_the_package_changes(cache_dir, tmp_path, monkeypatch)
     assert sorted(os.listdir(str(cache_dir))) == ['a' * 20, 'b' * 20]
 
 
+@pytest.mark.pure_smoke
+def test_fingerprint_of_an_installed_package(tmp_path, monkeypatch):
+    # an installed package has a manifest (written by setup.py when it is built: a hash of the contents of its
+    # files); the files are then not looked at, only the manifest and the extension modules
+    pkg = tmp_path / 'pkg'
+    (pkg / 'data').mkdir(parents=True)
+    (pkg / 'mod.py').write_text('x = 1\n')
+    (pkg / 'data' / 'rules.xml').write_text('<rules/>')
+    (pkg / '_speedups.so').write_bytes(b'\0' * 10)
+    monkeypatch.setattr(diskcache, '_PACKAGE_DIR', str(pkg))
+    monkeypatch.delenv('LANGTOOL_DISK_CACHE_VERIFY', raising=False)
+
+    def fingerprint():
+        monkeypatch.setattr(diskcache, '_fingerprint', None)
+        monkeypatch.setattr(diskcache, '_manifest', None)
+        return diskcache.package_fingerprint()
+    monkeypatch.setattr(diskcache, '_manifest', None)
+    assert diskcache.installed_manifest() is None
+    walked = fingerprint()
+    digest = diskcache.write_manifest(str(pkg))
+    monkeypatch.setattr(diskcache, '_manifest', None)
+    assert diskcache.installed_manifest() == {
+        'format': diskcache.MANIFEST_FORMAT, 'sha256': digest, 'files': 2,
+        'hashes': {'mod.py': diskcache.file_hash(str(pkg / 'mod.py')),
+                   'data/rules.xml': diskcache.file_hash(str(pkg / 'data' / 'rules.xml'))}}
+    # the digest depends on the contents (not on the modification times), not on __pycache__ and extension modules
+    os.utime(str(pkg / 'mod.py'), ns=(1, 1))
+    (pkg / '__pycache__').mkdir()
+    (pkg / '__pycache__' / 'mod.pyc').write_text('x')
+    assert diskcache.manifest_digest(str(pkg)) == (digest, 2)
+    fp1 = fingerprint()
+    assert fp1 != walked
+    stats = []
+    real_scandir = os.scandir
+    monkeypatch.setattr(os, 'scandir', lambda *a: stats.append(a) or real_scandir(*a))
+    # an edited installed file is not noticed (installed files do not change; reinstalling writes a new manifest)
+    (pkg / 'data' / 'rules.xml').write_text('<rules></rules>')
+    assert fingerprint() == fp1
+    assert not stats
+    # a new manifest (reinstalled package)
+    diskcache.write_manifest(str(pkg))
+    fp2 = fingerprint()
+    assert fp2 != fp1
+    # a rebuilt extension module
+    (pkg / '_speedups.so').write_bytes(b'\0' * 11)
+    fp3 = fingerprint()
+    assert fp3 != fp2
+    # LANGTOOL_DISK_CACHE_VERIFY=1: the files are looked at (like in a source tree)
+    monkeypatch.setenv('LANGTOOL_DISK_CACHE_VERIFY', '1')
+    monkeypatch.setattr(diskcache, '_manifest', None)
+    assert diskcache.installed_manifest() is None
+    fp4 = fingerprint()
+    (pkg / 'data' / 'rules.xml').write_text('<rules>  </rules>')
+    assert fingerprint() != fp4
+    monkeypatch.setenv('LANGTOOL_DISK_CACHE_VERIFY', '0')
+    assert fingerprint() == fp3
+    # a damaged or foreign manifest: the files are looked at
+    for text in ('{', '{"format": 99, "sha256": "x"}', '[]'):
+        (pkg / diskcache.MANIFEST_NAME).write_text(text)
+        monkeypatch.setattr(diskcache, '_manifest', None)
+        assert diskcache.installed_manifest() is None
+        assert fingerprint() not in (fp1, fp2, fp3)
+
+
+def test_fingerprint_does_not_import_lxml():
+    # (importing lxml.etree takes about 10 ms; it is only needed to parse XML files)
+    code = ('import sys; sys.path.insert(0, %r); from langtool import diskcache; diskcache.package_fingerprint(); '
+            'print("lxml.etree" in sys.modules)' % SRC)
+    out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, check=True).stdout
+    assert out.strip() == 'False'
+
+
 def test_old_directories_are_removed(cache_dir, monkeypatch):
     monkeypatch.setattr(diskcache, '_fingerprint', 'c' * 64)
     diskcache.cached('test-kind', 'k', lambda: 1)
@@ -520,7 +592,19 @@ def _fresh_language(code):
 
 
 @pytest.fixture
-def xml_cache():
+def no_static(monkeypatch):
+    """the rules of the built-in languages are loaded from the XML files and the disk cache, not from the static
+    rule tables (the fallback path)"""
+    from langtool.patterns import static
+    monkeypatch.setenv('LANGTOOL_STATIC_RULES', '0')
+    static.reset()
+    yield
+    monkeypatch.undo()
+    static.reset()
+
+
+@pytest.fixture
+def xml_cache(no_static):
     """saves and restores the (in-memory) cache of the disambiguation rules"""
     from langtool import extensions
     saved = dict(extensions._xml_cache)
@@ -592,11 +676,15 @@ def test_same_results_with_and_without_cache(tmp_path, code):
     script = tmp_path / 'dump.py'
     script.write_text(_DUMP)
     results = {}
-    for name, env in (('disabled', {'LANGTOOL_DISK_CACHE': '0'}), ('cold', {}), ('warm', {})):
+    # (the rule entries: the rules loaded from the XML files, without the static rule tables; and with them: no rule
+    # entries, the same results)
+    for name, env in (('disabled', {'LANGTOOL_DISK_CACHE': '0'}), ('cold', {}), ('warm', {}), ('static', None)):
         e = dict(os.environ)
         e.pop('LANGTOOL_DISK_CACHE', None)
-        e['LANGTOOL_DISK_CACHE_DIR'] = str(tmp_path / 'derived')
-        e.update(env)
+        e['LANGTOOL_DISK_CACHE_DIR'] = str(tmp_path / ('derived' if env is not None else 'derived-static'))
+        if env is not None:
+            e['LANGTOOL_STATIC_RULES'] = '0'
+            e.update(env)
         p = subprocess.run([sys.executable, str(script), SRC, code, json.dumps(_TEXTS[code])], env=e,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
         assert p.returncode == 0, p.stderr.decode()
@@ -609,6 +697,11 @@ def test_same_results_with_and_without_cache(tmp_path, code):
     assert n >= 2
     assert results['warm']['stats']['rules-grammar'] == {'hit': n, 'miss': 0, 'write': 0, 'error': 0}
     assert all(s['miss'] == 0 and s['error'] == 0 for s in results['warm']['stats'].values())
+    assert results['static']['matches'] == results['disabled']['matches']
+    from langtool.patterns import static
+    if static.enabled() and static.available_languages():
+        assert 'rules-grammar' not in results['static']['stats']
+        assert 'rules-disambiguation' not in results['static']['stats']
 
 
 def test_registered_languages_are_not_cached(cache_dir, xml_cache):
@@ -665,7 +758,7 @@ def test_variants_share_entries(cache_dir, xml_cache):
         assert len(m_us & m_gb) > 1000
 
 
-def test_mother_tongue_rules(cache_dir):
+def test_mother_tongue_rules(cache_dir, no_static):
     from langtool import language as L
     saved = dict(L._mother_tongue_rules)
     L._mother_tongue_rules.clear()
