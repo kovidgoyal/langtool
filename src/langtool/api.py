@@ -1,5 +1,6 @@
 """The public API of langtool."""
 
+import bisect
 import threading
 
 from .languages import LANGUAGES, resolve_code, all_codes
@@ -197,6 +198,24 @@ def _clean_message(msg):
     return msg.replace('<suggestion>', '“').replace('</suggestion>', '”')
 
 
+def _correct_text_from_matches(text, matches):
+    """Port of Java's Tools.correctTextFromMatches: apply the first
+    suggestion of every match, skipping a match whose text was already
+    changed by an earlier correction."""
+    matches = [m for m in matches if m.replacements]
+    errors = [text[m.offset:m.end] for m in matches]
+    sb = text
+    offset = 0
+    for m, error in zip(matches, errors):
+        start = m.offset - offset
+        end = m.end - offset
+        if start >= 0 and end >= start and sb[start:end] == error:
+            replacement = m.replacements[0]
+            sb = sb[:start] + replacement + sb[end:]
+            offset += m.end - m.offset - len(replacement)
+    return sb
+
+
 class RuleInfo:
     __slots__ = ('id', 'full_id', 'description', 'category', 'default_off', 'tags', 'issue_type')
 
@@ -324,19 +343,52 @@ class LanguageTool:
             matches = self._lt.check(text)
         return [Match(m, text) for m in matches]
 
-    def correct(self, text):
-        """Apply the first suggestion of every match to the text."""
-        matches = self.check(text)
-        out = []
-        pos = 0
-        for m in matches:
-            if not m.replacements or m.offset < pos:
-                continue
-            out.append(text[pos:m.offset])
-            out.append(m.replacements[0])
-            pos = m.end
-        out.append(text[pos:])
-        return ''.join(out)
+    def correct(self, text, java_compat=False, max_rounds=100):
+        """Correct the text using the first suggestion of the matches.
+
+        By default the text is checked again after each correction: in
+        every round the first match with suggestions of each sentence is
+        applied, until no such match is left. This avoids applying two
+        alternative fixes of the same error (``'This are a test.'`` gives
+        ``'These are a test.'``, not ``'These is a test.'``). It stops after
+        ``max_rounds`` rounds or when a correction would produce a text
+        seen before.
+
+        With ``java_compat=True`` the first suggestion of every match is
+        applied in a single pass, like Java's ``Tools.correctText`` (and the
+        command line ``--apply`` option of LanguageTool).
+        """
+        if java_compat:
+            return _correct_text_from_matches(text, self.check(text))
+        seen = {text}
+        for _ in range(max_rounds):
+            matches = [m for m in self.check(text) if m.replacements]
+            if not matches:
+                break
+            # sentence start offsets
+            starts = []
+            pos = 0
+            for sentence in self.sentences(text):
+                starts.append(pos)
+                pos += len(sentence)
+            out = []
+            pos = 0
+            done = set()
+            for m in matches:
+                sentence = bisect.bisect_right(starts, m.offset) - 1
+                if sentence in done or m.offset < pos:
+                    continue
+                done.add(sentence)
+                out.append(text[pos:m.offset])
+                out.append(m.replacements[0])
+                pos = m.end
+            out.append(text[pos:])
+            new_text = ''.join(out)
+            if new_text in seen:
+                break
+            seen.add(new_text)
+            text = new_text
+        return text
 
     def sentences(self, text):
         """Split the text into sentences."""

@@ -187,6 +187,23 @@ def test_correct(tool):
     assert tool.correct('') == ''
 
 
+def test_correct_rechecks(tool):
+    # THIS_NNS ('This' -> 'These') and PLURAL_VERB_AFTER_THIS ('are' ->
+    # 'is') are alternative fixes of the same error: only one is applied
+    assert tool.correct('This are a test.') == 'These are a test.'
+    assert (tool.correct('This are a test. He go to school.')
+            == 'These are a test. He goes to school.')
+
+
+def test_correct_java_compat(tool):
+    # like Java's Tools.correctText: all matches applied in one pass
+    assert tool.correct('This are a test.', java_compat=True) == 'These is a test.'
+    assert tool.correct('He go to school.', java_compat=True) == 'He goes to school.'
+    assert (tool.correct('I want too go home. this is  it.', java_compat=True)
+            == 'I want to go home. This is it.')
+    assert tool.correct('', java_compat=True) == ''
+
+
 def test_sentences(tool):
     text = 'This is a test. And this is another one!\n\nA new paragraph? Yes.'
     sentences = tool.sentences(text)

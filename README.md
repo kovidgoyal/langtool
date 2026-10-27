@@ -13,7 +13,7 @@ tool = langtool.LanguageTool('en-US')
 for m in tool.check('This are a test. He go to school.'):
     print(m.offset, m.length, m.rule_id, m.message, m.replacements)
 
-print(tool.correct('This are a test.'))
+print(tool.correct('This are a test.'))  # These are a test.
 ```
 
 ## Installation
@@ -206,7 +206,12 @@ LanguageTool's own speller dictionaries, as in Java.
   * `check(text)` — list of `Match` objects (`offset`, `length`, `rule_id`,
     `full_rule_id`, `message`, `short_message`, `replacements`, `category`,
     `line`, `column`, `context`, ...)
-  * `correct(text)` — text with the first suggestion of each match applied
+  * `correct(text, java_compat=False, max_rounds=100)` — the corrected
+    text: the first suggestion of a match is applied and the text checked
+    again, until no match with suggestions is left (in each round one
+    match per sentence is applied, so alternative fixes of the same error
+    are not combined). `java_compat=True` applies the first suggestion of
+    every match in a single pass, like Java's `Tools.correctText`
   * `sentences(text)`, `analyze(text)` — sentence splitting and the
     analysis (tokens, part-of-speech tags, lemmas)
   * `rules()`, `disable_rule(id)`, `enable_rule(id)`, `disable_category(id)`,
