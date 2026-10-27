@@ -162,3 +162,47 @@ def test_replace_spaces_in_regex():
     assert replace_spaces_in_regex('foo bar x') == 'foo' + s + 'bar' + s + 'x'
     assert replace_spaces_in_regex('foo  bar') == 'foo' + s + s + 'bar'  # well, does not really make sense
     assert replace_spaces_in_regex('fo[xy ] bar') == 'fo[xy ]' + s + 'bar'
+
+
+# --- not ported from Java
+
+ENTITY_RULES = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rules [
+    <!ENTITY date '
+        <token regexp="yes">\\d\\d?</token>
+        <token>.</token>
+    '>
+]>
+<rules lang="xx">
+    <category id="C" name="c">
+        <rule id="FIRST" name="first">
+            <pattern>&date;</pattern>
+            <message>m</message>
+        </rule>
+        <rule id="AFTER_COMMENT" name="after a comment">
+            <pattern>
+                <!-- "7." -->
+                &date;
+            </pattern>
+            <message>m</message>
+        </rule>
+        <rule id="IN_MARKER" name="in a marker">
+            <pattern><token>x</token><marker> &date; </marker></pattern>
+            <message>m</message>
+        </rule>
+    </category>
+</rules>
+'''
+
+
+def test_repeated_entity_references(demo_language, tmp_path):
+    """every reference of an entity whose value starts with text has its
+    tokens (libxml2 before 2.13, used by lxml's Windows wheels, sends no
+    parser target events for the later references)"""
+    path = tmp_path / 'grammar.xml'
+    path.write_text(ENTITY_RULES, encoding='utf-8')
+    rules, skipped = load_pattern_rules(str(path), demo_language, demo_language.resource_root,
+                                        default_filter_factory())
+    assert skipped == []
+    tokens = {r.get_id(): [t.get_string() for t in r.pattern_tokens] for r in rules}
+    assert tokens == {'FIRST': ['\\d\\d?', '.'], 'AFTER_COMMENT': ['\\d\\d?', '.'], 'IN_MARKER': ['x', '\\d\\d?', '.']}

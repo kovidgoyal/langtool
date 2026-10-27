@@ -42,23 +42,52 @@ class _EntityResolver(etree.Resolver):
         super().__init__()
         self.resource_dir = resource_dir
 
-    def resolve(self, url, pubid, context):
+    def entity_path(self, url):
+        """the path of an entity file ('../../resource/<lang>/entities/x.ent' relative to the rule file, as libxml2
+        resolved it; with backslashes on Windows) in resource_dir, None if not there"""
         if url and url.endswith('.ent'):
-            p = re.sub(r'.*/resource/', '', url).replace('../', '')
+            p = re.sub(r'.*/resource/', '', url.replace('\\', '/')).replace('../', '')
             path = os.path.join(self.resource_dir, p)
             if os.path.exists(path):
-                diskcache.note_dependency(path)
-                return self.resolve_filename(path, context)
+                return path
+        return None
+
+    def resolve(self, url, pubid, context):
+        path = self.entity_path(url)
+        if path is not None:
+            diskcache.note_dependency(path)
+            return self.resolve_filename(path, context)
         return None
 
 
 def parse_events(path, target, resource_dir):
-    parser = etree.XMLParser(target=target, load_dtd=True, resolve_entities=True, no_network=True, huge_tree=True,
-                             remove_comments=True)
+    """parses the file into a tree and feeds its events to target (the lxml
+    parser target interface). Not a parser target: libxml2 before 2.13 (lxml's
+    Windows wheels) sends no SAX events for the second and later references
+    of an entity whose value starts with text, e.g. a '<pattern>&date_dmy;'
+    after an earlier '&date_dmy;', so its tokens would be lost; the tree has
+    the entity contents at every reference."""
+    parser = etree.XMLParser(load_dtd=True, resolve_entities=True, no_network=True, huge_tree=True,
+                             remove_comments=True, remove_pis=True)
     if resource_dir:
         parser.resolvers.add(_EntityResolver(resource_dir))
     with open(path, 'rb') as f:
-        etree.parse(f, parser, base_url=path)
+        root = etree.parse(f, parser, base_url=path).getroot()
+    start, end, data = target.start, target.end, target.data
+
+    def walk(el):
+        if isinstance(el.tag, str):  # (not a comment, processing instruction or entity)
+            start(el.tag, dict(el.attrib))
+            if el.text:
+                data(el.text)
+            for child in el:
+                walk(child)
+                if child.tail:
+                    data(child.tail)
+            end(el.tag)
+
+    walk(root)
+    return target.close()
 
 
 def _local(tag):

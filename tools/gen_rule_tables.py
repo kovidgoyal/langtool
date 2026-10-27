@@ -68,12 +68,9 @@ def _load_unit(kind, path, language, pkg_dir):
     orig_resolve = loader._EntityResolver.resolve
 
     def resolve(self, url, pubid, context):
-        if url and url.endswith('.ent'):
-            import re
-            p = re.sub(r'.*/resource/', '', url).replace('../', '')
-            ep = os.path.join(self.resource_dir, p)
-            if os.path.exists(ep):
-                deps.add(ep)
+        ep = self.entity_path(url)
+        if ep is not None:
+            deps.add(ep)
         return orig_resolve(self, url, pubid, context)
 
     rec = _RecordingFilterFactory(default_filter_factory())
