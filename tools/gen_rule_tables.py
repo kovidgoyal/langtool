@@ -1103,7 +1103,10 @@ def main(argv=None):
     if argv is None and os.environ.get('PYTHONHASHSEED') != '0':
         # (reproducible tables: the compiled programs of some regular expressions depend on the order of iterating
         # sets of strings in the regex module)
-        os.execve(sys.executable, [sys.executable] + sys.argv, dict(os.environ, PYTHONHASHSEED='0'))
+        # (a child process, not os.execve: on Windows exec starts a new process and the calling one exits at once,
+        # so callers waiting for this one, like setup.py, would not wait for the tables)
+        import subprocess
+        sys.exit(subprocess.call([sys.executable] + sys.argv, env=dict(os.environ, PYTHONHASHSEED='0')))
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('outdir')
     ap.add_argument('--jobs', type=int, default=None)

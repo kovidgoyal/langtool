@@ -75,7 +75,7 @@ class BuildExt(build_ext):
         jobs = os.environ.get('LANGTOOL_RULE_TABLES_JOBS')
         if jobs:
             cmd += ['--jobs', jobs]
-        r = subprocess.run(cmd)
+        r = subprocess.run(cmd, env=dict(os.environ, PYTHONHASHSEED='0'))  # (see gen_rule_tables.main())
         path = os.path.join(outdir, 'rule_tables.c')
         if r.returncode != 0 or not os.path.exists(path):
             # (the extension works without the tables)
