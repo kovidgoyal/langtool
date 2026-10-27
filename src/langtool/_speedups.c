@@ -1228,7 +1228,7 @@ static int
 resolve_one(MatchCtx *ctx, PyObject *base, long ref, long first_match_token, PyObject **slot)
 {
     if (ref == REF_NONE) return 0;
-    long ref_pos = first_match_token + ref;
+    Py_ssize_t ref_pos = (Py_ssize_t)first_match_token + ref;
     if (ref_pos >= ctx->ntokens) return 0;
     if (ref_pos < 0) {
         ref_pos += ctx->ntokens;

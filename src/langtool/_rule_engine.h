@@ -2402,7 +2402,7 @@ immunize_on_match(void *narg, const int *positions, Py_ssize_t npos, int first, 
     if (epc < 0) {
         for (long d = spc; d < npos; d++) {
             /* (Python indexing: a negative index counts from the end) */
-            long k = d < 0 ? d + npos : d;
+            Py_ssize_t k = d < 0 ? d + npos : d;
             if (k < 0 || k >= npos) {
                 PyErr_SetString(PyExc_IndexError, "list index out of range");
                 return -1;
