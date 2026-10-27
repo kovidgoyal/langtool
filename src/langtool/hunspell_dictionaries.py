@@ -24,7 +24,7 @@ import os
 import threading
 from functools import lru_cache
 
-from .dictionaries import DictionaryNotFound, cache_root, download_file
+from .dictionaries import DictionaryNotFound, cache_root, download_file, join_name
 
 _lock = threading.RLock()
 
@@ -133,7 +133,7 @@ def user_dictionary(dictionaries, language):
 
 def _cached_paths(name):
     d = hunspell_cache_dir()
-    return os.path.join(d, name + '.aff'), os.path.join(d, name + '.dic')
+    return join_name(d, name + '.aff'), join_name(d, name + '.dic')
 
 
 def is_cached(language):

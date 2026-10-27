@@ -76,6 +76,12 @@ def cache_dir():
     return os.path.join(cache_root(), 'dictionaries-v%d' % manifest()['version'])
 
 
+def join_name(base, name):
+    """os.path.join for a relative name with / separators (e.g.
+    en/english.dict): the native separators on Windows."""
+    return os.path.join(base, *name.split('/'))
+
+
 def required_files(lang):
     """The dictionary related files (relative names like en/english.dict) for a
     language code (e.g. 'en')."""
@@ -144,15 +150,15 @@ def _locate_in_path(base, name):
         if base.endswith(('.jar', '.zip')):
             entry = _find_in_jar(base, name)
             if entry is not None:
-                dest = os.path.join(cache_dir(), 'extracted', name)
+                dest = join_name(os.path.join(cache_dir(), 'extracted'), name)
                 if not os.path.exists(dest) or os.path.getmtime(dest) < os.path.getmtime(base):
                     _extract_from_jar(base, entry, dest)
                 return dest
         return None
     if not os.path.isdir(base):
         return None
-    for cand in (os.path.join(base, name), os.path.join(base, fname),
-                 os.path.join(base, 'org', 'languagetool', 'resource', name)):
+    for cand in (join_name(base, name), os.path.join(base, fname),
+                 join_name(os.path.join(base, 'org', 'languagetool', 'resource'), name)):
         if os.path.isfile(cand):
             return cand
     # jars in the directory or a LanguageTool installation
@@ -185,14 +191,14 @@ def locate(name, dictionary_path=None, download=True):
                     if os.path.dirname(ip2) != os.path.dirname(p):
                         # make sure the .info is next to the .dict
                         import shutil
-                        dest = os.path.join(cache_dir(), 'extracted', name)
+                        dest = join_name(os.path.join(cache_dir(), 'extracted'), name)
                         os.makedirs(os.path.dirname(dest), exist_ok=True)
                         shutil.copy2(p, dest)
                         shutil.copy2(ip2, os.path.splitext(dest)[0] + '.info')
                         p = dest
             return p
     lang = name.split('/', 1)[0]
-    p = os.path.join(cache_dir(), name)
+    p = join_name(cache_dir(), name)
     if os.path.exists(p):
         return p
     if download:
@@ -254,13 +260,13 @@ def download_language(lang, progress=None):
         cd = cache_dir()
         for src in sources:
             files = src['files']
-            if all(os.path.exists(os.path.join(cd, e['name'])) for e in files):
+            if all(os.path.exists(join_name(cd, e['name'])) for e in files):
                 continue
             jar = os.path.join(cd, 'jars', src['url'].rsplit('/', 1)[1])
             if not os.path.exists(jar):
                 download_file(src['url'], jar, src['sha256'], progress)
             for e in files:
-                _extract_from_jar(jar, e['path'], os.path.join(cd, e['name']))
+                _extract_from_jar(jar, e['path'], join_name(cd, e['name']))
             try:
                 os.remove(jar)
             except OSError:
@@ -300,5 +306,5 @@ def dependency_files(language):
         try:
             out.append(locate(name, language.dictionary_path, False))
         except DictionaryNotFound:
-            out.append(os.path.join(cache_dir(), name))
+            out.append(join_name(cache_dir(), name))
     return out
