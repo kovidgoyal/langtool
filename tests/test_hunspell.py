@@ -311,6 +311,7 @@ SRC = os.path.join(os.path.dirname(HERE), 'src')
 COMPARE_SUGGESTIONS = int(os.environ.get('LANGTOOL_HUNSPELL_COMPARE', '25'))
 COMPARE_CHECKS = min(6000, 120 * COMPARE_SUGGESTIONS)
 PY_SUGGEST_TIMEOUT = 30  # (seconds per word)
+PY_RUNNER_TIMEOUT = 1200  # (seconds per runner subprocess: the dictionary loading, the checks or a word)
 # LibreOffice dictionaries (language codes of langtool.hunspell_dictionaries)
 LO_DICTIONARIES = ['en-US', 'de-DE', 'fr', 'es', 'pt-BR', 'nl', 'pl', 'ru']
 # LanguageTool's German dictionaries
@@ -407,7 +408,7 @@ def sample_words(prefix, n_check, n_sug, seed=7):
 
 
 _PY_RUNNER = r'''
-import json, random, signal, sys
+import _thread, json, random, signal, sys, threading
 sys.path.insert(0, sys.argv[1])
 from langtool import hunspell
 task = json.load(sys.stdin)
@@ -441,16 +442,25 @@ if task['forms']:
 
 
 def suggest(w):
-    # (None: the suggestions took longer than the time limit)
-    if task['timeout'] and hasattr(signal, 'setitimer'):
-        signal.setitimer(signal.ITIMER_REAL, task['timeout'])
+    # (None: the suggestions took longer than the time limit. Without SIGALRM (Windows) a timer thread interrupts
+    # the main thread, which raises KeyboardInterrupt)
+    timer = None
+    if task['timeout']:
+        if hasattr(signal, 'setitimer'):
+            signal.setitimer(signal.ITIMER_REAL, task['timeout'])
+        else:
+            timer = threading.Timer(task['timeout'], _thread.interrupt_main)
+            timer.start()
     try:
         return h.suggest(w)
-    except TimeoutError:
+    except (TimeoutError, KeyboardInterrupt):
         return None
     finally:
-        if task['timeout'] and hasattr(signal, 'setitimer'):
-            signal.setitimer(signal.ITIMER_REAL, 0)
+        if task['timeout']:
+            if timer is not None:
+                timer.cancel()
+            else:
+                signal.setitimer(signal.ITIMER_REAL, 0)
 
 
 def timeout(signum, frame):
@@ -482,9 +492,17 @@ def _python_results(tasks):
             p.stdin.close()
             running.append((i, p))
         i, p = running.pop(0)
-        out = p.stdout.read()
-        err = p.stderr.read()
-        assert p.wait() == 0, err[-3000:]
+        # (communicate: reading stdout and then stderr deadlocks when the child fills the stderr pipe, which is
+        # small on Windows; the time limit: a hanging child fails the test instead of hanging the test run)
+        try:
+            out, err = p.communicate(timeout=PY_RUNNER_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, err = p.communicate()
+            raise AssertionError('the Python runner did not finish in %d s (task %s: %d check, %r suggest)\n%s'
+                                 % (PY_RUNNER_TIMEOUT, os.path.basename(tasks[i]['prefix']), len(tasks[i]['check']),
+                                    tasks[i]['suggest'], err[-3000:]))
+        assert p.returncode == 0, err[-3000:]
         results[i] = json.loads(out)
     return results
 

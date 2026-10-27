@@ -128,3 +128,68 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if os.path.basename(str(item.fspath)) in PURE_SMOKE_MODULES:
             item.add_marker(pytest.mark.pure_smoke)
+
+
+# Diagnostics for the CI (LANGTOOL_TEST_DIAGNOSTICS=1): with -q the failures
+# are only reported at the end of the run, which never comes when a test
+# hangs. Every failure is reported when it happens (with the pytest-xdist
+# worker), and the tests running for longer than LANGTOOL_TEST_SLOW_REPORT
+# seconds (default 300) are listed every minute. (In the controller process
+# only: pytest-xdist forwards the reports of the workers to it.)
+class _Diagnostics:
+    def __init__(self, config):
+        import threading
+        self.config = config
+        self.slow = float(os.environ.get('LANGTOOL_TEST_SLOW_REPORT', '300'))
+        self.running = {}
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._watch, daemon=True)
+
+    def _write(self, text):
+        tr = self.config.pluginmanager.get_plugin('terminalreporter')
+        if tr is not None:
+            tr.write_line(text)
+        else:
+            print(text, flush=True)
+
+    def _watch(self):
+        import time
+        while not self.stop.wait(60):
+            now = time.monotonic()
+            with self.lock:
+                slow = sorted((now - t, nodeid) for nodeid, t in self.running.items() if now - t > self.slow)
+            if slow:
+                self._write('\n[diagnostics] %d test(s) running for more than %d s:' % (len(slow), self.slow))
+                for t, nodeid in reversed(slow):
+                    self._write('[diagnostics]   %6d s  %s' % (t, nodeid))
+
+    @pytest.hookimpl
+    def pytest_sessionstart(self, session):
+        self.thread.start()
+
+    @pytest.hookimpl
+    def pytest_sessionfinish(self, session):
+        self.stop.set()
+
+    @pytest.hookimpl
+    def pytest_runtest_logstart(self, nodeid, location):
+        import time
+        with self.lock:
+            self.running[nodeid] = time.monotonic()
+
+    @pytest.hookimpl
+    def pytest_runtest_logreport(self, report):
+        if report.when not in ('setup', 'call'):  # (teardown, or a crash of an xdist worker)
+            with self.lock:
+                self.running.pop(report.nodeid, None)
+        if report.failed:
+            worker = getattr(getattr(report, 'node', None), 'gateway', None)
+            self._write('\n[diagnostics] FAILED (%s%s): %s' % (report.when, ', ' + worker.id if worker else '',
+                                                                report.nodeid))
+            self._write(report.longreprtext)
+
+
+def pytest_configure(config):
+    if os.environ.get('LANGTOOL_TEST_DIAGNOSTICS') and not hasattr(config, 'workerinput'):
+        config.pluginmanager.register(_Diagnostics(config), 'langtool-diagnostics')

@@ -53,7 +53,7 @@ jobs:
           key: langtool-downloads-${{ github.job }}-${{ runner.os }}-${{ hashFiles('src/langtool/dictionaries.json', 'src/langtool/hunspell_dictionaries.json') }}
 
       - name: Install the dependencies
-        run: python -m pip install --upgrade pip setuptools lxml regex pytest pytest-xdist
+        run: python -m pip install --upgrade pip setuptools lxml regex pytest pytest-xdist pytest-timeout
 
       - name: Build the C extension and the static rule tables
         run: python setup.py build_ext --inplace
@@ -65,7 +65,12 @@ jobs:
           ls src/langtool/_rule_tables/*.ltrt > /dev/null
 
       - name: Run the tests
-        run: python -m pytest -q tests
+        # (diagnostics for hanging tests: the failures are reported when they happen and the tests running for long
+        # are listed (tests/conftest.py); faulthandler dumps the tracebacks of a test still running after 20 minutes,
+        # pytest-timeout ends it (and its xdist worker) after 45 minutes; the 30 slowest tests are listed)
+        env:
+          LANGTOOL_TEST_DIAGNOSTICS: '1'
+        run: python -m pytest -q -o faulthandler_timeout=1200 --timeout=2700 --durations=30 tests
 
   pure-python:
     name: Pure Python smoke tests
