@@ -45,6 +45,7 @@
 #include <setjmp.h>
 #include <time.h>
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 
@@ -4214,14 +4215,14 @@ ng_build(Ctx *c)
     int32_t *order = malloc(sizeof(int32_t) * (size_t)n);
     uint8_t *clen = malloc((size_t)n);
     uint8_t *bits = malloc((size_t)n);
-    int small = (uint64_t)d->tablesize <= UINT32_MAX;
-    void *hp = malloc((small ? sizeof(HashPos32) : sizeof(HashPos)) * (size_t)n);
+    int hash32 = (uint64_t)d->tablesize <= UINT32_MAX;
+    void *hp = malloc((hash32 ? sizeof(HashPos32) : sizeof(HashPos)) * (size_t)n);
     if (hp == NULL || order == NULL || clen == NULL || bits == NULL) {
         free(hp); free(order); free(clen); free(bits);
         longjmp(c->jb, 1);
     }
     /* the order of the entries: by hash, then by index */
-    if (small) {
+    if (hash32) {
         HashPos32 *h32 = hp;
         for (int i = 0; i < n; i++) {
             h32[i].h = (uint32_t)hm_hash(EWORD(d, i), EWLEN(d, i), d->tablesize);

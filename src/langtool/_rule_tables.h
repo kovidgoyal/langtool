@@ -19,7 +19,7 @@
 /* the format (see static_format.py) */
 
 #define RT_MAGIC "LTRULES\0"
-#define RT_VERSION 4
+#define RT_FORMAT_VERSION 4  /* (not RT_VERSION: a macro of windows.h) */
 #define RT_NONE 0xFFFFFFFFu
 
 enum {
@@ -360,7 +360,7 @@ rb_parse(RuleBlob *self)
     }
     rt_header h;
     memcpy(&h, self->base, sizeof h);
-    if (memcmp(h.magic, RT_MAGIC, 8) != 0 || h.version != RT_VERSION) {
+    if (memcmp(h.magic, RT_MAGIC, 8) != 0 || h.version != RT_FORMAT_VERSION) {
         PyErr_SetString(PyExc_ValueError, "rule tables: other format or version");
         return -1;
     }

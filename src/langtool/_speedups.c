@@ -19,6 +19,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifndef PySet_CheckExact  /* (Python 3.10+) */
+#define PySet_CheckExact(op) Py_IS_TYPE(op, &PySet_Type)
+#endif
+
 #define MAX_MATCH_LENGTH 250
 #define KIND_EQUALS 0
 #define KIND_SET 1
@@ -1889,8 +1893,8 @@ rh_check(RuleHints *self, long nnb, PyObject *to, PyObject *lo, PyObject *tags, 
                 continue;
             }
             /* iterate the smaller set */
-            PyObject *small = tags, *big = ph;
-            PyObject *it = PyObject_GetIter(small);
+            PyObject *smaller = tags, *big = ph;
+            PyObject *it = PyObject_GetIter(smaller);
             if (it == NULL) return -1;
             PyObject *item;
             while ((item = PyIter_Next(it)) != NULL) {
