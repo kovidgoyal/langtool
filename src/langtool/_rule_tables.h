@@ -2,10 +2,11 @@
  * _rule_tables.h (included by _speedups.c)
  *
  * The static rule tables: the rules of the built-in languages compiled at
- * build time into read-only blobs that are linked into the extension (see
- * tools/gen_rule_tables.py and langtool/patterns/static_format.py for the
- * format). This part has
- *  - RuleBlob: a blob (embedded, or from a buffer for the tests), its
+ * build time into read-only files installed with the package
+ * (langtool/_rule_tables/<code>.ltrt, see tools/gen_rule_tables.py and
+ * langtool/patterns/static_format.py for the format), memory-mapped lazily
+ * per language and used in place. This part has
+ *  - RuleBlob: a table (a mapped file, or a buffer for the tests), its
  *    sections, and the creation of the Python objects of the rules from the
  *    object records (lazily, when they are needed)
  *  - the matching engine working on the tables in place (RuleSelector
@@ -18,7 +19,7 @@
 /* the format (see static_format.py) */
 
 #define RT_MAGIC "LTRULES\0"
-#define RT_VERSION 3
+#define RT_VERSION 4
 #define RT_NONE 0xFFFFFFFFu
 
 enum {
@@ -27,7 +28,7 @@ enum {
     RT_SEC_REGEX, RT_SEC_COUNT
 };
 
-typedef struct { char magic[8]; uint32_t version, header_size, total_size, n_sections; } rt_header;
+typedef struct { char magic[8]; uint32_t version, header_size, total_size, n_sections; uint8_t build_id[16]; } rt_header;
 typedef struct { uint32_t id, offset, size, count; } rt_section;
 typedef struct { uint32_t off, ncp; } rt_str;
 typedef struct { uint32_t hash, str; } rt_hent;
@@ -71,7 +72,7 @@ typedef struct { uint32_t hash, str, list_off, list_n; } rt_ient;
 typedef struct { uint32_t hash, pattern, flags, val_off; } rt_regex;
 
 #define RT_STATIC_ASSERT(c, m) typedef char rt_static_assert_##m[(c) ? 1 : -1]
-RT_STATIC_ASSERT(sizeof(rt_header) == 24, header);
+RT_STATIC_ASSERT(sizeof(rt_header) == 40, header);
 RT_STATIC_ASSERT(sizeof(rt_section) == 16, section);
 RT_STATIC_ASSERT(sizeof(rt_sm) == 32, sm);
 RT_STATIC_ASSERT(sizeof(rt_pos) == 12, pos);
@@ -127,17 +128,120 @@ enum {
 enum { OK_SLOTS = 0, OK_SPECIAL = 1, OK_CONTAINER = 2 };
 
 /* ------------------------------------------------------------------------ */
-/* the embedded blobs (rule_tables.c, generated; weak: the extension also works without it) */
+/* the tables of this build (rule_tables.c, generated: the languages and the build ids of their table files; weak:
+ * the extension also works without it) */
 
-typedef struct { const char *name; const unsigned char *start, *end; } langtool_rule_blob;
+typedef struct { const char *name; const char *build_id; } langtool_rule_table;
 
 #if defined(__GNUC__) || defined(__clang__)
-extern const langtool_rule_blob langtool_rule_blobs[] __attribute__((weak));
-extern const int langtool_rule_blob_count __attribute__((weak));
-#define RT_HAVE_EMBEDDED 1
+extern const langtool_rule_table langtool_rule_tables[] __attribute__((weak));
+extern const int langtool_rule_table_count __attribute__((weak));
+#define RT_TABLE_COUNT() (&langtool_rule_table_count != NULL && langtool_rule_tables != NULL ? langtool_rule_table_count : 0)
 #else
-#define RT_HAVE_EMBEDDED 0
+extern const langtool_rule_table langtool_rule_tables[];
+extern const int langtool_rule_table_count;
+#define RT_TABLE_COUNT() langtool_rule_table_count
 #endif
+
+/* the read-only mapping of a table file */
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+/* maps the file path (str) read-only: *base, *size; returns 0, or -1 with an OSError/ValueError set */
+static int
+rt_map_file(PyObject *path, void **base, size_t *size)
+{
+#ifdef _WIN32
+    wchar_t *w = PyUnicode_AsWideCharString(path, NULL);
+    if (w == NULL) return -1;
+    void *p = NULL;
+    LARGE_INTEGER sz;
+    sz.QuadPart = 0;
+    DWORD err = 0;
+    Py_BEGIN_ALLOW_THREADS
+    HANDLE f = CreateFileW(w, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) {
+        err = GetLastError();
+    } else {
+        if (!GetFileSizeEx(f, &sz) || sz.QuadPart <= 0 || (unsigned long long)sz.QuadPart > (size_t)-1) {
+            err = GetLastError() ? GetLastError() : ERROR_BAD_LENGTH;
+        } else {
+            HANDLE m = CreateFileMappingW(f, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (m == NULL) {
+                err = GetLastError();
+            } else {
+                p = MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0);
+                if (p == NULL) err = GetLastError();
+                CloseHandle(m);  /* (the view keeps the mapping) */
+            }
+        }
+        CloseHandle(f);
+    }
+    Py_END_ALLOW_THREADS
+    PyMem_Free(w);
+    if (p == NULL) {
+        PyErr_SetExcFromWindowsErrWithFilenameObject(PyExc_OSError, (int)err, path);
+        return -1;
+    }
+    *base = p;
+    *size = (size_t)sz.QuadPart;
+    return 0;
+#else
+    PyObject *bpath = NULL;
+    if (!PyUnicode_FSConverter(path, &bpath)) return -1;
+    void *p = MAP_FAILED;
+    off_t sz = 0;
+    int err = 0;
+    const char *cpath = PyBytes_AS_STRING(bpath);
+    Py_BEGIN_ALLOW_THREADS
+    int fd = open(cpath, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        err = errno;
+    } else {
+        struct stat st;
+        if (fstat(fd, &st) < 0) {
+            err = errno;
+        } else if (st.st_size <= 0 || (unsigned long long)st.st_size > (size_t)-1) {
+            err = EINVAL;
+        } else {
+            sz = st.st_size;
+            p = mmap(NULL, (size_t)sz, PROT_READ, MAP_PRIVATE, fd, 0);
+            if (p == MAP_FAILED) err = errno;
+        }
+        close(fd);
+    }
+    Py_END_ALLOW_THREADS
+    if (p == MAP_FAILED) {
+        errno = err;
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+        Py_DECREF(bpath);
+        return -1;
+    }
+    Py_DECREF(bpath);
+    *base = p;
+    *size = (size_t)sz;
+    return 0;
+#endif
+}
+
+static void
+rt_unmap(void *base, size_t size)
+{
+#ifdef _WIN32
+    (void)size;
+    UnmapViewOfFile(base);
+#else
+    munmap(base, size);
+#endif
+}
 
 /* ------------------------------------------------------------------------ */
 /* RuleBlob */
@@ -146,6 +250,9 @@ typedef struct {
     PyObject_HEAD
     PyObject *name;
     Py_buffer view;            /* when created from a buffer (view.obj != NULL) */
+    void *map_base;            /* when created from a mapped file (unmapped when the RuleBlob is deallocated: the
+                                * selectors and tables that use it keep a reference) */
+    size_t map_size;
     const uint8_t *base;
     size_t size;
     const char *meta;
@@ -221,6 +328,7 @@ rb_dealloc(RuleBlob *self)
     PyMem_Free(self->chunk_objs);
     Py_CLEAR(self->name);
     if (self->view.obj != NULL) PyBuffer_Release(&self->view);
+    if (self->map_base != NULL) rt_unmap(self->map_base, self->map_size);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -310,7 +418,7 @@ rb_alloc(void)
     return self;
 }
 
-/* RuleBlob(buffer, name): a blob from a buffer (the tests; the embedded blobs: rule_blob(name)) */
+/* RuleBlob(buffer, name): a table from a buffer (the tests; the table files: rule_blob(name, path)) */
 static PyObject *
 rb_new(PyTypeObject *Py_UNUSED(type), PyObject *args, PyObject *kwds)
 {
@@ -922,7 +1030,7 @@ rb_py_info(RuleBlob *self, PyObject *Py_UNUSED(ignored))
                          self->n_hint);
 }
 
-/* validate(): checks all the references between the tables (the tests; the embedded tables are generated with the
+/* validate(): checks all the references between the tables (the tests; the table files are generated with the
  * extension and not checked when used) */
 static PyObject *
 rb_py_validate(RuleBlob *self, PyObject *Py_UNUSED(ignored))
@@ -1168,62 +1276,131 @@ error:
     return NULL;
 }
 
-/* --- the embedded blobs --- */
+/* --- the table files of this build --- */
 
-static PyObject *embedded_blobs = NULL;   /* dict name -> RuleBlob, created when needed */
+static PyObject *mapped_blobs = NULL;   /* dict name -> RuleBlob: the mapped tables (kept for the life of the process) */
 
-/* rule_blob_names(): the names (language codes) of the embedded blobs */
+/* the expected build id (32 hex digits) of the table of a language, NULL if this build has none */
+static const char *
+rt_expected_build_id(const char *name)
+{
+    int n = RT_TABLE_COUNT();
+    for (int i = 0; i < n && langtool_rule_tables[i].name != NULL; i++) {
+        if (strcmp(langtool_rule_tables[i].name, name) == 0) return langtool_rule_tables[i].build_id;
+    }
+    return NULL;
+}
+
+/* rule_blob_names(): the names (language codes) of the tables of this build */
 static PyObject *
 py_rule_blob_names(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignored))
 {
     PyObject *out = PyList_New(0);
     if (out == NULL) return NULL;
-#if RT_HAVE_EMBEDDED
-    if (&langtool_rule_blob_count != NULL && langtool_rule_blobs != NULL) {
-        for (int i = 0; i < langtool_rule_blob_count && langtool_rule_blobs[i].name != NULL; i++) {
-            PyObject *s = PyUnicode_FromString(langtool_rule_blobs[i].name);
-            if (s == NULL || PyList_Append(out, s) < 0) { Py_XDECREF(s); Py_DECREF(out); return NULL; }
-            Py_DECREF(s);
-        }
+    int n = RT_TABLE_COUNT();
+    for (int i = 0; i < n && langtool_rule_tables[i].name != NULL; i++) {
+        PyObject *s = PyUnicode_FromString(langtool_rule_tables[i].name);
+        if (s == NULL || PyList_Append(out, s) < 0) { Py_XDECREF(s); Py_DECREF(out); return NULL; }
+        Py_DECREF(s);
     }
-#endif
     return out;
 }
 
-/* rule_blob(name): the embedded blob of a language (shared), None if there is none */
+/* rule_blob_build_id(name): the build id (hex) of the table of a language in this build, None if there is none */
 static PyObject *
-py_rule_blob(PyObject *Py_UNUSED(self), PyObject *name)
+py_rule_blob_build_id(PyObject *Py_UNUSED(self), PyObject *name)
 {
     if (!PyUnicode_Check(name)) {
         PyErr_SetString(PyExc_TypeError, "name must be a str");
         return NULL;
     }
-    if (embedded_blobs == NULL) {
-        embedded_blobs = PyDict_New();
-        if (embedded_blobs == NULL) return NULL;
+    const char *cname = PyUnicode_AsUTF8(name);
+    if (cname == NULL) return NULL;
+    const char *id = rt_expected_build_id(cname);
+    if (id == NULL) Py_RETURN_NONE;
+    return PyUnicode_FromString(id);
+}
+
+/* maps and checks the table file path of the language name (format, size, build id): a new RuleBlob, NULL with an
+ * exception set if it can't be used */
+static RuleBlob *
+rt_open_table(PyObject *name, PyObject *path, const char *expected)
+{
+    void *base;
+    size_t size;
+    if (rt_map_file(path, &base, &size) < 0) return NULL;   /* (releases the GIL) */
+    RuleBlob *self = rb_alloc();
+    if (self == NULL) {
+        rt_unmap(base, size);
+        return NULL;
     }
-    PyObject *b = PyDict_GetItemWithError(embedded_blobs, name);
+    self->map_base = base;
+    self->map_size = size;
+    self->base = base;
+    self->size = size;
+    Py_INCREF(name);
+    self->name = name;
+    if (rb_parse(self) < 0) {
+        Py_DECREF(self);
+        return NULL;
+    }
+    char hex[33];
+    const uint8_t *id = ((const rt_header *)self->base)->build_id;
+    for (int i = 0; i < 16; i++) {
+        hex[2 * i] = "0123456789abcdef"[id[i] >> 4];
+        hex[2 * i + 1] = "0123456789abcdef"[id[i] & 15];
+    }
+    hex[32] = 0;
+    if (strcmp(hex, expected) != 0) {
+        PyErr_Format(PyExc_ValueError, "rule tables: %U is of another build (build id %s, expected %s)", path, hex,
+                     expected);
+        Py_DECREF(self);
+        return NULL;
+    }
+    return self;
+}
+
+/* map_rule_table(name, path, build_id): a table mapped and checked (not shared: the tests) */
+static PyObject *
+py_map_rule_table(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *name, *path;
+    const char *expected;
+    if (!PyArg_ParseTuple(args, "UUs", &name, &path, &expected)) return NULL;
+    return (PyObject *)rt_open_table(name, path, expected);
+}
+
+/* rule_blob(name, path): the table of a language (shared: mapped once, for the life of the process), mapped
+ * read-only from the file path and checked (format, size, the build id of this build); None if this build has no
+ * table for the language. Raises OSError or ValueError if the file can't be used. */
+static PyObject *
+py_rule_blob(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *name, *path;
+    if (!PyArg_ParseTuple(args, "UU", &name, &path)) return NULL;
+    if (mapped_blobs == NULL) {
+        mapped_blobs = PyDict_New();
+        if (mapped_blobs == NULL) return NULL;
+    }
+    PyObject *b = PyDict_GetItemWithError(mapped_blobs, name);
     if (b != NULL) { Py_INCREF(b); return b; }
     if (PyErr_Occurred()) return NULL;
-#if RT_HAVE_EMBEDDED
-    if (&langtool_rule_blob_count != NULL && langtool_rule_blobs != NULL) {
-        const char *cname = PyUnicode_AsUTF8(name);
-        if (cname == NULL) return NULL;
-        for (int i = 0; i < langtool_rule_blob_count && langtool_rule_blobs[i].name != NULL; i++) {
-            if (strcmp(langtool_rule_blobs[i].name, cname) != 0) continue;
-            RuleBlob *self = rb_alloc();
-            if (self == NULL) return NULL;
-            self->base = langtool_rule_blobs[i].start;
-            self->size = (size_t)(langtool_rule_blobs[i].end - langtool_rule_blobs[i].start);
-            Py_INCREF(name);
-            self->name = name;
-            if (rb_parse(self) < 0 || PyDict_SetItem(embedded_blobs, name, (PyObject *)self) < 0) {
-                Py_DECREF(self);
-                return NULL;
-            }
-            return (PyObject *)self;
-        }
+    const char *cname = PyUnicode_AsUTF8(name);
+    if (cname == NULL) return NULL;
+    const char *expected = rt_expected_build_id(cname);
+    if (expected == NULL) Py_RETURN_NONE;
+    RuleBlob *self = rt_open_table(name, path, expected);
+    if (self == NULL) return NULL;
+    /* (another thread may have mapped it meanwhile, the GIL is released while mapping: the first one is kept) */
+    b = PyDict_GetItemWithError(mapped_blobs, name);
+    if (b != NULL) {
+        Py_INCREF(b);
+        Py_DECREF(self);
+        return b;
     }
-#endif
-    Py_RETURN_NONE;
+    if (PyErr_Occurred() || PyDict_SetItem(mapped_blobs, name, (PyObject *)self) < 0) {
+        Py_DECREF(self);
+        return NULL;
+    }
+    return (PyObject *)self;
 }

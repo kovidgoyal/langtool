@@ -6,3 +6,6 @@ build/
 dist/
 *.egg-info/
 .pytest_cache/
+src/langtool/_rule_tables/
+*.ltrt
+_package_manifest.json

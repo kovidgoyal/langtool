@@ -4015,7 +4015,9 @@ done:
 
 static PyMethodDef module_methods[] = {
     {"rule_blob_names", py_rule_blob_names, METH_NOARGS, NULL},
-    {"rule_blob", py_rule_blob, METH_O, NULL},
+    {"rule_blob", py_rule_blob, METH_VARARGS, NULL},
+    {"rule_blob_build_id", py_rule_blob_build_id, METH_O, NULL},
+    {"map_rule_table", py_map_rule_table, METH_VARARGS, NULL},
     {"levenshtein", py_levenshtein, METH_VARARGS, NULL},
     {"build_trie", py_build_trie, METH_O, NULL},
     {"beam_search", py_beam_search, METH_VARARGS, NULL},

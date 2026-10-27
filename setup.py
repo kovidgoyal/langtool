@@ -41,25 +41,34 @@ class BuildPy(build_py):
 
 
 class BuildExt(build_ext):
-    """generates the static rule tables (tools/gen_rule_tables.py) and links
-    them into the extension. LANGTOOL_NO_RULE_TABLES=1 builds the extension
-    without them (the rules are then loaded from the XML files);
-    LANGTOOL_RULE_TABLES_JOBS sets the number of parallel processes."""
+    """generates the static rule tables (tools/gen_rule_tables.py): the table
+    files are installed with the package (langtool/_rule_tables/<code>.ltrt,
+    also in the source tree with --inplace) and memory-mapped by the
+    extension, which has the list of the tables of the build and their build
+    ids. LANGTOOL_NO_RULE_TABLES=1 builds the extension without them (the
+    rules are then loaded from the XML files); LANGTOOL_RULE_TABLES_JOBS sets
+    the number of parallel processes."""
 
     def run(self):
+        tables = None
         for ext in self.extensions:
             if ext.name == 'langtool._speedups':
-                path = self._rule_tables()
+                path, tables = self._rule_tables()
                 ext.sources.append(path)
-                d = os.path.dirname(path)
-                ext.depends.extend(os.path.join(d, n) for n in sorted(os.listdir(d)) if n.endswith('.bin'))
         super().run()
+        if tables is not None:
+            pkg = os.path.dirname(self.get_ext_fullpath('langtool._speedups'))
+            self._install_tables(tables, os.path.join(pkg, '_rule_tables'))
+            if not self.inplace and os.path.exists(os.path.join(pkg, '_package_manifest.json')):
+                # (the manifest written by build_py must cover the table files)
+                _diskcache_module().write_manifest(pkg)
 
     def _rule_tables(self):
+        """(the path of the generated rule_tables.c, the paths of the table files)"""
         outdir = os.path.join(os.path.abspath(self.build_temp), 'rule_tables')
         gen = _load_module('_langtool_gen_rule_tables', os.path.join(HERE, 'tools', 'gen_rule_tables.py'))
-        if os.environ.get('LANGTOOL_NO_RULE_TABLES') or sys.platform == 'win32':
-            return gen.write_empty_c_file(outdir)
+        if os.environ.get('LANGTOOL_NO_RULE_TABLES'):
+            return gen.write_empty_c_file(outdir), []
         import subprocess
         cmd = [sys.executable, os.path.join(HERE, 'tools', 'gen_rule_tables.py'), outdir, '--src',
                os.path.join(HERE, 'src')]
@@ -72,8 +81,32 @@ class BuildExt(build_ext):
             # (the extension works without the tables)
             print('WARNING: the static rule tables could not be generated; the rules will be loaded from the XML '
                   'files', file=sys.stderr)
-            return gen.write_empty_c_file(outdir)
-        return path
+            return gen.write_empty_c_file(outdir), []
+        return path, gen.table_files(outdir)
+
+    @staticmethod
+    def _install_tables(tables, dest):
+        """copies the table files to dest (those that changed; written to another file and renamed, processes may
+        have the old ones mapped) and removes the other table files there"""
+        import shutil
+        os.makedirs(dest, exist_ok=True)
+        names = set()
+        for src in tables:
+            name = os.path.basename(src)
+            names.add(name)
+            target = os.path.join(dest, name)
+            try:
+                with open(src, 'rb') as a, open(target, 'rb') as b:
+                    if a.read(40) == b.read(40) and os.path.getsize(src) == os.path.getsize(target):
+                        continue  # (the same build id)
+            except OSError:
+                pass
+            tmp = target + '.tmp'
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, target)
+        for name in os.listdir(dest):
+            if name.endswith('.ltrt') and name not in names:
+                os.unlink(os.path.join(dest, name))
 
 
 # The C extension is optional: if it cannot be built the pure Python

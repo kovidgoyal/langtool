@@ -1,6 +1,8 @@
 """The static rule tables: the rules of the built-in languages, compiled at
-build time into read-only tables linked into the C extension (see
-tools/gen_rule_tables.py and static_format.py).
+build time into read-only table files installed with the package
+(langtool/_rule_tables/<code>.ltrt, see tools/gen_rule_tables.py and
+static_format.py), which the C extension memory-maps (lazily, per language;
+the pages are shared by the processes).
 
 The C engine selects and matches the rules on the tables in place; the
 Python objects of the rules (PatternRule, DisambiguationPatternRule,
@@ -11,15 +13,18 @@ the rules, the PosTokens of the cache of the language, the interned
 StringMatchers, the compiled regular expressions of jregex).
 
 The tables are used for a rule file of a built-in language when the C
-extension is used, the tables of the language are embedded in it and they
-are up to date: the files they were generated from (the rule files, the
+extension is used, it was built with the tables of the language, their file
+can be mapped and is the one of the build (format, size and build id are
+checked) and they are up to date: the files they were generated from (the rule files, the
 entity files, the message bundles and the modules of the XML loading) are
 unchanged. For an installed package the hashes of the manifest written when
 it was built are compared (no file is read), in a source tree the size and
 modification time of the files (and their hash if those differ). Otherwise
 the rules are loaded from the XML files (and the disk cache). status()
 tells which languages use the tables; a stale table is logged (warning) on
-the 'langtool.static' logger. LANGTOOL_STATIC_RULES=0 disables the tables.
+the 'langtool.static' logger. LANGTOOL_STATIC_RULES=0 disables the tables;
+LANGTOOL_RULE_TABLES_DIR is another directory with the table files (of the
+same build).
 """
 
 import json
@@ -48,8 +53,19 @@ def enabled():
     return v not in ('0', 'off', 'no', 'false')
 
 
+def tables_dir():
+    """the directory of the table files: LANGTOOL_RULE_TABLES_DIR, else the
+    _rule_tables directory of the package"""
+    d = os.environ.get('LANGTOOL_RULE_TABLES_DIR')
+    return os.path.abspath(d) if d else os.path.join(_PACKAGE_DIR, '_rule_tables')
+
+
+def table_path(short_code):
+    return os.path.join(tables_dir(), short_code + '.ltrt')
+
+
 def available_languages():
-    """the short codes of the languages with tables in the extension"""
+    """the short codes of the languages with tables in this build"""
     from .._base import speedups
     if speedups is None or not hasattr(speedups, 'rule_blob_names'):
         return []
@@ -57,9 +73,11 @@ def available_languages():
 
 
 def status():
-    """{short code: status} of the languages with embedded tables: 'ok'
-    (used), 'stale: <reason>' (the rules are loaded from the XML files),
-    'disabled' or 'not checked' (not used yet in this process)"""
+    """{short code: status} of the languages with tables in this build:
+    'ok' (used), 'stale: <reason>' (the rules are loaded from the XML files),
+    'unavailable: <reason>' (the table file is missing, damaged or of another
+    build; the rules are loaded from the XML files), 'disabled' or 'not
+    checked' (not used yet in this process)"""
     out = {}
     on = enabled()
     for code in available_languages():
@@ -84,11 +102,12 @@ def tables_for(short_code):
         if enabled():
             from .._base import speedups
             try:
-                blob = speedups.rule_blob(short_code)
-            except Exception as e:  # (damaged tables)
+                blob = speedups.rule_blob(short_code, table_path(short_code))
+            except Exception as e:  # (missing, damaged or of another build)
                 blob = None
-                _status[short_code] = 'stale: %s' % e
-                log.warning('static rule tables of %s not used: %s', short_code, e)
+                _status[short_code] = 'unavailable: %s' % e
+                log.warning('static rule tables of %s not used: %s; the rules are loaded from the XML files',
+                            short_code, e)
             if blob is not None:
                 t = Tables(blob)
                 reason = t.check()

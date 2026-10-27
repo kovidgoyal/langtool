@@ -1,8 +1,8 @@
 """The binary format of the static rule tables (see langtool.patterns.static
-and tools/gen_rule_tables.py, which writes them; the C extension reads them,
-see _rule_tables.h). Shared by the generator and the runtime.
+and tools/gen_rule_tables.py, which writes them; the C extension maps and
+reads them, see _rule_tables.h). Shared by the generator and the runtime.
 
-A blob holds the rules of all the built-in rule files of one language (all
+A table file (langtool/_rule_tables/<code>.ltrt) holds the rules of all the built-in rule files of one language (all
 variants): a header with a directory of sections, then the sections (8 byte
 aligned, little-endian):
 
@@ -23,11 +23,13 @@ aligned, little-endian):
 
 import struct
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 MAGIC = b'LTRULES\x00'
 NONE32 = 0xFFFFFFFF
 
-HEADER = struct.Struct('<8sIIII')  # magic, version, header size, total size, number of sections
+# magic, version, header size, total size, number of sections, build id (the hash of the inputs; the extension has the
+# build ids of the tables of its build)
+HEADER = struct.Struct('<8sIIII16s')
 SECTION = struct.Struct('<IIII')  # id, offset, size, count
 
 (SEC_META, SEC_STRTAB, SEC_STRDATA, SEC_OBJIDX, SEC_OBJDATA, SEC_SM, SEC_HSET, SEC_POS, SEC_CHUNK, SEC_PT, SEC_IDX,

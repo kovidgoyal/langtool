@@ -26,6 +26,10 @@ pytestmark = pytest.mark.skipif(not static.enabled() or not static.available_lan
 ALL = os.environ.get('LANGTOOL_LANGUAGE_TESTS')
 
 
+def _blob(code):
+    return speedups.rule_blob(code, static.table_path(code))
+
+
 def _fresh(code):
     from langtool.api import get_language
     from langtool.language import Language
@@ -61,7 +65,7 @@ def test_hash_matches_c():
 
 @pytest.mark.parametrize('code', static.available_languages() if ALL else ['en', 'de', 'eo'])
 def test_tables_are_consistent(code):
-    blob = speedups.rule_blob(code)
+    blob = _blob(code)
     assert blob.validate() is True
     meta = json.loads(blob.meta())
     assert meta['language'] == code
@@ -69,8 +73,74 @@ def test_tables_are_consistent(code):
     assert info['units'] == len(meta['units']) > 0
 
 
+def test_table_files_are_checked(tmp_path):
+    # a table file is mapped and checked: format, size and the build id of this build
+    import shutil
+    path = static.table_path('eo')
+    bid = speedups.rule_blob_build_id('eo')
+    assert len(bid) == 32
+    blob = speedups.map_rule_table('eo', path, bid)
+    assert blob.validate() and blob.info() == _blob('eo').info()
+    data = open(path, 'rb').read()
+
+    def bad(content, expected=bid, error=ValueError):
+        p = tmp_path / 'x.ltrt'
+        if content is None:
+            if p.exists():
+                p.unlink()
+        else:
+            p.write_bytes(content)
+        with pytest.raises(error):
+            speedups.map_rule_table('eo', str(p), expected)
+    bad(b'NOTRULES' + data[8:])                       # magic
+    bad(data[:8] + b'\x63\0\0\0' + data[12:])        # format version
+    bad(data[:-8])                                    # truncated
+    bad(data + b'\0' * 8)                             # longer
+    bad(data, expected='0' * 32)                      # another build
+    bad(b'', error=OSError)                           # empty
+    bad(None, error=OSError)                          # missing
+    shutil.copy(path, str(tmp_path / 'y.ltrt'))
+    assert speedups.map_rule_table('eo', str(tmp_path / 'y.ltrt'), bid).info() == blob.info()
+    # the tables of the languages are mapped once per process
+    assert _blob('eo') is _blob('eo')
+    assert speedups.rule_blob('no-such-language', path) is None
+
+
+def _run_status(env, code='eo'):
+    script = ('import sys, json; sys.path.insert(0, %r)\n'
+              'import langtool\nfrom langtool.api import get_language\nfrom langtool.tool import JLanguageTool\n'
+              'lt = JLanguageTool(get_language(%r))\n'
+              'm = [(x.rule.get_full_id(), x.from_pos) for x in lt.check("Mi estas bona homo. La hundo kuras.")]\n'
+              'print(json.dumps([langtool.static_rules_status()[%r], m]))' % (SRC, code, code))
+    r = subprocess.run([sys.executable, '-c', script], env=dict(os.environ, **env), capture_output=True, text=True,
+                       check=True)
+    return json.loads(r.stdout), r.stderr
+
+
+def test_tables_dir_and_fallback(tmp_path):
+    import shutil
+    ok, _ = _run_status({})
+    assert ok[0] == 'ok'
+    # another directory with the files of this build
+    d = tmp_path / 'tables'
+    d.mkdir()
+    shutil.copy(static.table_path('eo'), str(d / 'eo.ltrt'))
+    r, _ = _run_status({'LANGTOOL_RULE_TABLES_DIR': str(d)})
+    assert r == ok
+    # missing, damaged or of another build: the XML files are used (the same results), logged
+    for content in (None, b'garbage', open(static.table_path('eo'), 'rb').read()[:-100]):
+        if content is None:
+            (d / 'eo.ltrt').unlink()
+        else:
+            (d / 'eo.ltrt').write_bytes(content)
+        r, err = _run_status({'LANGTOOL_RULE_TABLES_DIR': str(d), 'LANGTOOL_DISK_CACHE_DIR': str(tmp_path / 'c')})
+        assert r[0].startswith('unavailable: ')
+        assert r[1] == ok[1]
+        assert 'static rule tables of eo not used' in err
+
+
 def test_damaged_blobs_are_rejected():
-    blob = speedups.rule_blob('eo')
+    blob = _blob('eo')
     data = bytearray(bytes(memoryview(blob.meta())))  # (any bytes)
     with pytest.raises(ValueError):
         speedups.RuleBlob(b'LTRULES\x00' + b'\0' * 30, 'x')
@@ -84,28 +154,31 @@ def test_generator(tmp_path):
     cmd = [sys.executable, os.path.join(ROOT, 'tools', 'gen_rule_tables.py'), str(out), '--languages', 'eo',
            '--jobs', '1', '--src', SRC]
     subprocess.run(cmd, check=True, capture_output=True)
-    b1 = (out / 'eo.bin').read_bytes()
+    b1 = (out / 'eo.ltrt').read_bytes()
     c = (out / 'rule_tables.c').read_text()
-    assert '.incbin' in c and 'langtool_rule_blobs' in c
+    # (the list of the tables of the build with their build ids; the same inputs: the build id of this build)
+    bid = speedups.rule_blob_build_id('eo')
+    assert '{"eo", "%s"},' % bid in c and '.incbin' not in c
+    assert F.HEADER.unpack_from(b1, 0)[5].hex() == bid
     # (up to date: not generated again)
     r = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert '(0 generated)' in r.stdout
     os.unlink(str(out / 'eo.stamp'))
     subprocess.run(cmd, check=True, capture_output=True)
-    b2 = (out / 'eo.bin').read_bytes()
+    b2 = (out / 'eo.ltrt').read_bytes()
     blob = speedups.RuleBlob(b2, 'eo')
     assert blob.validate()
     # the same as the first generation, except the bytes of the compiled programs of the regular expressions (the
     # regex module does not compile deterministically: e.g. the order of the characters of a first set)
     assert len(b1) == len(b2)
     assert _without_regex_programs(b1) == _without_regex_programs(b2)
-    assert speedups.RuleBlob(b1, 'eo').info() == blob.info() == speedups.rule_blob('eo').info()
+    assert speedups.RuleBlob(b1, 'eo').info() == blob.info() == _blob('eo').info()
 
 
 def _without_regex_programs(b):
     """the blob without the encoded regex programs (at the end of the object data)"""
     import struct
-    _, _, _, _, ns = F.HEADER.unpack_from(b, 0)
+    ns = F.HEADER.unpack_from(b, 0)[4]
     secs = {}
     for k in range(ns):
         sid, off, size, count = F.SECTION.unpack_from(b, F.HEADER.size + k * F.SECTION.size)
@@ -307,7 +380,7 @@ def test_no_rule_objects_at_startup():
 
 def test_stale_tables_are_detected(monkeypatch, caplog):
     static.reset()
-    t = static.Tables(speedups.rule_blob('eo'))
+    t = static.Tables(_blob('eo'))
     assert t.check() is None
     rel = next(iter(t.meta['files']))
     size, mtime, digest = t.meta['files'][rel]
@@ -331,7 +404,7 @@ def test_stale_tables_are_detected(monkeypatch, caplog):
 
 def test_installed_manifest_is_used(monkeypatch):
     from langtool import diskcache
-    t = static.Tables(speedups.rule_blob('eo'))
+    t = static.Tables(_blob('eo'))
     hashes = {rel: info[2] for rel, info in t.meta['files'].items()}
     monkeypatch.setattr(diskcache, 'installed_manifest', lambda: {'sha256': 'x', 'hashes': hashes})
     monkeypatch.setattr(os, 'stat', None)  # (no file is looked at)

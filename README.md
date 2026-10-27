@@ -24,33 +24,38 @@ optional C extension (`langtool._speedups`). Without it a pure Python
 implementation is used, which is about two times slower.
 
 Building the extension also compiles the grammar and disambiguation rules
-of all languages into static tables that are linked into it (see below).
-This needs `lxml` and `regex` at build time (they are build requirements),
-a GCC or Clang compatible compiler and assembler (`.incbin`; on other
-platforms the extension is built without the tables) and about 20 seconds
-on 16 cores (about 3 minutes of CPU time; the languages are processed in
-parallel, `LANGTOOL_RULE_TABLES_JOBS` sets the number of processes). The
-extension is about 160 MB (about 24 MB compressed with xz).
-`LANGTOOL_NO_RULE_TABLES=1` builds it without the tables.
+of all languages into static table files that are installed with the
+package (`langtool/_rule_tables/<code>.ltrt`, about 150 MB; see below). This
+needs `lxml` and `regex` at build time (they are build requirements) and
+about 20 seconds on 16 cores (about 3 minutes of CPU time; the languages are
+processed in parallel, `LANGTOOL_RULE_TABLES_JOBS` sets the number of
+processes). `python setup.py build_ext --inplace` writes the table files
+into the source tree. `LANGTOOL_NO_RULE_TABLES=1` builds the extension
+without them.
 
 ## Static rule tables
 
 The rules of the built-in languages (all rule files of all variants:
 grammar, style, the rules for speakers of other mother tongues and the
-disambiguation rules) are compiled at build time into read-only tables in
-the C extension (`tools/gen_rule_tables.py` loads them with the XML loader
-of the package, so they are the same by construction). The C extension
+disambiguation rules) are compiled at build time into read-only table
+files, one per language (`tools/gen_rule_tables.py` loads them with the XML
+loader of the package, so they are the same by construction). The C
+extension memory-maps the file of a language when it is first used and
 selects and matches the rules on the tables in place, and applies the
 disambiguation rules and the anti-patterns there; the Python objects of a
 rule are only created when they are needed (when the rule matched, or when
 code asks for the rules, e.g. `JLanguageTool.get_all_rules()`), and they are
 the same objects as those the XML loader creates. Loading the rules takes no
 time, there is no slow first start for them, and processes share the pages
-of the tables (e.g. forked servers).
+of the tables (e.g. forked servers). A table file is only used if it is the
+one of the build of the extension (format, size and a build id are
+checked); `LANGTOOL_RULE_TABLES_DIR` is another directory with the table
+files (of the same build).
 
 The tables are not used (the rules are loaded from the XML files and the
 disk cache as before) in the pure Python mode, for languages added with
 `langtool.languages.register_language()`, with a custom filter factory and
+when the table file is missing, damaged or of another build, or
 when they are stale: when a rule file, an entity file, a message bundle or a
 module of the XML loading changed after the extension was built (an
 installed package is checked with the hashes of its manifest, a source tree
