@@ -18,7 +18,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "pytest-xdist"]
 
 [project.scripts]
 langtool = "langtool.cli:main"
@@ -35,6 +35,10 @@ langtool = ["dictionaries.json", "hunspell_dictionaries.json", "data/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# the tests run in parallel (pytest-xdist); -n 0: sequentially. loadgroup:
+# the tests marked with xdist_group run on one worker (expensive module fixtures)
+addopts = "-n auto --dist loadgroup"
 markers = [
     "pure_smoke: tests also run in the pure Python mode (LANGTOOL_PURE_PYTHON=1 pytest -m pure_smoke)",
+    "xdist_group(name): run the tests of the group on one pytest-xdist worker (with --dist loadgroup)",
 ]

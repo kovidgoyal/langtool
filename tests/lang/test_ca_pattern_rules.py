@@ -6,20 +6,20 @@ DisambiguationRuleTest for the Catalan XML disambiguation rules
 
 import pytest
 
-from conftest import require_dictionaries
+from conftest import require_dictionaries, sharded
 from langtool.api import get_language
 from langtool.testing import DisambiguationRuleTester, PatternRuleTester
 from langtool.tool import JLanguageTool
 
 
-@pytest.mark.parametrize('code', ['ca-ES', 'ca-ES-valencia', 'ca-ES-balear'])
-def test_rules(code):
+@pytest.mark.parametrize('code, shard', sharded(['ca-ES', 'ca-ES-valencia', 'ca-ES-balear'], {'ca-ES': 6}))
+def test_rules(code, shard):
     """CatalanPatternRuleTest.testRules"""
     require_dictionaries('ca')
     lang = get_language(code)
     tester = PatternRuleTester(JLanguageTool(lang))
     assert tester.rules
-    failures = tester.run()
+    failures = tester.run(shard=shard)
     assert not failures, '\n'.join(map(str, failures))
     assert not lang._pattern_rule_problems
 

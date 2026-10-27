@@ -5,6 +5,8 @@ testBadSentences, testErrorTriggeringSentences) and of
 org.languagetool.tagging.disambiguation.rules.DisambiguationRuleTest.
 """
 
+import zlib
+
 import regex
 
 from .patterns.loader import load_pattern_rules
@@ -86,8 +88,14 @@ class PatternRuleTester:
                     out.append(rule)
         return out
 
-    def run(self, rules=None, progress=None):
+    def run(self, rules=None, progress=None, shard=None):
+        """Checks the examples of the rules (default: all rules). shard=(k, n):
+        only the k-th of n parts of the rules (split by rule id, for running
+        the parts in parallel)."""
         rules = self.rules if rules is None else rules
+        if shard is not None:
+            k, n = shard
+            rules = [r for r in rules if zlib.crc32(r.get_id().encode('utf-8')) % n == k]
         lang = self.language
         for i, rule in enumerate(rules):
             src = rule.source_file or ''

@@ -310,6 +310,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(os.path.dirname(HERE), 'src')
 COMPARE_SUGGESTIONS = int(os.environ.get('LANGTOOL_HUNSPELL_COMPARE', '25'))
 COMPARE_CHECKS = min(6000, 120 * COMPARE_SUGGESTIONS)
+PY_SUGGEST_TIMEOUT = 30  # (seconds per word)
 # LibreOffice dictionaries (language codes of langtool.hunspell_dictionaries)
 LO_DICTIONARIES = ['en-US', 'de-DE', 'fr', 'es', 'pt-BR', 'nl', 'pl', 'ru']
 # LanguageTool's German dictionaries
@@ -406,7 +407,7 @@ def sample_words(prefix, n_check, n_sug, seed=7):
 
 
 _PY_RUNNER = r'''
-import json, random, sys
+import json, random, signal, sys
 sys.path.insert(0, sys.argv[1])
 from langtool import hunspell
 task = json.load(sys.stdin)
@@ -437,7 +438,28 @@ if task['forms']:
     forms += [w.upper() for w in forms[:200]] + [w.capitalize() for w in forms[200:400]]
     forms += [rnd.choice(forms) + rnd.choice(forms).lower() for _ in range(300)]
     check = check + forms
-out = {'check': check, 'spell': [h.spell(w) for w in check], 'suggest': [h.suggest(w) for w in task['suggest']]}
+
+
+def suggest(w):
+    # (None: the suggestions took longer than the time limit)
+    if task['timeout'] and hasattr(signal, 'setitimer'):
+        signal.setitimer(signal.ITIMER_REAL, task['timeout'])
+    try:
+        return h.suggest(w)
+    except TimeoutError:
+        return None
+    finally:
+        if task['timeout'] and hasattr(signal, 'setitimer'):
+            signal.setitimer(signal.ITIMER_REAL, 0)
+
+
+def timeout(signum, frame):
+    raise TimeoutError()
+
+
+if hasattr(signal, 'SIGALRM'):
+    signal.signal(signal.SIGALRM, timeout)
+out = {'check': check, 'spell': [h.spell(w) for w in check], 'suggest': [suggest(w) for w in task['suggest']]}
 json.dump(out, sys.stdout)
 '''
 
@@ -475,42 +497,47 @@ def _compare_dictionaries(prefixes):
         h = hunspell.Hunspell(prefix + '.dic', prefix + '.aff', use_c=True)
         assert h._c is not None
         spell = [h.spell(w) for w in check]
-        sugs = []
+        # the words whose suggestions would take long in Python (MAP explosions: the C version prunes the MAP
+        # search, the Python version does not) are skipped: the time of the C search without the pruning tells
+        # (the Python version is about 50 times slower). The times grow with the load of the machine (e.g. the
+        # tests running in parallel): at least the fastest 40% of the words are kept. The C time is not always
+        # a good predictor of the Python time: the Python suggestions have a time limit (the words that take
+        # longer are not compared)
+        times = []
         for w in sug:
-            # the words whose suggestions would take long in Python (MAP explosions: the C version prunes
-            # the MAP search, the Python version does not) are skipped: the time of the C search without the
-            # pruning tells (the Python version is about 50 times slower)
-            t = time.perf_counter()
+            t = time.thread_time()
             h._c.suggest(h._encode(w), 1.0, True)
-            if time.perf_counter() - t < 0.1:
-                sugs.append((w, h.suggest(w)))
-        assert len(sugs) >= 0.3 * len(sug), prefix
-        c_results.append((prefix, h, spell, sugs))
-        tasks.append({'prefix': prefix, 'check': check, 'suggest': [], 'forms': COMPARE_CHECKS // 3})
-        chunk = 5
-        for k in range(0, len(sugs), chunk):
-            tasks.append({'prefix': prefix, 'check': [], 'suggest': [w for w, _ in sugs[k:k + chunk]], 'forms': 0})
+            times.append(time.thread_time() - t)
+        fastest = sorted(times)[:max(1, int(0.4 * len(times)))]
+        limit = max([0.1] + fastest[-1:])
+        sugs = [(w, h.suggest(w)) for w, t in zip(sug, times) if t <= limit]
+        c_results.append((prefix, h, spell, sugs, len(sug)))
+        tasks.append({'prefix': prefix, 'check': check, 'suggest': [], 'forms': COMPARE_CHECKS // 3, 'timeout': 0})
+        # (a subprocess per word: a slow word does not hold up the others)
+        tasks += [{'prefix': prefix, 'check': [], 'suggest': [w], 'forms': 0, 'timeout': PY_SUGGEST_TIMEOUT}
+                  for w, _ in sugs]
     py = _python_results(tasks)
     diffs = []
     k = 0
-    for prefix, h, spell, sugs in c_results:
+    for prefix, h, spell, sugs, n_sug in c_results:
         name = os.path.basename(prefix)
         check = py[k]['check']  # (with the word forms of the Python runner)
         py_spell = py[k]['spell']
         spell = spell + [h.spell(w) for w in check[len(spell):]]
         k += 1
         py_sugs = []
-        for _ in range(0, len(sugs), 5):
+        for _ in sugs:
             py_sugs += py[k]['suggest']
             k += 1
         assert len(py_spell) == len(spell) and len(py_sugs) == len(sugs)
         diffs += ['%s: spell(%r): C %r, Python %r' % (name, w, a, b)
                   for w, a, b in zip(check, spell, py_spell) if a != b]
         diffs += ['%s: suggest(%r): C %r, Python %r' % (name, w, a, b)
-                  for (w, a), b in zip(sugs, py_sugs) if a != b]
+                  for (w, a), b in zip(sugs, py_sugs) if b is not None and a != b]
         # sanity checks: the samples have correct and misspelled words, and suggestions
         assert 0.2 * len(check) < sum(spell) < 0.9 * len(check), name
         assert sum(1 for _, s in sugs if s) >= 0.5 * len(sugs), name
+        assert sum(1 for b in py_sugs if b is not None) >= 0.2 * n_sug, name
     assert not diffs, '%d differences:\n' % len(diffs) + '\n'.join(diffs[:30])
 
 

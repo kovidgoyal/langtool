@@ -78,6 +78,21 @@ def demo_lt(demo_language):
     return JLanguageTool(demo_language)
 
 
+def sharded(codes, shards):
+    """pytest parameters (code, shard) for a slow test over the rules of the
+    languages: the codes in shards ({code: n}) are split into n parts
+    (PatternRuleTester.run(shard=...)), so that the parts can run in parallel
+    (pytest -n ...); shard is None for the other codes"""
+    params = []
+    for code in codes:
+        n = shards.get(code)
+        if n:
+            params += [pytest.param(code, (k, n), id='%s-%dof%d' % (code, k + 1, n)) for k in range(n)]
+        else:
+            params.append(pytest.param(code, None, id=code))
+    return params
+
+
 def dictionaries_available(lang_code):
     from langtool.dictionaries import is_available
     return is_available(lang_code)

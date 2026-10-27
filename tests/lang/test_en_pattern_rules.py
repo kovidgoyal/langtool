@@ -9,7 +9,7 @@ import os
 
 import pytest
 
-from conftest import require_dictionaries
+from conftest import require_dictionaries, sharded
 from langtool.api import get_language
 from langtool.messages import messages_for
 from langtool.patterns.loader import load_pattern_rules
@@ -18,14 +18,14 @@ from langtool.testing import DisambiguationRuleTester, PatternRuleTester
 from langtool.tool import JLanguageTool
 
 
-@pytest.mark.parametrize('code', ['en', 'en-US', 'en-GB', 'en-AU', 'en-CA', 'en-NZ', 'en-ZA'])
-def test_rules(code):
+@pytest.mark.parametrize('code, shard', sharded(['en', 'en-US', 'en-GB', 'en-AU', 'en-CA', 'en-NZ', 'en-ZA'], {'en': 5}))
+def test_rules(code, shard):
     """EnglishPatternRuleTest.testRules"""
     require_dictionaries('en')
     lang = get_language(code)
     tester = PatternRuleTester(JLanguageTool(lang))
     assert tester.rules
-    failures = tester.run()
+    failures = tester.run(shard=shard)
     assert not failures, '\n'.join(map(str, failures))
     assert not lang._pattern_rule_problems
 

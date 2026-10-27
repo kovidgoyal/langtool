@@ -15,10 +15,15 @@ import os
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from conftest import require_dictionaries
+
+# the module fixtures are expensive: run all the tests of the module on one
+# pytest-xdist worker (pytest -n ... --dist loadgroup)
+pytestmark = pytest.mark.xdist_group('c_vs_python')
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(os.path.dirname(HERE), 'src')
@@ -88,7 +93,7 @@ json.dump(result, sys.stdout)
 '''
 
 
-def _run(texts, pure, static_rules=True):
+def _run_one(texts, pure, static_rules):
     env = dict(os.environ)
     env.pop('LANGTOOL_PURE_PYTHON', None)
     env.pop('LANGTOOL_STATIC_RULES', None)
@@ -100,6 +105,28 @@ def _run(texts, pure, static_rules=True):
                        text=True, env=env, timeout=1200)
     assert p.returncode == 0, p.stderr[-3000:]
     return json.loads(p.stdout)
+
+
+def _run(texts, *modes):
+    """Run the texts in subprocesses in the modes (pure, static_rules), one
+    subprocess per language and mode, in parallel; the results of the modes
+    (merged over the languages)"""
+    jobs = [(mode, {code: t}) for mode in modes for code, t in texts.items()]
+    with ThreadPoolExecutor(max(2, os.cpu_count() or 2)) as ex:
+        parts = list(ex.map(lambda job: _run_one(job[1], *job[0]), jobs))
+    results = []
+    for mode in modes:
+        merged = {'speedups': None, 'results': {}, 'analysis': {}, 'static': {}}
+        for (m, _), part in zip(jobs, parts):
+            if m != mode:
+                continue
+            assert merged['speedups'] in (None, part['speedups'])
+            merged['speedups'] = part['speedups']
+            for key in ('results', 'analysis', 'static', 'spelling'):
+                if key in part:
+                    merged.setdefault(key, {}).update(part[key])
+        results.append(merged)
+    return results
 
 
 @pytest.fixture(scope='module')
@@ -117,19 +144,25 @@ def texts():
 
 
 @pytest.fixture(scope='module')
-def results(texts):
-    c = _run(texts, pure=False)
+def all_results(texts):
+    """the C extension, the pure Python implementation and the C extension
+    without the static rule tables (all run at once, in parallel)"""
+    c, py, x = _run(texts, (False, True), (True, True), (False, False))
     if not c['speedups']:
         pytest.skip('C extension not available')
-    py = _run(texts, pure=True)
     assert py['speedups'] is False
-    return c, py
+    return c, py, x
 
 
 @pytest.fixture(scope='module')
-def xml_results(texts, results):
+def results(all_results):
+    return all_results[:2]
+
+
+@pytest.fixture(scope='module')
+def xml_results(all_results):
     """the C extension without the static rule tables"""
-    x = _run(texts, pure=False, static_rules=False)
+    x = all_results[2]
     assert all(v in (None, 'disabled') for v in x['static'].values())
     return x
 

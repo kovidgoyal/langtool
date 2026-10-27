@@ -245,6 +245,11 @@ components with `langtool.extensions.register()`.
     pip install -e .[test]
     pytest
 
+The tests run in parallel, on all CPU cores, with pytest-xdist (configured in
+`pyproject.toml`: `-n auto --dist loadgroup`); `pytest -n 0` runs them
+sequentially, `-n 4` on 4 workers (each worker needs up to about 1.5 GB of
+memory).
+
 The tests include ports of the unit tests of the LanguageTool core and of the
 language modules. They run with the C extension; the pure Python
 implementation (the fallback when the extension can not be built) is checked
