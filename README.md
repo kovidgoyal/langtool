@@ -1,8 +1,9 @@
 # langtool
 
 Grammar, style and typography checking for more than 30 languages, based on the
-rules of [LanguageTool](https://languagetool.org). This is a port of the
-LanguageTool core (written in Java) to Python, with a C extension for the
+rules of [LanguageTool](https://languagetool.org) based off commit
+[bc7e597](https://github.com/languagetool-org/languagetool/commit/bc7e597ca2a147c1139012fbf5fd9662de8034ad).
+This is a port of the LanguageTool core (written in Java) to Python, with a C extension for the
 performance critical parts. No Java and no server are needed.
 
 ```python

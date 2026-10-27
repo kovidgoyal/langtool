@@ -112,7 +112,6 @@ cache, static rule tables, spell checking).
 
 ## Build
 
-    pip install -e .[test]            # or:
     python setup.py build_ext --inplace
 
 `build_ext` also generates the static rule tables (`tools/gen_rule_tables.py`,
