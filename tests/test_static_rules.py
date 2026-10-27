@@ -293,7 +293,7 @@ def _compare_unit(t, ui):
     from langtool.messages import messages_for
     u = t.units[ui]
     la, lb = _fresh(u['loaded_with']), _fresh(u['loaded_with'])
-    path = os.path.join(static._PACKAGE_DIR, u['name'])
+    path = os.path.join(static._PACKAGE_DIR, *u['name'].split('/'))
     if u['kind'] == 'grammar':
         ra, pa = loader.load_pattern_rules(path, la, la.resource_root, default_filter_factory(),
                                            messages_for(la.short_code))

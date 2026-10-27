@@ -490,6 +490,7 @@ def _python_results(tasks):
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, text=True)
             p.stdin.write(json.dumps(task))
             p.stdin.close()
+            p.stdin = None  # (else communicate() flushes the closed pipe on Python 3.9: ValueError)
             running.append((i, p))
         i, p = running.pop(0)
         # (communicate: reading stdout and then stderr deadlocks when the child fills the stderr pipe, which is

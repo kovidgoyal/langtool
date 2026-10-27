@@ -339,7 +339,8 @@ def test_cache_dir(tmp_path, monkeypatch, restore_cache_dir):
     langtool.set_cache_dir(None)
     assert langtool.get_cache_dir() == str(tmp_path / 'env')
     monkeypatch.delenv('LANGTOOL_CACHE_DIR')
-    assert langtool.get_cache_dir().endswith('langtool')
+    # (Windows: %LOCALAPPDATA%\langtool\cache)
+    assert langtool.get_cache_dir().endswith(os.path.join('langtool', 'cache') if sys.platform == 'win32' else 'langtool')
 
 
 def test_cache_dir_argument(tmp_path, restore_cache_dir):
