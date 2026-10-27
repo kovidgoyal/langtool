@@ -43,6 +43,29 @@ def _setup(src):
     os.environ['LANGTOOL_DISK_CACHE'] = '0'
     if src not in sys.path:
         sys.path.insert(0, src)
+    _stable_regex_hashes()
+
+
+def _stable_key(k):
+    if isinstance(k, type):
+        return k.__module__, k.__qualname__
+    if type(k) is tuple:
+        return tuple(_stable_key(x) for x in k)
+    return k
+
+
+def _stable_regex_hashes():
+    """reproducible tables: the nodes of the parsed patterns of the regex module are hashed on keys containing their
+    class, and a class is hashed on its address, which differs between processes (PYTHONHASHSEED does not change
+    that), so the sets of nodes (the first sets of alternations, ...) and so the compiled programs had their members
+    in another order in every run. Hash the class name instead (only in the generator: the order does not change what
+    a program matches)"""
+    from regex import _regex_core
+    base = _regex_core.RegexBase
+    if getattr(base, '_langtool_stable_hash', False):
+        return
+    base.__hash__ = lambda self: hash(_stable_key(self._key))
+    base._langtool_stable_hash = True
 
 
 # ---------------------------------------------------------------------------
