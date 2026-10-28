@@ -32,7 +32,8 @@ about 20 seconds on 16 cores (about 3 minutes of CPU time; the languages are
 processed in parallel, `LANGTOOL_RULE_TABLES_JOBS` sets the number of
 processes). `python setup.py build_ext --inplace` writes the table files
 into the source tree. `LANGTOOL_NO_RULE_TABLES=1` builds the extension
-without them.
+without them. Note that the generated tables are tied to the exact version
+of `regex` and `Python`, they should be re-built if either of those change.
 
 ## Static rule tables
 
