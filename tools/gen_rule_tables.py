@@ -909,8 +909,7 @@ def build_language(short, pkg_dir):
         'format': F.FORMAT_VERSION, 'generator': GENERATOR_VERSION, 'language': short,
         'types': enc.types, 'units': enc.units, 'files': finfo, 'code_deps': list(F.CODE_DEPS) + ['fsa.py'],
         'languages': languages,
-        'regex': {'version': regex.__version__, 'magic': getattr(regex._regex, 'MAGIC', None),
-                  'python': list(sys.version_info[:2])},
+        'regex': {'version': regex.__version__, 'magic': getattr(regex._regex, 'MAGIC', None)},
         'objects': len(enc.objs),
     }
     deps = sorted(deps)
@@ -1006,8 +1005,12 @@ def _worker(args):
 
 
 def _inputs_digest(pkg_dir, deps):
+    # (not the Python version: the tables generated with the supported versions (3.11-3.14) are the same, except for
+    # the order of the members of some sets in the compiled programs of the regex module (the iteration order of
+    # sets of the Python version), which does not change what they match: the tables of one Python version can be
+    # used with the others)
     h = hashlib.sha256()
-    h.update(repr((GENERATOR_VERSION, sys.version_info[:2])).encode())
+    h.update(repr(GENERATOR_VERSION).encode())
     with open(os.path.abspath(__file__), 'rb') as f:
         h.update(f.read())
     for d in deps:
