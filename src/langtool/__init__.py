@@ -28,11 +28,20 @@ from .api import (LanguageTool, Match, RuleInfo, check, clear_disk_cache, downlo
                   set_disk_cache, spell_check_languages)
 from .dictionaries import DictionaryNotFound
 from .hunspell_dictionaries import SpellCheckUnavailable
+from .resources import ResourceDirError, set_resource_dir
 
 __all__ = ['LanguageTool', 'Match', 'RuleInfo', 'check', 'download_dictionaries', 'get_language',
            'language_names', 'languages', 'DictionaryNotFound', 'SpellCheckUnavailable', 'have_speedups',
            'set_cache_dir', 'get_cache_dir', 'set_disk_cache', 'get_disk_cache_dir', 'clear_disk_cache',
-           'spell_check_languages', 'hunspell_dictionary_info', 'static_rules_status']
+           'spell_check_languages', 'hunspell_dictionary_info', 'static_rules_status', 'set_resource_dir',
+           'get_resource_dir', 'ResourceDirError']
+
+
+def get_resource_dir():
+    """The directory of the data files of langtool (see set_resource_dir()
+    and langtool.resources)."""
+    from .resources import root
+    return root()
 
 
 def have_speedups():

@@ -35,7 +35,8 @@ class DictionaryNotFound(Exception):
 @lru_cache()
 def manifest():
     import json
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dictionaries.json'), encoding='utf-8') as f:
+    from . import resources
+    with open(resources.path('dictionaries.json'), encoding='utf-8') as f:
         return json.load(f)
 
 

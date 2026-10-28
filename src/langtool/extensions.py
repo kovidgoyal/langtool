@@ -386,5 +386,5 @@ class SimpleSentenceTokenizer(SRXSentenceTokenizer):
     default for languages without their own segmentation rules"""
 
     def __init__(self, language=None):
-        from .language import RESOURCE_DIR
-        super().__init__(language, os.path.join(RESOURCE_DIR, 'segment-simple.srx'), 'xx')
+        from .resources import resource_dir
+        super().__init__(language, os.path.join(resource_dir(), 'segment-simple.srx'), 'xx')

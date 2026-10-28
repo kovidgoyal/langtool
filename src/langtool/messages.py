@@ -4,14 +4,13 @@ LanguageTool, with fallback to English for missing keys)."""
 import os
 from functools import lru_cache
 
+from . import resources
 from .fsa import read_properties
-
-_MESSAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'messages')
 
 
 @lru_cache()
 def _load(name):
-    path = os.path.join(_MESSAGES_DIR, name)
+    path = resources.path('data', 'messages', name)
     if not os.path.exists(path):
         return {}
     with open(path, 'rb') as f:

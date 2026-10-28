@@ -27,6 +27,10 @@ FORMAT_VERSION = 4
 MAGIC = b'LTRULES\x00'
 NONE32 = 0xFFFFFFFF
 
+# the prefix of the source_file of the rules in the tables: the path of the rule file relative to the package
+# directory follows (it is made absolute, in the resource root, when the rule object is created)
+SOURCE_FILE_PREFIX = '<langtool>/'
+
 # magic, version, header size, total size, number of sections, build id (the hash of the inputs; the extension has the
 # build ids of the tables of its build)
 HEADER = struct.Struct('<8sIIII16s')

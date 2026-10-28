@@ -31,13 +31,12 @@ import warnings
 
 import regex
 
+from . import resources
 from .dictionaries import DictionaryNotFound
 from .hunspell_rule import HunspellRule, SpellingCheckRule, compute_non_word_pattern, read_lines, resource_file
-from .language import DATA_DIR
 from .rules.base import SuggestedReplacement
 
 RULE_ID = 'HUNSPELL_RULE'
-SPELLING_DATA_DIR = os.path.join(DATA_DIR, 'spelling')
 CACHE_SIZE = 100000
 _LATIN_WORD = regex.compile(r"[\p{script=latin}\p{M}'’.-]+")
 
@@ -59,7 +58,7 @@ def _word_list_path(language, name):
         warnings.warn('spell checking: word list %s not available: %s' % (name, e))
         p = None
     if p is None:
-        cand = os.path.join(SPELLING_DATA_DIR, name.lstrip('/'))
+        cand = resources.path('data', 'spelling', name.lstrip('/'))
         if os.path.exists(cand):
             p = cand
     return p

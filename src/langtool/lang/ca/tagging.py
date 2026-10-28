@@ -307,9 +307,9 @@ class VerbClassifier:
         if cls._map is None:
             with cls._lock:
                 if cls._map is None:
-                    from ...language import RESOURCE_DIR
+                    from ...resources import resource_dir
                     m = {}
-                    with open(os.path.join(RESOURCE_DIR, 'ca', 'verbs_classification.txt'), encoding='utf-8') as f:
+                    with open(os.path.join(resource_dir(), 'ca', 'verbs_classification.txt'), encoding='utf-8') as f:
                         for line in f:
                             line = line.rstrip('\r\n')
                             i = line.find('#')

@@ -26,8 +26,8 @@ def _irish():
 
 
 def _rules_path(name):
-    from ...language import RULES_DIR
-    return os.path.join(RULES_DIR, 'ga', name)
+    from ...resources import rules_dir
+    return os.path.join(rules_dir(), 'ga', name)
 
 
 def _read_lines(path):

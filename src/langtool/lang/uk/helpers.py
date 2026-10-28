@@ -11,7 +11,7 @@ import os
 import threading
 
 from ... import jregex
-from ...language import RESOURCE_DIR, RULES_DIR
+from ...resources import resource_dir, rules_dir
 from ...rules.abstract_rules import java_hash_set_order
 from ...tools import is_digit, is_lower_case, is_upper_case, java_split, java_trim
 from . import pos_tag_helper as pth
@@ -20,7 +20,7 @@ _lock = threading.Lock()
 
 
 def _resource(path):
-    return os.path.join(RESOURCE_DIR, path.lstrip('/'))
+    return os.path.join(resource_dir(), path.lstrip('/'))
 
 
 def _resource_lines(path):
@@ -81,7 +81,7 @@ def load_lists(path):
     file in the rules directory (path like /uk/replace_renamed.txt)"""
     out = {}
     split = jregex.compile(' *= *|\\|')
-    with open(os.path.join(RULES_DIR, path.lstrip('/')), encoding='utf-8') as f:
+    with open(os.path.join(rules_dir(), path.lstrip('/')), encoding='utf-8') as f:
         for line in f:
             line = line.rstrip('\n').rstrip('\r')
             if not line.startswith('#') and java_trim(line):

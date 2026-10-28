@@ -38,8 +38,8 @@ class SpellCheckUnavailable(DictionaryNotFound):
 @lru_cache()
 def manifest():
     import json
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hunspell_dictionaries.json'),
-              encoding='utf-8') as f:
+    from . import resources
+    with open(resources.path('hunspell_dictionaries.json'), encoding='utf-8') as f:
         return json.load(f)
 
 

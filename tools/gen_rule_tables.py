@@ -114,7 +114,13 @@ def _load_unit(kind, path, language, pkg_dir):
         p = os.path.join(msg_dir, name)
         if os.path.exists(p):
             deps.add(p)
-    unit = _Unit(kind, os.path.relpath(path, pkg_dir).replace(os.sep, '/'), rules, problems, calls,
+    relpath = os.path.relpath(path, pkg_dir).replace(os.sep, '/')
+    from langtool.patterns import static_format as F
+    for r in rules:
+        # (relative: the path of the resource root at run time is not known, see langtool.resources)
+        if getattr(r, 'source_file', None) == path:
+            r.source_file = F.SOURCE_FILE_PREFIX + relpath
+    unit = _Unit(kind, relpath, rules, problems, calls,
                  sorted(os.path.relpath(p, pkg_dir).replace(os.sep, '/') for p in deps))
     unit.filters = rec.created
     unit.language = language

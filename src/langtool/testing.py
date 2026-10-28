@@ -37,7 +37,7 @@ class PatternRuleTester:
     """Checks the <example>s of all pattern rules of a language."""
 
     def __init__(self, lt):
-        from .language import RESOURCE_DIR
+        from .resources import resource_dir
         from .rules.filters import default_filter_factory
         from .messages import messages_for
         self.lt = lt
@@ -48,7 +48,7 @@ class PatternRuleTester:
         ff = default_filter_factory()
         msgs = messages_for(self.language.short_code)
         for f in self.language.get_rule_file_names():
-            rr, _ = load_pattern_rules(f, self.language, RESOURCE_DIR, ff, msgs)
+            rr, _ = load_pattern_rules(f, self.language, resource_dir(), ff, msgs)
             self.rules.extend(rr)
         self.complex_rules = {}
 

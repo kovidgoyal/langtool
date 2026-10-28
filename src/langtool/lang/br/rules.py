@@ -19,13 +19,13 @@ _words_lock = threading.Lock()
 
 
 def _topo_file(language):
-    from ...language import RULES_DIR
+    from ...resources import rules_dir
     rel = _FILE_NAME.lstrip('/')
     if language is not None:
         p = os.path.join(language.rules_root, rel)
         if os.path.exists(p):
             return p
-    return os.path.join(RULES_DIR, rel)
+    return os.path.join(rules_dir(), rel)
 
 
 def _load_words(path):

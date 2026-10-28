@@ -20,7 +20,9 @@ entity files, the message bundles and the modules of the XML loading) are
 unchanged. For an installed package the hashes of the manifest written when
 it was built are compared (no file is read), in a source tree the size and
 modification time of the files (and their hash if those differ). Otherwise
-the rules are loaded from the XML files (and the disk cache). status()
+the rules are loaded from the XML files (and the disk cache). The table
+files and the files they were generated from are those of the resource root
+(see langtool.resources). status()
 tells which languages use the tables; a stale table is logged (warning) on
 the 'langtool.static' logger. LANGTOOL_STATIC_RULES=0 disables the tables;
 LANGTOOL_RULE_TABLES_DIR is another directory with the table files (of the
@@ -32,11 +34,10 @@ import logging
 import os
 import threading
 
+from .. import resources
 from . import static_format as F
 
 log = logging.getLogger('langtool.static')
-
-_PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 _lock = threading.RLock()
 _tables = {}     # short code -> Tables or None
@@ -55,9 +56,9 @@ def enabled():
 
 def tables_dir():
     """the directory of the table files: LANGTOOL_RULE_TABLES_DIR, else the
-    _rule_tables directory of the package"""
+    _rule_tables directory of the resource root (see langtool.resources)"""
     d = os.environ.get('LANGTOOL_RULE_TABLES_DIR')
-    return os.path.abspath(d) if d else os.path.join(_PACKAGE_DIR, '_rule_tables')
+    return os.path.abspath(d) if d else resources.path('_rule_tables')
 
 
 def table_path(short_code):
@@ -136,7 +137,7 @@ def _file_ok(rel, info, manifest):
         hashes = manifest.get('hashes')
         if hashes:
             return hashes.get(rel) == digest
-    path = os.path.join(_PACKAGE_DIR, *rel.split('/'))
+    path = resources.package_file(rel)
     try:
         st = os.stat(path)
     except OSError:
@@ -178,8 +179,8 @@ class Tables:
 
     def unit(self, kind, path, short_code):
         """the index of the unit of a rule file (absolute path), None if the tables have none"""
-        rel = os.path.relpath(os.path.abspath(path), _PACKAGE_DIR).replace(os.sep, '/')
-        return self.unit_index.get((kind, rel, short_code))
+        rel = resources.relative(path)
+        return self.unit_index.get((kind, rel, short_code)) if rel is not None else None
 
     def regex_programs_usable(self):
         """whether the compiled programs of the regular expressions can be used (the same version of the regex
@@ -320,6 +321,9 @@ class Binding:
         make = getattr(obj, '_make_native_hints', None)
         if make is not None:
             obj._native_hints = make()
+        sf = getattr(obj, 'source_file', None)
+        if sf is not None and sf.startswith(F.SOURCE_FILE_PREFIX):
+            obj.source_file = os.path.join(resources.root(), *sf[len(F.SOURCE_FILE_PREFIX):].split('/'))
         if self.variant_defaults is not None:
             _apply_variant_defaults(obj, *self.variant_defaults)
 

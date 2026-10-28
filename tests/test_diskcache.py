@@ -16,7 +16,7 @@ import types
 
 import pytest
 
-from langtool import diskcache, jregex
+from langtool import diskcache, jregex, resources
 from langtool._base import speedups
 
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src')
@@ -167,6 +167,7 @@ def test_invalidation_when_the_package_changes(cache_dir, tmp_path, monkeypatch)
     (pkg / 'data' / 'rules.xml').write_text('<rules/>')
     (pkg / '__pycache__').mkdir()
     monkeypatch.setattr(diskcache, '_PACKAGE_DIR', str(pkg))
+    monkeypatch.setattr(resources, '_root', str(pkg))  # (the resource root is the package directory)
     monkeypatch.setattr(diskcache, '_fingerprint', None)
     fp1 = diskcache.package_fingerprint()
     monkeypatch.setattr(diskcache, '_fingerprint', None)
@@ -200,6 +201,7 @@ def test_fingerprint_of_an_installed_package(tmp_path, monkeypatch):
     (pkg / 'data' / 'rules.xml').write_text('<rules/>')
     (pkg / '_speedups.so').write_bytes(b'\0' * 10)
     monkeypatch.setattr(diskcache, '_PACKAGE_DIR', str(pkg))
+    monkeypatch.setattr(resources, '_root', str(pkg))  # (the resource root is the package directory)
     monkeypatch.delenv('LANGTOOL_DISK_CACHE_VERIFY', raising=False)
 
     def fingerprint():
@@ -356,7 +358,7 @@ def test_external_references(cache_dir):
 _WRITER = r'''
 import sys, json
 sys.path.insert(0, sys.argv[1])
-from langtool import diskcache, jregex
+from langtool import diskcache, jregex, resources
 diskcache.set_disk_cache(True, sys.argv[2])
 n = int(sys.argv[3])
 v = diskcache.cached('test-concurrent', 'k', lambda: list(range(200000)))

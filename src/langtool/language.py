@@ -4,12 +4,20 @@
 import os
 import threading
 
-from . import jregex
+from . import jregex, resources
 from .patterns.unifier import UnifierConfiguration
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-RULES_DIR = os.path.join(DATA_DIR, 'rules')
-RESOURCE_DIR = os.path.join(DATA_DIR, 'resource')
+
+def __getattr__(name):
+    # (DATA_DIR, RULES_DIR, RESOURCE_DIR: the directories of the resource root, see langtool.resources)
+    if name == 'DATA_DIR':
+        return resources.data_dir()
+    if name == 'RULES_DIR':
+        return resources.rules_dir()
+    if name == 'RESOURCE_DIR':
+        return resources.resource_dir()
+    raise AttributeError('module %r has no attribute %r' % (__name__, name))
+
 
 _DEFAULT_QUOTES = ('"', '"', "'", "'")
 _INSIDE_SUGGESTION = jregex.compile('<suggestion>(.+?)</suggestion>')
@@ -62,12 +70,12 @@ class Language:
     @property
     def resource_root(self):
         d = self.definition.get('data_dir')
-        return os.path.join(d, 'resource') if d else RESOURCE_DIR
+        return os.path.join(d, 'resource') if d else resources.resource_dir()
 
     @property
     def rules_root(self):
         d = self.definition.get('data_dir')
-        return os.path.join(d, 'rules') if d else RULES_DIR
+        return os.path.join(d, 'rules') if d else resources.rules_dir()
 
     @property
     def resource_dir(self):
@@ -109,8 +117,8 @@ class Language:
         """Path to a resource file, name like 'en/multiwords.txt' or
         'segment.srx'"""
         p = os.path.join(self.resource_root, name)
-        if not os.path.exists(p) and self.resource_root != RESOURCE_DIR:
-            p = os.path.join(RESOURCE_DIR, name)
+        if not os.path.exists(p) and self.resource_root != resources.resource_dir():
+            p = os.path.join(resources.resource_dir(), name)
         return p
 
     def dictionary(self, name):

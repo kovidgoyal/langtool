@@ -13,6 +13,7 @@ import threading
 
 import pytest
 
+from langtool import resources
 from langtool._base import speedups
 from langtool.patterns import static
 from langtool.patterns import static_format as F
@@ -293,7 +294,7 @@ def _compare_unit(t, ui):
     from langtool.messages import messages_for
     u = t.units[ui]
     la, lb = _fresh(u['loaded_with']), _fresh(u['loaded_with'])
-    path = os.path.join(static._PACKAGE_DIR, *u['name'].split('/'))
+    path = os.path.join(resources.root(), *u['name'].split('/'))
     if u['kind'] == 'grammar':
         ra, pa = loader.load_pattern_rules(path, la, la.resource_root, default_filter_factory(),
                                            messages_for(la.short_code))

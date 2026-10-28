@@ -178,6 +178,7 @@ def load_rules_file(kind, language, path, load_file, filter_factory):
         return {
             'rules': rules,
             'problems': problems,
+            'path': path,
             'unifier_calls': calls,
             # (the PosTokens that the loading added to the cache of the language, in their order)
             'pos_tokens': [k for k in language.pos_token_cache if k not in pos_before],
@@ -285,4 +286,11 @@ def load_rules_file(kind, language, path, load_file, filter_factory):
             cache.setdefault(k, t)
     for config, feature, type_, elem in payload['unifier_calls']:
         config.set_equivalence(feature, type_, elem)
+    built_path = payload['path']
+    if built_path != path:
+        # (the entry was written with the resource root in another directory: the keys of the entries are relative
+        # to it, see diskcache.package_fingerprint())
+        for r in payload['rules']:
+            if getattr(r, 'source_file', None) == built_path:
+                r.source_file = path
     return payload['rules'], payload['problems']

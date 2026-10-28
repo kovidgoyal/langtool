@@ -234,18 +234,35 @@ def manifest_digest(top, exclude=(MANIFEST_NAME,), hashes=None):
     return h.hexdigest(), n
 
 
-def write_manifest(top):
-    """Write the manifest of the package files below top (setup.py calls
-    this for the built package; see package_fingerprint())."""
+def _source_version(top):
+    """the __version__ of the package in the directory top (from its
+    __init__.py, without importing it), None if there is none"""
+    import re
+    try:
+        with open(os.path.join(top, '__init__.py'), encoding='utf-8') as f:
+            m = re.search(r"""^__version__ = ['"]([^'"]+)['"]""", f.read(), re.M)
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def write_manifest(top, out_dir=None):
+    """Write the manifest of the package files below top into top or
+    out_dir (setup.py calls this for the built package; see
+    package_fingerprint())."""
     import json
     hashes = {}
     digest, n = manifest_digest(top, hashes=hashes)
-    data = json.dumps({'format': MANIFEST_FORMAT, 'sha256': digest, 'files': n, 'hashes': hashes},
-                      sort_keys=True).encode('ascii')
-    tmp = os.path.join(top, MANIFEST_NAME + '.tmp')
+    m = {'format': MANIFEST_FORMAT, 'sha256': digest, 'files': n, 'hashes': hashes}
+    version = _source_version(top)
+    if version is not None:
+        m['version'] = version
+    data = json.dumps(m, sort_keys=True).encode('ascii')
+    out_dir = top if out_dir is None else out_dir
+    tmp = os.path.join(out_dir, MANIFEST_NAME + '.tmp')
     with open(tmp, 'wb') as f:
         f.write(data)
-    os.replace(tmp, os.path.join(top, MANIFEST_NAME))
+    os.replace(tmp, os.path.join(out_dir, MANIFEST_NAME))
     return digest
 
 
@@ -254,53 +271,91 @@ _manifest = None  # (the manifest as read, or False)
 
 def installed_manifest():
     """The content of the manifest of the installed package (a dict with
-    the hash of its files), None in a source tree (no manifest) or when
-    LANGTOOL_DISK_CACHE_VERIFY is set (the files are then looked at)."""
+    the hash of its files; in the resource root, see langtool.resources),
+    None in a source tree (no manifest), when it is the manifest of another
+    version of the package (logged) or when LANGTOOL_DISK_CACHE_VERIFY is
+    set (the files are then looked at)."""
     global _manifest
     if os.environ.get('LANGTOOL_DISK_CACHE_VERIFY', '').strip().lower() not in ('', '0', 'off', 'no', 'false'):
         return None
+    from . import resources
+    root = resources.root()
     m = _manifest
-    if m is None or m[0] != _PACKAGE_DIR:
-        m = _manifest = (_PACKAGE_DIR, _read_manifest())
+    if m is None or m[0] != root:
+        m = _manifest = (root, _read_manifest(root))
     return m[1]
 
 
-def _read_manifest():
+def _read_manifest(root):
     import json
+    path = os.path.join(root, MANIFEST_NAME)
     try:
-        with open(os.path.join(_PACKAGE_DIR, MANIFEST_NAME), 'rb') as f:
+        with open(path, 'rb') as f:
             m = json.loads(f.read().decode('ascii'))
         if m.get('format') != MANIFEST_FORMAT or not isinstance(m.get('sha256'), str):
             return None
         if not isinstance(m.get('hashes', {}), dict):
             return None
-        return m
     except (OSError, ValueError, AttributeError):
         return None
+    version = getattr(sys.modules.get(__package__), '__version__', None)
+    if 'version' in m and m['version'] != version:
+        # (e.g. the data files of another version bundled in a frozen application)
+        logging.getLogger('langtool.resources').warning(
+            '%s is the manifest of langtool %s, not of this version (%s): it is not used', path, m['version'],
+            version)
+        return None
+    return m
+
+
+def _extension_state(path):
+    """what the fingerprint covers of an extension module: its size and
+    modification time, its hash in a frozen application (whose files may be
+    extracted anew for every run, e.g. PyInstaller's onefile mode)"""
+    from . import resources
+    if resources.is_frozen():
+        try:
+            return file_hash(path)
+        except OSError:
+            return None
+    return _file_stat(path)
 
 
 def _package_files_state():
     """what the fingerprint covers of the package files: the manifest of an
     installed package (and its stat, and the extension modules), else the
-    size and modification time of all files"""
+    size and modification time of all files (of the resource root and of
+    the package directory)"""
+    from . import resources
+    root = resources.root()
     m = installed_manifest()
     if m is None:
-        return ('files', _walk_stats(_PACKAGE_DIR))
+        tops = [root] if root == _PACKAGE_DIR else [root, _PACKAGE_DIR]
+        return ('files', [(top, _walk_stats(top)) for top in tops])
     ext = []
     try:
         names = os.listdir(_PACKAGE_DIR)
     except OSError:
         names = []
     for n in sorted(names):
-        if n.endswith(('.so', '.pyd', '.dylib', '.dll', MANIFEST_NAME)):
-            ext.append((n, _file_stat(os.path.join(_PACKAGE_DIR, n))))
+        if n.endswith(('.so', '.pyd', '.dylib', '.dll')):
+            ext.append((n, _extension_state(os.path.join(_PACKAGE_DIR, n))))
+    from . import _base
+    speedups_file = getattr(_base.speedups, '__file__', None)
+    if speedups_file and os.path.dirname(os.path.abspath(speedups_file)) != _PACKAGE_DIR:
+        # (a frozen application can put the extension modules elsewhere)
+        ext.append((os.path.basename(speedups_file), _extension_state(speedups_file)))
+    if not resources.is_frozen():
+        ext.append((MANIFEST_NAME, _file_stat(os.path.join(root, MANIFEST_NAME))))
     return ('manifest', m['sha256'], ext)
 
 
 def _lxml_version():
     """the version of lxml and the size and modification time of its etree
     module (which includes or links libxml2), without importing it (that
-    takes about 10 ms, and lxml is only needed when XML files are parsed)"""
+    takes about 10 ms, and lxml is only needed when XML files are parsed);
+    in a frozen application its size only (the application does not change,
+    but its files may be extracted anew for every run)"""
     etree = sys.modules.get('lxml.etree')
     try:
         if etree is not None:
@@ -309,6 +364,10 @@ def _lxml_version():
             import importlib.util
             origin = importlib.util.find_spec('lxml.etree').origin
         import lxml
+        from . import resources
+        if resources.is_frozen():
+            st = _file_stat(origin)
+            return lxml.__version__, os.path.basename(origin), st and st[0]
         return lxml.__version__, origin, _file_stat(origin)
     except Exception:  # pragma: no cover
         return None
@@ -328,11 +387,16 @@ def package_fingerprint():
             regex_version = None
         lxml_version = _lxml_version()
         version = getattr(sys.modules.get(__package__), '__version__', None)
+        files = _package_files_state()
+        # (the locations of the package are part of the fingerprint only in a source tree: the paths below the
+        # resource root are relative in the keys of the entries, see _portable_key(), so an installed package or
+        # a frozen application whose files are extracted to a new directory for every run can use its entries)
+        where = (_PACKAGE_DIR,) if files[0] == 'files' else None
         h = hashlib.sha256()
         h.update(repr((FORMAT_VERSION, version, sys.version, sys.implementation.cache_tag, sys.platform,
                        sys.maxunicode, _PROTOCOL, _base.speedups is not None, regex_version, lxml_version,
-                       _PACKAGE_DIR)).encode('utf-8', 'surrogatepass'))
-        h.update(repr(_package_files_state()).encode('utf-8', 'surrogatepass'))
+                       where)).encode('utf-8', 'surrogatepass'))
+        h.update(repr(files).encode('utf-8', 'surrogatepass'))
         fp = _fingerprint = h.hexdigest()
     return fp
 
@@ -346,10 +410,31 @@ def _file_stat(path):
 
 
 def _is_package_file(path):
-    try:
-        return os.path.commonpath([os.path.abspath(path), _PACKAGE_DIR]) == _PACKAGE_DIR
-    except ValueError:
-        return False
+    from . import resources
+    return resources.is_package_file(path)
+
+
+_ROOT_MARK = '<langtool>/'
+
+
+def _portable_key(key):
+    """the key with the paths below the resource root (strings) replaced by
+    relative paths (marked), see package_fingerprint()"""
+    from . import resources
+    root = resources.root() + os.sep
+
+    def conv(v):
+        t = type(v)
+        if t is str:
+            return _ROOT_MARK + v[len(root):].replace(os.sep, '/') if v.startswith(root) else v
+        if t is tuple:
+            return tuple(conv(x) for x in v)
+        if t is list:
+            return [conv(x) for x in v]
+        if t is frozenset:
+            return frozenset(conv(x) for x in v)
+        return v
+    return conv(key)
 
 
 def note_dependency(path):
@@ -736,6 +821,7 @@ def load_or_build(kind, key, build, persist=None, resolve=None, deps=()):
     if not is_enabled():
         return build()
     try:
+        key = _portable_key(key)
         path = _entry_path(kind, key)
     except Exception as e:
         log.debug('disk cache unavailable: %s', e)
@@ -756,7 +842,7 @@ def load_or_build(kind, key, build, persist=None, resolve=None, deps=()):
     stack = getattr(_local, 'deps', None)
     if stack is None:
         stack = _local.deps = []
-    noted = set(os.path.abspath(os.fspath(p)) for p in deps)
+    noted = set(p for p in (os.path.abspath(os.fspath(p)) for p in deps) if not _is_package_file(p))
     stack.append(noted)
     try:
         value = build()

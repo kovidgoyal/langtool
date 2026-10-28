@@ -27,11 +27,11 @@ from .core import CoreRule, CoreTextLevelRule, is_paragraph_end
 # --- helpers ---------------------------------------------------------------
 
 def _rules_file(language, path):
-    from ..language import RULES_DIR
+    from ..resources import rules_dir
     rel = path.lstrip('/')
     p = os.path.join(language.rules_root, rel)
-    if not os.path.exists(p) and language.rules_root != RULES_DIR:
-        p = os.path.join(RULES_DIR, rel)
+    if not os.path.exists(p) and language.rules_root != rules_dir():
+        p = os.path.join(rules_dir(), rel)
     return p
 
 

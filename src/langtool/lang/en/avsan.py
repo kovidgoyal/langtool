@@ -5,7 +5,7 @@ import threading
 
 from ... import jregex
 from ...analysis import AnalyzedToken, AnalyzedTokenReadings
-from ...language import RULES_DIR
+from ...resources import rules_dir
 from ...rules.base import RuleMatch
 from ...rules.core import CoreRule
 from ...tools import (is_all_uppercase, is_empty, is_mixed_case, java_trim, lowercase_first_char_if_capitalized,
@@ -45,8 +45,8 @@ def _avs_an_data():
     global _data
     with _data_lock:
         if _data is None:
-            _data = (_load_words(os.path.join(RULES_DIR, 'en', 'det_a.txt')),
-                     _load_words(os.path.join(RULES_DIR, 'en', 'det_an.txt')))
+            _data = (_load_words(os.path.join(rules_dir(), 'en', 'det_a.txt')),
+                     _load_words(os.path.join(rules_dir(), 'en', 'det_an.txt')))
         return _data
 
 
