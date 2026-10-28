@@ -1,4 +1,6 @@
-# notes for coding agents working on langtool
+initialize_command: python setup.py build_ext --inplace
+
+# Notes for coding agents working on langtool
 
 `langtool` is a port of the Java [LanguageTool](https://github.com/languagetool-org/languagetool)
 grammar checker (version 6.8) to Python, with a C extension for the hot
@@ -204,9 +206,6 @@ Always rebuild the extension first if C code changed. Then:
 
 - Match offsets count Python characters (code points), not Java UTF-16 units;
   they differ only after characters outside the BMP (emoji).
-- Windows: the static table mapping code is untested (no Windows toolchain
-  was available); rebuilding while another process maps the tables will fail
-  on Windows.
 - Hunspell port follows Hunspell 1.7.1 (the version LanguageTool bundles);
   suggestions can differ from newer native Hunspell versions.
 
