@@ -34,7 +34,7 @@ cache, static rule tables, spell checking).
    Python fallback (selected in `_base.py`; `LANGTOOL_PURE_PYTHON=1` forces
    it) which is the fallback when the extension can't be built.
    `tests/test_c_vs_python.py` compares both. C code: correct reference
-   counting, no leaks, no warnings with `-Wall -Wextra`, CPython 3.9+, thread
+   counting, no leaks, no warnings with `-Wall -Wextra`, CPython 3.11+, thread
    safe.
 4. **Never commit large or downloaded data.** Dictionaries, speller data,
    OpenNLP models, HanLP/IPADIC data, Hunspell dictionaries etc. are

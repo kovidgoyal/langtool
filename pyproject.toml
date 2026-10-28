@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Grammar and style checking based on the LanguageTool rules: a port of the LanguageTool core to Python with a C extension"
 readme = "README.md"
 license = "LGPL-2.1-or-later"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = ["lxml>=4.6", "regex>=2022.1.18"]
 classifiers = [
     "Programming Language :: Python :: 3",
