@@ -14,6 +14,8 @@ def main(argv=None):
                    help='do not use the disk cache of derived data (loaded rules etc., which makes loading a '
                         'language faster), same as LANGTOOL_DISK_CACHE=0')
     p.add_argument('--clear-disk-cache', action='store_true', help='remove the disk cache of derived data')
+    p.add_argument('--resource-dir', help='directory with the data files of langtool (default: '
+                                          'LANGTOOL_RESOURCE_DIR or the package directory)')
     sub = p.add_subparsers(dest='command')
 
     c = sub.add_parser('check', help='check text from files or stdin')
@@ -47,7 +49,14 @@ def main(argv=None):
     a.add_argument('-l', '--language', required=True)
     a.add_argument('text', nargs='*')
 
+    r = sub.add_parser('copy-resources', help='copy the data files of langtool into a directory (for freezing an '
+                                              'application, see langtool.freeze)')
+    r.add_argument('dest')
+
     args = p.parse_args(argv)
+    if args.resource_dir:
+        from .resources import set_resource_dir
+        set_resource_dir(args.resource_dir)
     if args.cache_dir:
         from .api import set_cache_dir
         set_cache_dir(args.cache_dir)
@@ -57,6 +66,11 @@ def main(argv=None):
     if args.no_disk_cache:
         from .api import set_disk_cache
         set_disk_cache(False)
+    if args.command == 'copy-resources':
+        from .freeze import copy_resources
+        files = copy_resources(args.dest)
+        print('Copied %d files to %s' % (len(files), os.path.abspath(args.dest)))
+        return 0
     if args.command == 'languages':
         from .api import language_names
         for code, name in sorted(language_names().items()):

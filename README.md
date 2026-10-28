@@ -148,6 +148,100 @@ langtool.set_disk_cache(True, max_size=200 << 20)      # at most 200 MB
 langtool.clear_disk_cache()                            # remove all entries
 ```
 
+## Data files and frozen applications
+
+The files langtool reads at run time (the rules and other data in `data/`,
+the static rule tables in `_rule_tables/`, the dictionary manifests
+`dictionaries.json` and `hunspell_dictionaries.json`, and the package
+manifest `_package_manifest.json`) form the *resource root*. By default
+this is the package directory. They have to stay together, because the
+static rule tables and the disk cache check them against the hashes in the
+manifest. The resource root can be moved with
+`langtool.set_resource_dir(path)` (call it before langtool uses its data),
+the `LANGTOOL_RESOURCE_DIR` environment variable or `--resource-dir` on the
+command line. `langtool.get_resource_dir()` returns the directory in use.
+
+### Freezing an application
+
+`langtool.freeze` tells a freezing script (PyInstaller, Nuitka, cx_Freeze,
+py2exe, ...) what to bundle:
+
+* `freeze.data_files()` — the resource files, as (source path, path
+  relative to the resource root) pairs.
+* `freeze.hidden_imports()` — all modules of the package. Freezers can't
+  find them all by following imports, because the language modules and the
+  classes named in the rule tables are imported by name.
+* `freeze.copy_resources(dest)` (or `python -m langtool copy-resources
+  DEST`) — copies the resource files into a directory (see below).
+
+Put the files in a `langtool` directory next to the frozen modules, where
+the frozen package directory is, and langtool finds them without
+configuration. In a frozen application langtool also looks in
+`sys._MEIPASS/langtool` and in `langtool` (or `lib/langtool`) next to the
+executable.
+
+PyInstaller (in the `.spec` file, or as `--add-data`/`--hidden-import`
+options):
+
+```python
+import os
+from langtool import freeze
+a = Analysis(['app.py'],
+             datas=[(src, os.path.join('langtool', os.path.dirname(rel))) for src, rel in freeze.data_files()],
+             hiddenimports=freeze.hidden_imports())
+```
+
+Nuitka:
+
+```python
+args = ['--include-data-files=%s=langtool/%s' % (src, rel) for src, rel in freeze.data_files()]
+args += ['--include-module=%s' % m for m in freeze.hidden_imports()]
+```
+
+cx_Freeze (`build_exe` options; langtool must be in `zip_exclude_packages`,
+see below):
+
+```python
+options = {'build_exe': {
+    'include_files': [(src, 'lib/langtool/' + rel) for src, rel in freeze.data_files()],
+    'packages': freeze.hidden_imports(),
+    'zip_exclude_packages': ['langtool']}}
+```
+
+Notes:
+
+* Freeze from an installed package (`pip install`, not editable). A frozen
+  application has no code files, so langtool relies on the manifest
+  written when the package is built (it has the hashes of the code and
+  data files). `data_files()` raises `freeze.FreezeError` when there is no
+  manifest. From a source tree (`build_ext --inplace`), run
+  `python -m langtool copy-resources DEST` first, which also writes the
+  manifest, and bundle `freeze.data_files(root=DEST)`. Rebuild the extension
+  before that if the rules or the code changed, otherwise the static rule
+  tables are stale and are not used.
+* The data is about 250 MB (rules and data files about 95 MB, static rule
+  tables about 150 MB). The files must be real files, not inside a zip
+  archive: the tables are memory-mapped and the XML files are parsed from
+  disk.
+* To keep the data outside the executable (e.g. to share it between
+  applications, or ship it separately), copy it with `copy-resources` and
+  point `LANGTOOL_RESOURCE_DIR` or `langtool.set_resource_dir()` at the copy.
+* PyInstaller's onedir mode starts fastest. Onefile works too, but it
+  extracts all the files (about 250 MB) on every start. Paths below the
+  resource root are relative in the disk cache keys, so a onefile
+  application, which extracts to a new directory on every run, keeps using
+  its cache entries.
+* Downloaded dictionaries still go to the cache directory (see
+  Dictionaries); they are not part of the resource root. An offline
+  application can bundle them and pass `dictionary_path` (or set
+  `LANGTOOL_DICT_PATH`).
+* If a different version of langtool's data is bundled, the manifest is
+  ignored (with a warning on the `langtool.resources` logger) and the
+  rules are loaded from the XML files.
+* To check a frozen application, `langtool.get_resource_dir()` shows where
+  the data was found and `langtool.static_rules_status()` should report
+  `ok` for the languages used.
+
 ## Spell checking
 
 Spell checking is optional and off by default. When it is on, misspelled
@@ -226,10 +320,14 @@ LanguageTool's own speller dictionaries, as in Java.
   `langtool.clear_disk_cache()` — the disk cache of derived data (see above)
 * `langtool.spell_check_languages()`, `langtool.hunspell_dictionary_info(code)`
 * `langtool.static_rules_status()` — whether the static rule tables are used (see above)
+* `langtool.set_resource_dir(path)`, `langtool.get_resource_dir()` — the location of the data files;
+  `langtool.freeze.data_files()`, `hidden_imports()`, `copy_resources(dest)` — for freezing applications (see
+  above)
 
 There is also a command line interface: `python -m langtool check -l en-US file.txt`
 (`-s` for spell checking, `--hunspell-dict [CODE=]PATH` for a dictionary,
-`--cache-dir DIR`, `--no-disk-cache`, `--clear-disk-cache`).
+`--cache-dir DIR`, `--no-disk-cache`, `--clear-disk-cache`, `--resource-dir DIR`;
+`python -m langtool copy-resources DEST` copies the data files).
 
 ## Status
 

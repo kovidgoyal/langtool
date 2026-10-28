@@ -95,6 +95,15 @@ cache, static rule tables, spell checking).
     `hunspell_rule.py`, `spellcheck.py` (the opt-in user facing Hunspell
     spelling rule), `hunspell_dictionaries.py/.json` (LibreOffice dictionary
     manifest).
+  - `resources.py` — the resource root (data/, _rule_tables/, the JSON
+    manifests and `_package_manifest.json`; the package directory unless
+    relocated with `set_resource_dir()`/`LANGTOOL_RESOURCE_DIR` or found in a
+    frozen app). Never locate data files with `__file__`: use
+    `resources.path()`, `rules_dir()`, `resource_dir()` (needed for frozen
+    apps). Paths below the root are relative in disk cache keys, and the
+    static tables store rule `source_file` relative to it.
+  - `freeze.py` — `data_files()`, `hidden_imports()`, `copy_resources()`
+    for scripts that freeze applications (PyInstaller, Nuitka, cx_Freeze).
   - Data and caches: `dictionaries.py`/`dictionaries.json` (download manifest
     from Maven Central), `diskcache.py` (disk cache of derived data),
     `testing.py` (PatternRuleTester, DisambiguationRuleTester).
@@ -126,7 +135,8 @@ shows the state.
 
 Build/runtime switches (env vars): `LANGTOOL_NO_EXTENSION` (build without C),
 `LANGTOOL_NO_RULE_TABLES` (build without tables), `LANGTOOL_RULE_TABLES_JOBS`,
-`LANGTOOL_RULE_TABLES_DIR`, `LANGTOOL_STATIC_RULES=0` (don't use the tables),
+`LANGTOOL_RULE_TABLES_DIR`, `LANGTOOL_RESOURCE_DIR` (relocated data files),
+`LANGTOOL_STATIC_RULES=0` (don't use the tables),
 `LANGTOOL_PURE_PYTHON=1`, `LANGTOOL_CACHE_DIR` (download cache; also
 `langtool.set_cache_dir()` / `cache_dir=`), `LANGTOOL_DICT_PATH`,
 `LANGTOOL_NO_DOWNLOAD`, `LANGTOOL_DISK_CACHE=0`, `LANGTOOL_DISK_CACHE_DIR`,
