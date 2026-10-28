@@ -44,6 +44,10 @@ class BelarusianSpecificCaseRule(AbstractSpecificCaseRule):
     capitalization."""
 
     def __init__(self, messages, language=None):
+        # (the Java constructor only gets the messages: the resources are those of Belarusian)
+        if language is None:
+            from ...api import get_language
+            language = get_language('be')
         super().__init__(messages, language)
         self.add_example_pair(
             '<marker>Вялікая айчынная Вайна</marker> — гэта спецыфічны тэрмін савецкай гістарыяграфіі.',
