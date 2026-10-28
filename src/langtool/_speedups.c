@@ -19,10 +19,6 @@
 #include <string.h>
 #include <math.h>
 
-#ifndef PySet_CheckExact  /* (Python 3.10+) */
-#define PySet_CheckExact(op) Py_IS_TYPE(op, &PySet_Type)
-#endif
-
 #define MAX_MATCH_LENGTH 250
 #define KIND_EQUALS 0
 #define KIND_SET 1
