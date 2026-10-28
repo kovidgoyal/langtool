@@ -18,7 +18,7 @@ print(tool.correct('This are a test.'))  # These are a test.
 
 ## Installation
 
-    pip install lang-tool
+    pip install kovidgoyal-langtool
 
 The package is distributed as source; a C compiler is needed to build the
 optional C extension (`langtool._speedups`). Without it a pure Python
