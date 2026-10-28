@@ -3,8 +3,8 @@ requires = ["setuptools>=69", "lxml>=4.6", "regex>=2022.1.18"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "langtool"
-version = "0.1.0"
+name = "kovidgoyal-langtool"
+dynamic = ["version"]
 description = "Grammar and style checking based on the LanguageTool rules: a port of the LanguageTool core to Python with a C extension"
 readme = "README.md"
 license = "LGPL-2.1-or-later"
@@ -26,6 +26,9 @@ langtool = "langtool.cli:main"
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "langtool.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

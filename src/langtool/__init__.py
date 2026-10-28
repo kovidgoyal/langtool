@@ -21,7 +21,7 @@ makes loading a language several times faster after the first time (see
 set_disk_cache(); LANGTOOL_DISK_CACHE=0 disables the cache).
 """
 
-__version__ = '0.1.0'  # (defined before the imports: langtool.diskcache uses it)
+__version__ = '1.0.0'  # (defined before the imports: langtool.diskcache uses it)
 
 from .api import (LanguageTool, Match, RuleInfo, check, clear_disk_cache, download_dictionaries, get_cache_dir,
                   get_disk_cache_dir, get_language, hunspell_dictionary_info, language_names, languages, set_cache_dir,
