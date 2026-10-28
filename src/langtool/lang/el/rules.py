@@ -66,6 +66,10 @@ class GreekSpecificCaseRule(AbstractSpecificCaseRule):
     /el/specific_case.txt with a special capitalization."""
 
     def __init__(self, messages, language=None):
+        # (the Java constructor only gets the messages: the resources are those of Greek)
+        if language is None:
+            from ...api import get_language
+            language = get_language('el')
         super().__init__(messages, language)
         self.add_example_pair('Κατοικώ στις <marker>Ηνωμένες πολιτείες</marker>.',
                               'Κατοικώ στις <marker>Ηνωμένες Πολιτείες</marker>.')
