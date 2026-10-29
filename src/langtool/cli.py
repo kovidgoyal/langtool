@@ -77,23 +77,23 @@ def main(argv=None):
             print(code, name, sep='\t')
         return 0
     if args.command == 'download':
-        from .api import download_dictionaries, get_cache_dir
-        from .dictionaries import DictionaryNotFound, download_language, manifest
-        if args.languages:
-            for lang in args.languages:
-                print('Downloading dictionaries for', lang, '...')
-                try:
-                    download_dictionaries(lang, spelling=args.spelling)
-                except DictionaryNotFound as e:
-                    print('warning:', e, file=sys.stderr)
-        else:
-            for lang in sorted(manifest()['languages']):
-                print('Downloading dictionaries for', lang, '...')
-                download_language(lang)
-            if args.spelling:
-                print('Downloading the Hunspell dictionaries ...')
-                from .hunspell_dictionaries import download_all
-                download_all()
+        from .api import download_dictionaries, get_cache_dir, set_download_hook
+        from .dictionaries import DictionaryNotFound
+        set_download_hook(_progress_printer(sys.stderr))
+        try:
+            if args.languages:
+                for lang in args.languages:
+                    print('Downloading dictionaries for', lang, '...')
+                    try:
+                        download_dictionaries(lang, spelling=args.spelling)
+                    except DictionaryNotFound as e:
+                        print('warning:', e, file=sys.stderr)
+            else:
+                print('Downloading the dictionaries of all languages%s ...'
+                      % (' and the Hunspell dictionaries' if args.spelling else ''))
+                download_dictionaries(spelling=args.spelling)
+        finally:
+            set_download_hook(None)
         print('Dictionaries are in', get_cache_dir())
         return 0
     if args.command == 'spelling-languages':
@@ -153,6 +153,31 @@ def main(argv=None):
         return 0
     p.print_help()
     return 1
+
+
+def _progress_printer(stream):
+    """A download hook (see langtool.set_download_hook()) printing the
+    progress: a line updated in place on a terminal, else a line per
+    file."""
+    tty = stream.isatty()
+    last = [None]
+
+    def hook(p):
+        name = p.item.url.rsplit('/', 1)[1]
+        mb = 1024 * 1024
+        line = '[%d/%d] %s %d%% (%.1f of %.1f MB)' % (
+            p.item_index + 1, p.item_count, name, 100 * p.batch_received // max(p.batch_total, 1),
+            p.batch_received / mb, p.batch_total / mb)
+        if tty:
+            if p.state == 'progress' and line == last[0]:
+                return
+            last[0] = line
+            stream.write('\r\x1b[K' + line + ('\n' if p.state == 'done' else ''))
+            stream.flush()
+        elif p.state == 'done':
+            print(line, file=stream, flush=True)
+
+    return hook
 
 
 if __name__ == '__main__':

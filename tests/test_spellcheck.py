@@ -358,8 +358,9 @@ def test_cache_dir_used_for_downloads(tmp_path, monkeypatch, restore_cache_dir):
         z.writestr('org/languagetool/resource/qq/qq.dict', b'dict')
         z.writestr('org/languagetool/resource/qq/qq.info', b'info')
     with open(jar, 'rb') as f:
-        sha = hashlib.sha256(f.read()).hexdigest()
-    m = {'version': 1, 'languages': {'qq': [{'url': 'file://' + str(jar), 'sha256': sha, 'size': 0, 'files': [
+        data = f.read()
+    sha = hashlib.sha256(data).hexdigest()
+    m = {'version': 1, 'languages': {'qq': [{'url': 'file://' + str(jar), 'sha256': sha, 'size': len(data), 'files': [
         {'name': 'qq/qq.dict', 'path': 'org/languagetool/resource/qq/qq.dict'},
         {'name': 'qq/qq.info', 'path': 'org/languagetool/resource/qq/qq.info'}]}]}}
     monkeypatch.setattr(dictionaries, 'manifest', lambda: m)

@@ -36,24 +36,89 @@ def language_names():
     return out
 
 
-def download_dictionaries(language_code=None, progress=None, spelling=False):
+def _dictionary_codes(language_code):
+    from . import dictionaries
+    if language_code is None:
+        return sorted(dictionaries.manifest()['languages'])
+    code = get_language(language_code).definition.get('resource_language', resolve_code(language_code)[0])
+    return [code.split('-')[0]]
+
+
+def downloads_needed(language_code=None, spelling=False):
+    """The files (DownloadItem objects) that download_dictionaries() with
+    the same arguments would download now: the dictionaries of the
+    language (all languages if None) that are not in the cache, and with
+    spelling=True its Hunspell dictionary for spell checking (for a
+    language without one, SpellCheckUnavailable is raised). Never downloads
+    anything, and is cheap (it only checks whether files exist)."""
+    from . import dictionaries, hunspell_dictionaries
+    items = []
+    for c in _dictionary_codes(language_code):
+        items.extend(dictionaries.language_downloads(c))
+    if spelling:
+        if language_code is None:
+            items.extend(hunspell_dictionaries.all_downloads())
+        else:
+            items.extend(hunspell_dictionaries.language_downloads(get_language(language_code)))
+    return items
+
+
+def download_size(language_code=None, spelling=False):
+    """The number of bytes download_dictionaries() with the same arguments
+    would download now (see downloads_needed())."""
+    return sum(item.size for item in downloads_needed(language_code, spelling))
+
+
+def is_ready(language_code, spelling=False, dictionary_path=None):
+    """Whether using the language (creating a LanguageTool and checking
+    texts, with spell checking if spelling is True) will not download
+    anything: its dictionaries are in the cache (or are found in
+    dictionary_path or LANGTOOL_DICT_PATH), and with spelling=True its
+    Hunspell dictionary is in the cache (SpellCheckUnavailable is raised
+    for a language without one). Never downloads anything, cheap."""
+    from . import dictionaries, hunspell_dictionaries
+    if not all(dictionaries.is_present(c, dictionary_path) for c in _dictionary_codes(language_code)):
+        return False
+    if spelling:
+        lang = get_language(language_code)
+        if hunspell_dictionaries.dictionary_name(lang) is None:
+            raise hunspell_dictionaries.SpellCheckUnavailable(hunspell_dictionaries._unavailable_message(lang))
+        return hunspell_dictionaries.is_cached(lang)
+    return True
+
+
+def download_dictionaries(language_code=None, progress=None, spelling=False, abort=None):
     """Download the dictionaries for a language (all languages if None) into
     the cache directory, so that they are available offline later. With
     spelling=True the Hunspell dictionary for spell checking is also
     downloaded (for a language without one, SpellCheckUnavailable is
-    raised; with language_code None all of them are downloaded)."""
-    from . import dictionaries, hunspell_dictionaries
-    if language_code is None:
-        codes = sorted(dictionaries.manifest()['languages'])
-    else:
-        codes = [get_language(language_code).definition.get('resource_language', resolve_code(language_code)[0])]
-    for c in codes:
-        dictionaries.download_language(c.split('-')[0], progress)
-    if spelling:
-        if language_code is None:
-            hunspell_dictionaries.download_all(progress)
-        else:
-            hunspell_dictionaries.download(get_language(language_code), progress)
+    raised; with language_code None all of them are downloaded).
+
+    The files are those of downloads_needed() and are downloaded as one
+    batch (see set_download_hook()). progress(url, done, total) is called
+    after each chunk of a file. abort is a threading.Event: when it is set,
+    the download stops (between chunks) and DownloadAborted is raised; the
+    partially downloaded file is removed (the files downloaded completely
+    are kept)."""
+    from . import dictionaries
+    with dictionaries._lock:
+        dictionaries.download_items(downloads_needed(language_code, spelling), progress, abort)
+
+
+def set_download_hook(hook):
+    """Set a function called with a DownloadProgress for every download
+    (process-wide; None removes it), see
+    langtool.dictionaries.set_download_hook()."""
+    from . import dictionaries
+    dictionaries.set_download_hook(hook)
+
+
+def set_url_opener(opener):
+    """Set the function used to open the URLs of all downloads
+    (process-wide; None restores the default), see
+    langtool.dictionaries.set_url_opener()."""
+    from . import dictionaries
+    dictionaries.set_url_opener(opener)
 
 
 def set_cache_dir(path):

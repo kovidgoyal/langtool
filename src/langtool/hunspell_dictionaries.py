@@ -21,12 +21,13 @@ none, see unavailable_languages()).
 """
 
 import os
-import threading
 from functools import lru_cache
 
-from .dictionaries import DictionaryNotFound, cache_root, download_file, join_name
+from . import dictionaries
+from .dictionaries import DictionaryNotFound, DownloadItem, cache_root, join_name
 
-_lock = threading.RLock()
+# (the lock of all downloads, see langtool.dictionaries)
+_lock = dictionaries._lock
 
 
 class SpellCheckUnavailable(DictionaryNotFound):
@@ -141,26 +142,47 @@ def is_cached(language):
     return name is not None and all(os.path.exists(p) for p in _cached_paths(name))
 
 
-def download(language, progress=None):
+def _items(name, code):
+    entry = manifest()['dictionaries'][name]
+    return [DownloadItem(entry[ext]['url'], path, entry[ext]['sha256'], entry[ext]['size'], 'hunspell', code)
+            for ext, path in zip(('aff', 'dic'), _cached_paths(name)) if not os.path.exists(path)]
+
+
+def language_downloads(language):
+    """The DownloadItems that download(language) would download now (the
+    files of the dictionary missing in the cache). Raises
+    SpellCheckUnavailable if there is no dictionary for the language.
+    Nothing is downloaded, cheap."""
+    name = dictionary_name(language)
+    if name is None:
+        raise SpellCheckUnavailable(_unavailable_message(language))
+    return _items(name, _code(language))
+
+
+def all_downloads():
+    """The DownloadItems that download_all() would download now."""
+    out = []
+    for name in sorted({d for d in manifest()['languages'].values() if d}):
+        code = next(c for c, d in manifest()['languages'].items() if d == name)
+        out.extend(_items(name, code))
+    return out
+
+
+def download(language, progress=None, abort=None):
     """Download the LibreOffice dictionary of the language (a code or
     Language) into the cache, returns (aff, dic). Raises
     SpellCheckUnavailable if there is none."""
     name = dictionary_name(language)
     if name is None:
         raise SpellCheckUnavailable(_unavailable_message(language))
-    entry = manifest()['dictionaries'][name]
-    paths = _cached_paths(name)
     with _lock:
-        for ext, path in zip(('aff', 'dic'), paths):
-            if not os.path.exists(path):
-                download_file(entry[ext]['url'], path, entry[ext]['sha256'], progress)
-    return paths
+        dictionaries.run_batch(language_downloads(language), progress, abort)
+    return _cached_paths(name)
 
 
-def download_all(progress=None):
-    for name in sorted({d for d in manifest()['languages'].values() if d}):
-        code = next(c for c, d in manifest()['languages'].items() if d == name)
-        download(code, progress)
+def download_all(progress=None, abort=None):
+    with _lock:
+        dictionaries.run_batch(all_downloads(), progress, abort)
 
 
 def _code(language):

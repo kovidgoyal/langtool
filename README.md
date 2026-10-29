@@ -98,6 +98,68 @@ files), pass `dictionary_path` or set `LANGTOOL_DICT_PATH`:
 tool = langtool.LanguageTool('de-DE', dictionary_path='/opt/LanguageTool-6.6', download=False)
 ```
 
+### Download progress
+
+An application can find out what a language needs, download it with its
+own progress display and cancel button, and use its own HTTP stack:
+
+```python
+import threading
+import langtool
+
+langtool.set_cache_dir(my_cache_dir)
+if not langtool.is_ready('de-DE', spelling=True):   # cheap, never downloads
+    items = langtool.downloads_needed('de-DE', spelling=True)   # DownloadItem list
+    print('%.1f MB to download' % (langtool.download_size('de-DE', spelling=True) / 1e6))
+
+def hook(p):   # a DownloadProgress, called in the downloading thread
+    show(p.item.url, p.received, p.item.size, p.batch_received, p.batch_total)
+    if user_cancelled:
+        raise langtool.DownloadAborted()
+
+langtool.set_download_hook(hook)
+langtool.set_url_opener(lambda url: my_http_get(url))   # returns an object with read(n)
+cancel = threading.Event()
+langtool.download_dictionaries('de-DE', spelling=True, abort=cancel)
+```
+
+* `downloads_needed(code=None, spelling=False)` — the `DownloadItem`s
+  (`url`, `dest`, `sha256`, `size`, `kind`, `language`) that
+  `download_dictionaries()` with the same arguments would download now,
+  only those not in the cache. `kind` is `'dictionary'`, `'opennlp'`
+  (English chunker/tagger models), `'ipadic'` (Japanese) or `'hunspell'`.
+  The dictionaries come in jars: `dest` is the jar, from which the files are
+  extracted, after which the jar is removed. `download_size()` is the sum of
+  their sizes.
+* `is_ready(code, spelling=False, dictionary_path=None)` — whether using the
+  language (and spell checking it) will not download anything. Both
+  functions only check whether files exist (they can be called from GUI
+  code); for a language without a Hunspell dictionary they raise
+  `SpellCheckUnavailable` with `spelling=True`.
+* `set_download_hook(hook)` — process-wide, `None` removes it. The hook is
+  called for every download, including the implicit ones made when a
+  `LanguageTool` is created or a text is checked, with a `DownloadProgress`:
+  `item`, `item_index`, `item_count` (the batch: the files of one
+  `download_dictionaries()` call, or of one implicit download of a
+  language), `received` (bytes of the item), `batch_received`,
+  `batch_total` (from the manifests, known before the first byte) and
+  `state`: `'start'` and `'done'` once per item, `'progress'` after every
+  chunk. It is called in the downloading thread, while the download lock is
+  held: it must not wait for another thread that downloads. Any exception
+  raised by the hook (preferably `DownloadAborted`) aborts the download and
+  propagates to the caller (e.g. `LanguageTool()` or `check()`).
+* `download_dictionaries(..., abort=event)` — a `threading.Event` checked
+  between chunks: when set, `DownloadAborted` is raised. The files that were
+  downloaded completely are kept, a partial file is always removed.
+* `set_url_opener(opener)` — process-wide, `None` restores
+  `urllib.request.urlopen`. `opener(url)` returns an object with `read(n)`
+  (`close()` and the context manager protocol are not required, `close()` is
+  called if it exists). It is used for all downloads.
+
+The sha256 checksum and the size from the manifest are verified for every
+file; a file is written to a temporary file in the cache and moved into
+place when complete. `python -m langtool download` shows the progress.
+
 ## Disk cache
 
 Loading a language means parsing thousands of XML rules, compiling their
@@ -314,7 +376,12 @@ LanguageTool's own speller dictionaries, as in Java.
   * `spell_check` (property, can be set), `spelling_rule`, `hunspell_dictionary`
 * `langtool.check(text, language, spell_check=False, hunspell_dictionaries=None)`
 * `langtool.languages()` — the supported language codes
-* `langtool.download_dictionaries(code, spelling=False)`
+* `langtool.download_dictionaries(code=None, progress=None, spelling=False, abort=None)` — `progress(url,
+  done, total)` is called after each chunk, `abort` is a `threading.Event` (see Download progress)
+* `langtool.downloads_needed(code=None, spelling=False)`, `langtool.download_size(code=None, spelling=False)`,
+  `langtool.is_ready(code, spelling=False, dictionary_path=None)`, `langtool.set_download_hook(hook)`,
+  `langtool.set_url_opener(opener)`, `DownloadItem`, `DownloadProgress`, `DownloadAborted` — see Download
+  progress
 * `langtool.set_cache_dir(path)`, `langtool.get_cache_dir()`
 * `langtool.set_disk_cache(enabled=True, directory=None, max_size=None)`, `langtool.get_disk_cache_dir()`,
   `langtool.clear_disk_cache()` — the disk cache of derived data (see above)
