@@ -14,6 +14,76 @@ from . import jregex
 
 SRX_NS = '{http://www.lisa.org/srx20}'
 
+# Maximum length of the before patterns of exception rules, which are used in a lookbehind (see
+# finitize): SrxTextIterator.DEFAULT_MAX_LOOKBEHIND_CONSTRUCT_LENGTH of net.loomchild.segment 2.0.3
+# (LanguageTool's SrxTools creates the SrxTextIterator without parameters, so the default is used)
+MAX_LOOKBEHIND_CONSTRUCT_LENGTH = 100
+
+
+def remove_block_quotes(pattern):
+    """Port of net.loomchild.segment.util.Util.removeBlockQuotes: replaces
+    \\Q...\\E quoting by escaping each quoted character. (Java quirks kept:
+    every quoted character gets a backslash, even letters and digits, and a
+    \\Q preceded by a backslash that is itself escaped still starts a
+    quote.)"""
+    out = []
+    quote = False
+    previous = ''
+    for c in pattern:
+        if quote:
+            if previous == '\\' and c == 'E':
+                quote = False
+                # (removes the "\\" added in the previous iteration)
+                del out[-2:]
+            else:
+                out.append('\\')
+                out.append(c)
+        else:
+            if previous == '\\' and c == 'Q':
+                quote = True
+                # (removes the "\" added in the previous iteration)
+                del out[-1:]
+            else:
+                out.append(c)
+        previous = c
+    return ''.join(out)
+
+
+_FINITIZE_PATTERNS = None
+
+
+def _finitize_patterns():
+    global _FINITIZE_PATTERNS
+    if _FINITIZE_PATTERNS is None:
+        # (Util.STAR_PATTERN, PLUS_PATTERN and RANGE_PATTERN, Java regexes)
+        _FINITIZE_PATTERNS = (
+            jregex.compile('(?<=(?<!\\\\)(?:\\\\\\\\){0,100})\\*'),
+            jregex.compile('(?<=(?<!\\\\)(?:\\\\\\\\){0,100})(?<![\\?\\*\\+]|\\{[0-9],?[0-9]?\\}?\\})\\+'),
+            jregex.compile('(?<=(?<!\\\\)(?:\\\\\\\\){0,100})\\{\\s*([0-9]+)\\s*,\\s*\\}'),
+        )
+    return _FINITIZE_PATTERNS
+
+
+def finitize(pattern, infinity=MAX_LOOKBEHIND_CONSTRUCT_LENGTH):
+    """Port of net.loomchild.segment.util.Util.finitize: makes a pattern
+    match strings of bounded length (as Java lookbehind requires) by
+    replacing * with {0,infinity}, + with {1,infinity} and {n,} with
+    {n,infinity}.
+
+    Java quirks kept: this is a plain textual replacement, so a * or + inside
+    a character class is replaced too ([*] becomes [{0,100}]); *? becomes
+    {0,100}? and ++ becomes {1,100}+, but *+ becomes {0,100}{1,100} (the +
+    is replaced because the star has been replaced first), and so is a +
+    after some longer {n,m} quantifiers (a{12,}+ becomes a{12,100}{1,100},
+    a{12,13}+ becomes a{12,13}{1,100}). Verified against segment 2.0.3 on all the before patterns
+    of segment.srx."""
+    star, plus, rng = _finitize_patterns()
+    p = remove_block_quotes(pattern)
+    p = jregex.java_replace(star, '{0,%d}' % infinity, p)
+    p = jregex.java_replace(plus, '{1,%d}' % infinity, p)
+    p = jregex.java_replace(rng, '{$1,%d}' % infinity, p)
+    return p
+
 
 class SrxRule:
     __slots__ = ('is_break', 'before', 'after')
@@ -129,16 +199,92 @@ def _caret_to_G(pattern):
     return ''.join(out)
 
 
+def _region_dependence(pattern):
+    """How searching (Java) pattern in a region of the text with
+    java.util.regex.Matcher's default opaque and anchoring bounds (which
+    _RuleMatcher emulates by matching a slice of the text starting at the
+    region start) can differ from searching the whole text from the region
+    start (pos argument). Returns (needs_slice, caret, boundary):
+
+    - caret: ^ matches at the region start (handled with a variant of the
+      pattern where ^ is \\G, searched from the region start);
+    - boundary: \\b or \\B at the region start see no previous character
+      (the results are the same unless \\b differs there, see
+      _boundary_differs);
+    - needs_slice: other constructs (lookbehind, $, multiline/comments
+      flags, \\A, \\G, \\Q...) for which the slice is always used
+      (conservative: none of these are used by the break rules of the
+      LanguageTool SRX files, except one rare Ukrainian rule).
+
+    Elsewhere, the constructs look at most one character back, so matches
+    starting after the region start don't depend on where it is."""
+    needs_slice = caret = boundary = False
+    i = 0
+    n = len(pattern)
+    depth = 0
+    while i < n:
+        c = pattern[i]
+        if c == '\\':
+            d = pattern[i + 1:i + 2]
+            if d == 'Q':
+                return True, caret, boundary
+            if not depth:
+                if d in ('b', 'B'):
+                    if pattern.startswith('{', i + 2):
+                        needs_slice = True
+                    else:
+                        boundary = True
+                elif d in ('A', 'G'):
+                    needs_slice = True
+            i += 2
+            continue
+        if depth:
+            if c == '[':
+                depth += 1
+            elif c == ']':
+                depth -= 1
+        elif c == '[':
+            depth = 1
+            if pattern.startswith('^', i + 1):
+                i += 1
+        elif c == '^':
+            caret = True
+        elif c == '$':
+            needs_slice = True
+        elif c == '(' and pattern.startswith('?', i + 1):
+            if pattern.startswith('<=', i + 2) or pattern.startswith('<!', i + 2):
+                needs_slice = True
+            else:
+                j = i + 2
+                while j < n and (pattern[j].isalpha() or pattern[j] == '-'):
+                    if pattern[j] in 'mx':
+                        needs_slice = True
+                    j += 1
+        i += 1
+    return needs_slice, caret, boundary
+
+
 class _BreakRule:
-    __slots__ = ('rule', 'before', 'after', 'after_needs_slice', 'exception')
+    __slots__ = ('rule', 'before', 'after', 'exception', 'before_slice', 'before_caret', 'before_boundary',
+                 'before_g', 'after_slice', 'after_caret', 'after_boundary', 'after_g', 'wb')
 
     def __init__(self, doc, rule, exception):
         self.rule = rule
         self.before = doc.compile(rule.before)
         self.after = doc.compile(rule.after)
-        a = rule.after
-        self.after_needs_slice = '^' in a.replace('[^', '') or '(?<' in a or a.startswith('\\b') or a.startswith('\\B')
         self.exception = exception
+        self.before_slice, self.before_caret, self.before_boundary = _region_dependence(rule.before)
+        self.before_g = doc.compile(_caret_to_G(rule.before)) if self.before_caret else None
+        self.after_slice, self.after_caret, self.after_boundary = _region_dependence(rule.after)
+        self.after_g = doc.compile(_caret_to_G(rule.after)) if self.after_caret else None
+        self.wb = doc.compile('\\b') if self.before_boundary or self.after_boundary else None
+
+
+def _boundary_differs(wb, text, pos):
+    """Whether \\b (and so \\B) at pos differs between a region starting at
+    pos and the whole text (only one character after pos is needed to
+    decide it in the region)."""
+    return pos > 0 and (wb.match(text, pos) is None) != (wb.match(text[pos:pos + 1]) is None)
 
 
 class RuleManager:
@@ -158,10 +304,13 @@ class RuleManager:
                     # (the before pattern is in a lookbehind: with the transparent bounds of the
                     # exception matcher, Java's lookbehind sets the region start to 0, so ^
                     # matches at the start of the text there; in the lookahead it matches at the
-                    # break position, the region start)
+                    # break position, the region start; the before pattern is finitized as in
+                    # RuleManager.createExceptionPatternString, which also keeps the backward
+                    # matching of the lookbehind from taking polynomial/exponential time)
                     s = '(?:'
-                    if rule.before:
-                        s += '(?<=' + rule.before + ')'
+                    before = finitize(rule.before)
+                    if before:
+                        s += '(?<=' + before + ')'
                     if rule.after:
                         s += '(?=' + _caret_to_G(rule.after) + ')'
                     s += ')'
@@ -186,40 +335,54 @@ class _RuleMatcher:
         self.bstart = self.bend = self.break_pos = 0
 
     def find(self, start=None):
+        # (the region is text[base:]: rather than slicing the text, which is O(n) per call and so
+        # O(n^2) for a long text, the patterns are searched in the whole text when the results are
+        # the same, see _region_dependence)
         if start is not None:
             # region(start, len): resets the matcher
             self.base = start
-            self.sub = self.text[start:]
+            self.sub = None
             self.first = -1
             self.last = 0
         self.found = False
         br = self.br
-        sub = self.sub
-        sublen = len(sub)
+        text = self.text
+        base = self.base
+        sublen = self.n - base
         while not self.found:
             nxt = self.last
             if nxt == self.first:
                 nxt += 1
             if nxt > sublen:
                 return False
-            m = br.before.search(sub, nxt)
-            if m is None:
-                self.first, self.last = -1, sublen + 1
-                return False
-            self.first, self.last = m.start(), m.end()
-            bend = self.base + m.end()
-            if br.after_needs_slice:
-                am = br.after.match(self.text[bend:])
-                if am is not None:
-                    self.found = True
-                    self.break_pos = bend + am.start()
+            if br.before_slice or (nxt == 0 and br.before_boundary and _boundary_differs(br.wb, text, base)):
+                if self.sub is None:
+                    self.sub = text[base:]
+                m = br.before.search(self.sub, nxt)
+                if m is None:
+                    self.first, self.last = -1, sublen + 1
+                    return False
+                self.first, self.last = m.start(), m.end()
             else:
-                am = br.after.match(self.text, bend)
-                if am is not None:
-                    self.found = True
-                    self.break_pos = am.start()
-            if self.found:
-                self.bstart = self.base + m.start()
+                if nxt == 0 and br.before_caret and base:
+                    m = br.before_g.search(text, base)
+                else:
+                    m = br.before.search(text, base + nxt)
+                if m is None:
+                    self.first, self.last = -1, sublen + 1
+                    return False
+                self.first, self.last = m.start() - base, m.end() - base
+            bend = base + self.last
+            if br.after_slice or (br.after_boundary and _boundary_differs(br.wb, text, bend)):
+                am = br.after.match(text[bend:])
+            elif br.after_caret:
+                am = br.after_g.match(text, bend)
+            else:
+                am = br.after.match(text, bend)
+            if am is not None:
+                self.found = True
+                self.break_pos = bend
+                self.bstart = base + self.first
                 self.bend = bend
         return True
 
