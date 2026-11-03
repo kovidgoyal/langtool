@@ -340,6 +340,10 @@ def test_catalan_wrong_word_in_context_rule(catalan, lt):
     assert len(_match(rule, lt, 'Vam comprar xocolate de mànec.')) == 1
     assert len(_match(rule, lt, "El pic de l'ocell.")) == 1
 
+    assert len(_match(rule, lt, "En el teatre grec, la tosquedat dels decorats es "
+                                "compensava per mitjà de màscares, tràgiques o còmiques, i les túniques estilitzades dels actors, "
+                                "l'objecte de les quals era ressaltar el caràcter arquetípic dels personatges.")) == 0
+
 
 # --- WordCoherencyRule, WordCoherencyValencianRule (no Java tests) ---
 

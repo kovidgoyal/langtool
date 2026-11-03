@@ -112,9 +112,9 @@ def _predicts_accent(sentence, language, completive_only):
     question_pos = find_question_mark(tokens, que_pos)
     core_end = strip_confirmation_tag(tokens, que_pos, question_pos) if question_pos >= 0 else n
     last_word = tokens[n - 2].token if n > 2 else ''
-    is_si_no_question = n > 2 and (last_word.lower() in _SINO_LAST_WORDS
-                                   or (last_word == 'què' and tokens[n - 1].token == 'o')
-                                   or (last_word == 'no' and tokens[n - 1].token == ','))
+    is_si_no_question = n > 3 and (last_word.lower() in _SINO_LAST_WORDS
+                                   or (last_word == 'què' and tokens[n - 3].token == 'o')
+                                   or (last_word == 'no' and tokens[n - 3].token == ','))
     is_another_subject = last_word == 'això'
 
     # Subjecte dislocat al final (", el professor?"): si el subjecte ja hi és, el SN
@@ -149,6 +149,8 @@ def _predicts_accent(sentence, language, completive_only):
     # "voler dir" ('to mean') is a lexicalized predicate
     voler_dir = _voler_dir_prediction(tokens, verb_group, core_end)
     if voler_dir is not None:
+        if is_si_no_question:
+            return False
         return voler_dir
 
     pronoms = []
