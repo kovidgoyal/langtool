@@ -2577,7 +2577,9 @@ def _add_boundaries(s):
     if s.startswith('(?i)'):
         s = s[4:]
         ic = '(?i)'
-    return ic + '\\b(' + s + ')\\b'
+    # (?U) makes \b Unicode-aware: since Java 21 \b uses ASCII word characters by default, which would
+    # wrongly match e.g. "pic" inside "arquetípic" (accented letters count as non-word characters).
+    return '(?U)' + ic + '\\b(' + s + ')\\b'
 
 
 class ContextWords:
