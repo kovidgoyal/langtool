@@ -2,7 +2,7 @@
 
 Grammar, style and typography checking for more than 30 languages, based on the
 rules of [LanguageTool](https://languagetool.org) based off commit
-[bc7e597](https://github.com/languagetool-org/languagetool/commit/bc7e597ca2a147c1139012fbf5fd9662de8034ad).
+[2c9b51e](https://github.com/languagetool-org/languagetool/commit/2c9b51ea0746c341fd7edabfc753b1cff1f516c7).
 This is a port of the LanguageTool core (written in Java) to Python, with a C extension for the
 performance critical parts. No Java and no server are needed.
 
@@ -75,7 +75,9 @@ first time a language is used (checksums are verified), and cached in the user
 cache directory (`~/.cache/langtool` on Linux). The same mechanism provides
 the word lists of the spell checkers, for English the OpenNLP models of the
 chunker and, for Japanese, the IPADIC dictionary of the morphological
-analyzer. To download them ahead of time:
+analyzer. These come from the released LanguageTool 6.8 artifacts, so the
+spell checker word lists can lag slightly behind the rules, which follow the
+commit above. To download them ahead of time:
 
     python -m langtool download en de fr
     python -m langtool download --spelling en-US de-DE   # also the Hunspell dictionaries

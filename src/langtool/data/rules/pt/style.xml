@@ -9809,18 +9809,33 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
             <example correction="semelhante a|de modo a|para|a fim de">Isto é feito <marker>afim de</marker> proteger as testemunhas.</example>
         </rule>
 
-        <rule id='A_POUCO_E_POUCO' name="Aos poucos">
-            <!--      Created by Marco A.G.Pinto, Portuguese rule      -->
+
+        <rule id='A_POUCO_E_POUCO' name="✂️ A pouco e pouco → aos poucos/gradualmente/lentamente" type='style' tags='picky' tone_tags='clarity'>
+            <!-- Simplificação estilística: substituir uma locução correta por uma alternativa mais concisa. -->
+            <!-- ChatGPT 6 and new disambiguator for 2026+ -->
             <pattern>
-                <token>a</token>
-                <token>pouco</token>
-                <token>e</token>
-                <token>pouco</token>
+                <marker>
+                    <token>a</token>
+                    <token>pouco</token>
+                    <token>e</token>
+                    <token>pouco</token>
+                </marker>
             </pattern>
-            <message>&informal_msg;</message>
-            <example correction="">Vamos <marker>a pouco e pouco</marker> construindo o futuro.</example>
-            <example>Vamos <marker>aos poucos</marker> construindo o futuro.</example>
+            <message>Esta expressão está correta, mas pode ser simplificada para tornar a redação mais concisa.</message>
+            <suggestion>aos poucos</suggestion>
+            <suggestion>gradualmente</suggestion>
+            <suggestion>lentamente</suggestion>
+            <url>https://ciberduvidas.iscte-iul.pt/consultorio/perguntas/a-expressao-a-pouco-e-pouco/30716</url>
+            <example correction="aos poucos|gradualmente|lentamente">Vamos <marker>a pouco e pouco</marker> construindo o futuro.</example>
+            <example correction="aos poucos|gradualmente|lentamente">A situação melhorou <marker>a pouco e pouco</marker>.</example>
+            <example correction="aos poucos|gradualmente|lentamente">Os investigadores foram <marker>a pouco e pouco</marker> obtendo resultados.</example>
+            <example correction="aos poucos|gradualmente|lentamente">A empresa recuperou <marker>a pouco e pouco</marker> da crise.</example>
+            <example>Vamos aos poucos construindo o futuro.</example>
+            <example>A situação melhorou gradualmente.</example>
+            <example>O projeto avançou pouco a pouco.</example>
+            <example>Os investigadores analisaram os resultados progressivamente.</example>
         </rule>
+
 
         <!-- ADJ PARA CARAÇAS/CARAMBA muito/bastante adj -->
         <rulegroup id='ADJ_PARA_PRA_CARAÇAS_CARAMBA' name="Adj + para/pra + caraças/caramba → Muito/Bastante + Adj" type='style'>
@@ -9935,31 +9950,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
             </rule>
         </rulegroup>
 
-        <rule id='BEM_DITO_DEUS-SATANÁS' name="Bem dito Deus-Satanás">
-            <!--      Created by Marco A.G.Pinto, Portuguese rule      -->
-            <pattern>
-                <marker>
-                    <token>bem</token>
-                    <token>dito</token>
-                </marker>
-                <token regexp="yes">Deus|Satanás</token>
-            </pattern>
-            <message>Substitua por <suggestion>bendito</suggestion>.</message>
-            <example correction="bendito">És a vida, <marker>bem dito</marker> Deus.</example>
-        </rule>
-
-        <rule id='BICHA_DE_ESPERA' name="Fila de espera">
-            <!--      Created by Marco A.G.Pinto, Portuguese rule      -->
-            <pattern>
-                <marker>
-                    <token>bicha</token>
-                </marker>
-                <token>de</token>
-                <token>espera</token>
-            </pattern>
-            <message>Substitua por <suggestion>fila</suggestion>.</message>
-            <example correction="fila">Estou na <marker>bicha</marker> de espera.</example>
-        </rule>
 
     </category>
 
@@ -9971,7 +9961,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
             <!-- ChatGPT 6 and new disambiguator for 2026+ -->
 
             <pattern>
-                <token inflected="yes">cumprir</token>
+                <token inflected='yes'>cumprir</token>
                 <marker>
                     <token>com</token>
                     <token>tudo</token>
@@ -10058,6 +10048,30 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
             <suggestion>gradualmente</suggestion>
             <suggestion>progressivamente</suggestion>
             <example correction="gradualmente|progressivamente">É assim que o sistema evolui <marker>ao longo do tempo</marker>.</example>
+        </rule>
+
+
+        <rule id='ENSINOS_SUPERIORES' name="🎓 Ensinos superiores → ensino superior" tags='picky' tone_tags='academic'>
+            <!-- Preferência terminológica: o nível educativo é habitualmente designado por "ensino superior", no singular. -->
+
+            <!-- ChatGPT 6 and new disambiguator for 2026+ -->
+
+            <pattern>
+                <token>de</token>
+                <marker>
+                    <token>ensinos</token>
+                    <token>superiores</token>
+                </marker>
+            </pattern>
+            <message>Quando se refere ao nível educativo, a designação habitual é &quot;ensino superior&quot;, no singular. Considere utilizar <suggestion>ensino superior</suggestion>.</message>
+            <short>Preferência pela designação no singular.</short>
+            <example correction="ensino superior">Temos instituições de <marker>ensinos superiores</marker> muito prestigiadas.</example>
+            <example correction="ensino superior">Existem vários estabelecimentos de <marker>ensinos superiores</marker> nesta região.</example>
+            <example correction="ensino superior">O relatório apresenta estatísticas de <marker>ensinos superiores</marker> em Portugal.</example>
+            <example>Portugal possui instituições de ensino superior públicas e privadas.</example>
+            <example>O ensino superior português inclui o ensino universitário e o politécnico.</example>
+            <example>Os ensinos superiores português e espanhol apresentam características diferentes.</example>
+            <example>As instituições de ensino superior desempenham um papel importante na investigação científica.</example>
         </rule>
 
 
@@ -13056,61 +13070,67 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
             <example correction="o">Desculpem <marker>este</marker> desabafo.</example>
         </rule>
 
-        <rule id='ENSINOS_SUPERIORES' name="Ensino superior" tone_tags="objective">
+
+        <rule id='APRESENTAR_OS_MELHORES_CUMPRIMENTOS' name="✂️ 'Apresentar os melhores' cumprimentos → apresentar" tags='picky' tone_tags='clarity'>
             <!-- IDEA shorten_it -->
-            <!--      Created by Marco A.G.Pinto, Portuguese rule      -->
+            <!-- Simplificação estilística de fórmulas de cortesia na correspondência formal. -->
+
+            <!-- ChatGPT 6 and new disambiguator for 2026+ -->
+
             <pattern>
-                <token>ensinos</token>
-                <token>superiores</token>
+                <marker>
+                    <token inflected='yes'>apresentar</token>
+                    <token>os</token>
+                    <token>melhores</token>
+                    <token>cumprimentos</token>
+                </marker>
             </pattern>
-            <message>Esta palavra é referida no singular.</message>
-            <suggestion>ensino superior</suggestion>
-            <example correction="ensino superior">Temos instituições de <marker>ensinos superiores</marker> muito prestigiadas.</example>
-        </rule>
-        <rule id='APRESENTAR_OS_MELHORES_CUMPRIMENTOS' name="Apresentar cumprimentos">
-            <!-- Created by Marco A.G. Pinto, Portuguese rule -->
-            <pattern>
-                <token inflected='yes'>apresentar</token>
-                <token>os</token>
-                <token>melhores</token>
-                <token>cumprimentos</token>
-            </pattern>
-            <message>Substitua por <suggestion>\1 \4</suggestion>.</message>
+            <message>Esta fórmula de cortesia pode ser simplificada sem perder o tom respeitoso. Considere utilizar <suggestion>\1 \4</suggestion>.</message>
+            <short>Fórmula de cortesia mais concisa.</short>
             <example correction="apresentar cumprimentos">Aproveito a oportunidade para <marker>apresentar os melhores cumprimentos</marker>.</example>
+            <example correction="Apresento cumprimentos"><marker>Apresento os melhores cumprimentos</marker> a todos os participantes.</example>
+            <example correction="apresentou cumprimentos">O diretor <marker>apresentou os melhores cumprimentos</marker> aos convidados.</example>
+            <example>Com os melhores cumprimentos, Marco Pinto.</example>
+            <example>Apresento os meus melhores cumprimentos.</example>
+            <example>Envio os meus cumprimentos aos participantes.</example>
+            <example>Os melhores cumprimentos foram transmitidos pessoalmente.</example>
         </rule>
-        <!-- MAIS REDUZIDA(O)(S) inferior(es) -->
-        <!--      Created by Marco A.G.Pinto, Portuguese rule 2020-10-25 (21-OCT-2020+)     -->
-        <rulegroup id='MAIS_REDUZIDA_INFERIOR' name="Inferior(es)/menor(es)/menos" tone_tags="objective">
+
+
+        <rule id='MAIS_REDUZIDA_INFERIOR' name="✂️ Mais reduzido(a)(s) → menor(es)/inferior(es)" tags='picky' tone_tags='clarity'>
             <!-- IDEA shorten_it -->
-            <rule>
-                <pattern>
-                    <token postag='V.+|CS|I|RG|AQ0[CFM][SP]0|DI0MS0|CC|NC[CFM][SP]000' postag_regexp='yes'/>
-                    <marker>
-                        <token>mais</token>
-                        <token regexp='yes'>reduzida|reduzido</token>
-                    </marker>
-                </pattern>
-                <message>Substitua por</message>
-                <suggestion>inferior</suggestion>
-                <suggestion>menor</suggestion>
-                <suggestion>menos</suggestion>
-                <example correction="inferior|menor|menos">Temos um grau de incerteza, embora <marker>mais reduzido</marker>.</example>
-            </rule>
-            <rule>
-                <pattern>
-                    <token postag='V.+|CS|I|RG|AQ0[CFM][SP]0|DI0MS0|CC|NC[CFM][SP]000' postag_regexp='yes'/>
-                    <marker>
-                        <token>mais</token>
-                        <token regexp='yes'>reduzidas|reduzidos</token>
-                    </marker>
-                </pattern>
-                <message>Substitua por</message>
-                <suggestion>inferiores</suggestion>
-                <suggestion>menores</suggestion>
-                <suggestion>menos</suggestion>
-                <example correction="inferiores|menores|menos">Temos graus de incerteza, embora <marker>mais reduzidos</marker>.</example>
-            </rule>
-        </rulegroup>
+            <!-- Simplificação estilística: substituir "mais reduzido" por um comparativo mais conciso. -->
+
+            <!-- ChatGPT 6 and new disambiguator for 2026+ -->
+
+            <pattern>
+                <token postag='V.+|CS|I|RG|AQ.+|DI.+|CC|NC.+' postag_regexp='yes'/>
+                <marker>
+                    <token>mais</token>
+                    <token regexp='yes'>reduzid[ao]s?</token>
+                </marker>
+            </pattern>
+            <message>Esta expressão pode ser simplificada. Considere utilizar &quot;menor&quot; ou &quot;inferior&quot;, conforme o contexto.</message>
+            <suggestion><match no='3' regexp_match='(?i)^(?:r(e)duzid[ao](s)|reduzid[ao])$' regexp_replace='menor$1$2'/></suggestion>
+            <suggestion><match no='3' regexp_match='(?i)^(?:r(e)duzid[ao](s)|reduzid[ao])$' regexp_replace='inferior$1$2'/></suggestion>
+            <short>Expressão passível de simplificação</short>
+            <example correction="menor|inferior">Temos um grau de incerteza, embora <marker>mais reduzido</marker>.</example>
+            <example correction="menores|inferiores">Temos graus de incerteza, embora <marker>mais reduzidos</marker>.</example>
+            <example correction="menor|inferior">O impacto ambiental foi <marker>mais reduzido</marker> neste cenário.</example>
+            <example correction="menor|inferior">A taxa de erro foi <marker>mais reduzida</marker> na segunda experiência.</example>
+            <example correction="menores|inferiores">Os custos operacionais foram <marker>mais reduzidos</marker> este ano.</example>
+            <example correction="menores|inferiores">As despesas foram <marker>mais reduzidas</marker> no último trimestre.</example>
+            <example correction="menor|inferior">O novo sistema apresenta um consumo energético <marker>mais reduzido</marker>.</example>
+            <example correction="menor|inferior">A probabilidade de falha é <marker>mais reduzida</marker> neste modelo.</example>
+            <example correction="menores|inferiores">Os resultados apresentaram valores <marker>mais reduzidos</marker> do que os anteriores.</example>
+            <example correction="menores|inferiores">As perdas económicas foram <marker>mais reduzidas</marker> após a intervenção.</example>
+            <example>O impacto ambiental foi reduzido.</example>
+            <example>A taxa de erro diminuiu significativamente.</example>
+            <example>Os custos operacionais foram menores este ano.</example>
+            <example>As despesas foram inferiores às previstas.</example>
+        </rule>
+
+
         <!-- ESTAR + ADVÉRBIO + A + VERBO verbo + advérbio -->
         <!--      Created by Marco A.G.Pinto, Portuguese rule 2020-11-05 (21-OCT-2020+)     -->
         <rulegroup id='ESTAR_ADVÉRBIO_A_VERBO_VERBO_ADVÉRBIO' name="✂️ Estar + Adv + A + Verbo → Verbo + Adv" type="style" tone_tags="objective">
@@ -18726,22 +18746,24 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA.
         </rule>
 
 
-        <!-- PERDER A VIDA A morrer/falecer/perecer -->
-        <rule id='PERDER_A_VIDA' name="Perder a vida → morrer/falecer/perecer">
-            <!--IDEA shorten_it-->
-            <!--      Created by Marco A.G.Pinto, Portuguese rule 2022-01-16 (Checked/Enhanced) (1-JAN-2022+)      -->
+        <rule id='PERDER_A_VIDA' name="✂️ perder a vida → morrer/falecer/perecer" tags='picky' tone_tags='clarity'>
+            <!-- STYLE: Simplification / Conciseness -->
+
+            <!-- ChatGPT 6 and new disambiguator for 2026+ -->
             <pattern>
                 <token inflected='yes'>perder</token>
                 <token regexp='yes'>as?</token>
-                <token min="0" max="1" postag='DP.+' postag_regexp='yes'/>
+                <token min='0' postag='DP.+' postag_regexp='yes'/>
                 <token regexp='yes'>vidas?</token>
             </pattern>
-            <message>Melhore a redação.</message>
+            <message>A expressão &quot;perder a vida&quot; é correta, mas pode ser substituída por um verbo mais direto e conciso, conforme o contexto.</message>
             <suggestion><match no='1' postag='V.+' postag_regexp='yes'>morrer</match></suggestion>
             <suggestion><match no='1' postag='V.+' postag_regexp='yes'>falecer</match></suggestion>
             <suggestion><match no='1' postag='V.+' postag_regexp='yes'>perecer</match></suggestion>
             <example correction="morreu|faleceu|pereceu">Ele <marker>perdeu a vida</marker> num acidente.</example>
+            <example correction="morreu|faleceu|pereceu">O soldado <marker>perdeu a sua vida</marker> durante o combate.</example>
             <example correction="morreram|faleceram|pereceram">Um milhão de pessoas <marker>perderam as suas vidas</marker> na guerra.</example>
+            <example correction="morreram|faleceram|pereceram">Muitos soldados <marker>perderam as vidas</marker> durante o conflito.</example>
         </rule>
 
 

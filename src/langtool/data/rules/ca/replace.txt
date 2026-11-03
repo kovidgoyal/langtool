@@ -1,3 +1,8 @@
+nutreòleg|nutreòloga=nutricionista
+nutreòlegs|nutreòlogesu=nutricionistes
+alemana=alemanya
+alemanes=alemanyes
+fisicalitat=corporalitat|materialitat|fisicitat|vigor|presència física
 Castilla=Castella
 postraumatic|postraumàtic=posttraumàtic
 postraumatica|postraumàtica=posttraumàtica
@@ -3712,3 +3717,8 @@ Barrio=Barri
 Terapia=Teràpia
 estilobat=estilòbata
 estilobats=estilòbates
+Española=Espanyola
+España=Espanya
+Fundamental=Fonamental
+Antigua=Antiga
+glamour=glamur

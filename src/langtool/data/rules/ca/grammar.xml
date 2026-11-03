@@ -23168,7 +23168,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token regexp="yes">[0-9]{4}|[0-9][0-9]</token>
                 </pattern>
                 <message>És preferible la construcció sense preposició.</message>
-                <suggestion>\2<match no="3" case_conversion="alllower"/></suggestion>
+                <suggestion><match no="1" case_conversion="preserve" regexp_match="^.*$" regexp_replace="l'"/><match no="3" case_conversion="alllower"/></suggestion>
                 <example correction="l'abril">Va passar <marker>a l'abril</marker> de 1997.</example>
                 <example correction="l'octubre">i, <marker>a l'octubre</marker> del 1910</example>
                 <example>De juny a l'abril de 1999.</example>
@@ -23186,8 +23186,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token regexp="yes">[0-9]{4}|[0-9][0-9]</token>
                 </pattern>
                 <message>És preferible la construcció sense preposició.</message>
-                <suggestion>el <match no="3" case_conversion="alllower"/></suggestion>
+                <suggestion><match no="1" case_conversion="preserve" regexp_match="^.*$" regexp_replace="e"/>l <match no="3" case_conversion="alllower"/></suggestion>
                 <example correction="el novembre">Va passar <marker>al novembre</marker> de 1997.</example>
+                <example correction="El desembre"><marker>Al desembre</marker> del 1982.</example>
+                <example correction="El desembre"><marker>Pel desembre</marker> del 1982.</example>
                 <example>Del juny al novembre de 1999.</example>
                 <example>Va convocar eleccions per al maig d3l 2013.</example>
             </rule>
@@ -23202,8 +23204,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token regexp="yes">passat|vinent|ve</token>
                 </pattern>
                 <message>És preferible la construcció sense preposició.</message>
-                <suggestion>el <match no="3" case_conversion="alllower"/></suggestion>
+                <suggestion><match no="1" case_conversion="preserve" regexp_match="^.*$" regexp_replace="e"/>l <match no="3" case_conversion="alllower"/></suggestion>
                 <example correction="el novembre">Ens vam veure <marker>al novembre</marker> passat.</example>
+                <example correction="El novembre"><marker>Al novembre</marker> passat.</example>
                 <example>Del juny al novembre de 1999.</example>
             </rule>
             <rule>
@@ -23217,8 +23220,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token regexp="yes">passat|vinent|ve</token>
                 </pattern>
                 <message>És preferible la construcció sense preposició.</message>
-                <suggestion>\2<match no="3" case_conversion="alllower"/></suggestion>
+                <suggestion><match no="1" case_conversion="preserve" regexp_match="^.*$" regexp_replace="l'"/><match no="3" case_conversion="alllower"/></suggestion>
                 <example correction="l'abril">Serà <marker>a l'abril</marker> que ve.</example>
+                <example correction="L'abril"><marker>A l'abril</marker> que ve.</example>
             </rule>
         </rulegroup>
         <rule id="DE_2001" name="de/del 2001" default="off">
@@ -23518,10 +23522,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <marker>
                         <token regexp="yes">en|amb|a</token>
                     </marker>
+                    <token min="0">no</token>
                     <token postag="V.N.*" postag_regexp="yes"/>
                 </pattern>
                 <message>La preposició adequada en aquesta expressió és <suggestion>de</suggestion>.</message>
                 <example correction="de">Fas molt bé <marker>en</marker> vindre enjorn a la faena!</example>
+                <example correction="de">Vas fer bé <marker>en</marker> no assistir a la reunió.</example>
             </rule>
         </rulegroup>
         <rule id="AMB_QUE_PUC_AJUDAR" name="amb què puc ajudar -> en què puc ajudar">
@@ -25230,7 +25236,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             </antipattern>
             <rule>
                 <pattern>
-                    <token inflected="yes" skip="3" regexp="yes">caldre|servir|usar|emprar|aprofitar|preparar|necessari|fonamental|essencial|imprescindible|suficient|prou|motiu|raó|clau</token>
+                    <token inflected="yes" skip="3" regexp="yes">caldre|servir|usar|emprar|aprofitar|preparar|necessari|fonamental|essencial|imprescindible|suficient|prou|motiu|raó|clau|diner</token>
                     <marker>
                         <token>per</token>
                     </marker>
@@ -26632,19 +26638,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             </pattern>
             <message>La preposició adequada és <suggestion>amb</suggestion>.</message>
             <example correction="amb">Allò anava <marker>en</marker> segones.</example>
-        </rule>
-        <rule id="FER_BE_DE_INF" name="fer bé en no passar -> fer bé de" default="temp_off">
-            <pattern>
-                <token inflected="yes">fer</token>
-                <token>bé</token>
-                <marker>
-                    <token>en</token>
-                </marker>
-                <token min="0">no</token>
-                <token postag="V.N.*" postag_regexp="yes"/>
-            </pattern>
-            <message>La preposició adequada és <suggestion>de</suggestion>.</message>
-            <example correction="de">Vas fer bé <marker>en</marker> no assistir a la reunió.</example>
         </rule>
         <rulegroup id="CANVI_PREPOSICIONS" name="canvi de preposicions davant d'infinitiu">
             <!--<url>http://esadir.cat/entrades/fitxa/node/prepcancaig</url>-->
@@ -34929,15 +34922,30 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
         </rule>
     </category>
     <category id="CONFUSIONS" name="Confusions" type="grammar">
-        <rule id="TAT_TANT" name="tat -> tant" default="temp_off">
+        <rule id="PLANTETA_PLANETA" name="planteta planeta">
+            <pattern>
+                <token postag="D..M.." postag_regexp="yes"/>
+                <marker>
+                    <token postag="NCF.*" postag_regexp="yes" inflected="yes">planteta</token>
+                </marker>
+            </pattern>
+            <filter class="org.languagetool.rules.ca.ConvertToGenderAndNumberFilter" args="lemmaSelect:N.*"/>
+            <message>¿Volíeu dir "planeta" (masculí) o "planteta" (femení)?</message>
+            <suggestion><match no="2" postag="NCF(.*)" postag_regexp="yes" postag_replace="NCC$1">planeta</match></suggestion>
+            <suggestion>\2</suggestion>
+            <example correction="El planeta|La planteta"><marker>El planteta</marker>.</example>
+            <example correction="del planeta|de la planteta">El més gran <marker>del planteta</marker>.</example>
+            <example correction="als planetes|a les plantetes">Viatge <marker>als plantetes</marker> del sistema solar.</example>
+        </rule>
+        <rule id="TAT_TANT" name="tat -> tant">
             <pattern>
                 <marker>
-                    <token skip="6">tat</token>
+                    <token skip="8">tat</token>
                 </marker>
                 <token>com</token>
             </pattern>
             <message>¿Volíeu dir <suggestion>tant</suggestion>?</message>
-            <example correction="tant">Em va passat <marker>tat</marker> amb l'un com amb l'altre.</example>
+            <example correction="tant">Em va passar <marker>tat</marker> amb l'un com amb l'altre.</example>
         </rule>
         <rule id="TE_LA_COPIA" name="te la copia -> té la còpia">
             <pattern>
@@ -39057,6 +39065,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             <example>El primer objectiu va ser avaluar.</example>
         </rule>
         <rulegroup id="CONFUSIO_FEM_HEM" name="confusió fem>hem">
+            <antipattern>
+                <token postag="SPS00"/>
+                <token min="0" postag="D..MS." postag_regexp="yes"/>
+                <token>fem</token>
+            </antipattern>
             <rule>
                 <pattern>
                     <marker>
@@ -44560,11 +44573,16 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token regexp="yes" inflected="yes" skip="10">pensament|preocupació|maldecap</token>
                     <token inflected="yes">torbar</token>
                 </antipattern>
+                <antipattern>
+                    <token inflected="yes" skip="2">torbar</token>
+                    <token regexp="yes" inflected="yes">pau|tranquil·litat|calma</token>
+                </antipattern>
                 <pattern>
                     <token inflected="yes">torbar</token>
                 </pattern>
                 <message>¿Volíeu dir <suggestion><match no="1" regexp_match="(?iu)tor" regexp_replace="tro" case_conversion="preserve"/></suggestion>? "Torbar" és correcte amb el sentit de "alterar, distraure, entretenir".</message>
                 <example correction="trobar">Mira què vaig <marker>torbar</marker> fa poc.</example>
+                <example>Torbaren la pau del balneari.</example>
             </rule>
         </rulegroup>
         <rule id="PLURAL_WEB" name="web (adjectiu)">
@@ -59205,7 +59223,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token>diferència</token>
                 </antipattern>
                 <antipattern>
-                    <token>la</token>
+                    <token postag="D..FS." postag_regexp="yes"/>
                     <token>diferència</token>
                     <token regexp="yes" postag="V...3S.." postag_regexp="yes" inflected="yes">ser|estar</token>
                 </antipattern>
@@ -59231,6 +59249,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                 <example>Una altra petita diferència és que hi ha una inclinació en el carregador.</example>
                 <example>i la poca diferència que hi havia</example>
                 <example>La primera gran diferència que notareu és aquesta.</example>
+                <example>Encara que algunes vegades aquesta diferència és subtil.</example>
             </rule>
             <rule>
                 <antipattern>
@@ -70068,6 +70087,32 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                 <example correction="què">Sabeu <marker>que</marker> li va passar?</example>
                 <example correction="què">Sabeu <marker>que</marker> li ha passat?</example>
             </rule>
+            <rule default="temp_off">
+                <pattern>
+                    <token>ni</token>
+                    <marker>
+                        <token>que</token>
+                    </marker>
+                    <token postag="V.N.*" postag_regexp="yes"/>
+                </pattern>
+                <message>Amb el sentit de 'quina cosa' s'escriu amb accent.</message>
+                <suggestion>què</suggestion>
+                <example correction="què">No sé què dir ni <marker>que</marker> fer.</example>
+            </rule>
+            <rule default="temp_off">
+                <pattern>
+                    <token inflected="yes">saber</token>
+                    <marker>
+                        <token>que</token>
+                    </marker>
+                    <token postag="&pronom_feble;|RN" postag_regexp="yes" min="0" max="2"/>
+                    <token postag="V.*" postag_regexp="yes"/>
+                    <token postag="_PUNCT.*|C.*" postag_regexp="yes"/>
+                </pattern>
+                <message>Amb el sentit de 'quina cosa' s'escriu amb accent.</message>
+                <suggestion>què</suggestion>
+                <example correction="què">No sé <marker>que</marker> feia.</example>
+            </rule>
         </rulegroup>
         <rulegroup id="QUE_INICIAL_SENSEACCENT_NOVERB" name="que -> què (a l'inici de frase)">
             <rule>
@@ -70571,6 +70616,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                 <example correction="Què"><marker>Que</marker> vol dir-me?</example>
                 <example>Que vol dir alguna cosa?</example>
                 <example>Que vols dir res?</example>
+                <example>Que vol dir el mateix que no haver-me unit al teu clan, oi?</example>
+                <example>Que vol dir això, no?</example>
             </rule>
             <rule>
                 <antipattern>
@@ -74643,7 +74690,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             <url>https://oiec.iec.cat/textortografia/codi/3.1.3</url>
             <antipattern>
                 <token inflected="yes">bé</token>
-                <token inflected="yes" regexp="yes">moble|immoble|quantiós|abundant|abundós|copiós|superior|inferior</token>
+                <token inflected="yes" regexp="yes">moble|immoble|quantiós|abundant|abundós|copiós|superior|inferior|comú|material|immaterial|fungible|infungible|públic|privat|comunal|patrimonial|arrel|lliure|raïl|escàs|excessiu|considerable|important|valuós|preuat|adquirir|produir|heretar|embargar|hipotecar|afecte|subjecte|destinar|consignar|perdre|guanyar|amortitzar|inventariar</token>
             </antipattern>
             <antipattern>
                 <token inflected="yes" regexp="yes">quantiós|abundant|abundós|copiós</token>
@@ -81000,7 +81047,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                         <token>hagut<exception postag="_obligacio"/></token>
                     </marker>
                 </pattern>
-                <message>¿Volíeu dir <suggestion>hi <match no="2"/> hagut</suggestion>?</message>
+                <message>¿Volíeu dir <suggestion>hi <match no="2" case_conversion="alllower"/> hagut</suggestion>?</message>
                 <example correction="hi ha hagut"><marker>ha hagut</marker> un xoc de trens</example>
                 <example correction="hi ha hagut">Sempre <marker>ha hagut</marker> moltes maneres de celebrar Nadal.</example>
                 <example>hi ha hagut un xoc</example>
@@ -93945,6 +93992,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                     <token>si</token>
                     <token>cap</token>
                 </antipattern>
+                <antipattern>
+                    <token>si</token>
+                    <token>cap</token>
+                    <token>no</token>
+                </antipattern>
                 <pattern>
                     <token>si</token>
                     <token>cap<exception postag="_GN_.*" postag_regexp="yes"/></token>
@@ -97131,10 +97183,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                 </pattern>
                 <message>Val més evitar aquesta construcció.</message>
                 <suggestion>d'ara endavant</suggestion>
+                <suggestion>des de llavors</suggestion>
                 <suggestion>d'avui endavant</suggestion>
                 <suggestion>d'ara en avant</suggestion>
                 <suggestion>de hui en avant</suggestion>
-                <example correction="d'ara endavant|d'avui endavant|d'ara en avant|de hui en avant"><marker>en endavant</marker> no es podrà fer més.</example>
+                <example correction="d'ara endavant|des de llavors|d'avui endavant|d'ara en avant|de hui en avant"><marker>en endavant</marker> no es podrà fer més.</example>
             </rule>
         </rulegroup>
         <rulegroup id="PAVOS" name="pavos">
@@ -104833,6 +104886,20 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
                 <example>És el de menys importància.</example>
             </rule>
         </rulegroup>
+        <rule id="ASSEURE_LES_BASES" name="asseure -> assentar, establir">
+            <pattern>
+                <marker>
+                    <token inflected="yes" regexp="yes">asseure|seure</token>
+                </marker>
+                <token postag_regexp="yes" postag="D.*"/>
+                <token inflected="yes" regexp="yes">base_1|base_2|principi|fonament</token>
+            </pattern>
+            <message>Verb incorrecte en aquest context.</message>
+            <suggestion><match no="1" postag="(V.*)" postag_regexp="yes" postag_replace="$1">assentar</match></suggestion>
+            <suggestion><match no="1" postag="(V.*)" postag_regexp="yes" postag_replace="$1">establir</match></suggestion>
+            <example correction="assentar|establir">Van <marker>asseure</marker> les bases de tota l'evolució posterior.</example>
+            <example correction="assentat|establit">Han <marker>assegut</marker> les bases de tota l'evolució posterior.</example>
+        </rule>
         <rulegroup id="VOLTA_INCORRECTE" name="*a volta de correu">
             <rule>
                 <pattern>
@@ -109604,26 +109671,39 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             <example correction="pagarà ell els plats trencats|pagarà ell la festa">Al final <marker>pagarà ell el pato</marker>.</example>
             <example>Pagaràs la festa.</example>
         </rule>
-        <rule id="MEREIXER_LA_PENA" name="merèixer la pena">
+        <rulegroup id="MEREIXER_LA_PENA" name="merèixer la pena">
             <antipattern>
-                <marker>
-                    <token>pena</token>
-                    <token>de</token>
-                    <token>mort</token>
-                </marker>
-            </antipattern>
-            <pattern>
-                <token inflected="yes">merèixer</token>
-                <token>la</token>
                 <token>pena</token>
-            </pattern>
-            <message>Expressió incorrecta.</message>
-            <suggestion><match no="1" postag="(V.+)" postag_regexp="yes" postag_replace="$1">valer</match> la pena</suggestion>
-            <suggestion>s'ho <match no="1" postag="(V.+)" postag_regexp="yes" postag_replace="$1">valer</match></suggestion>
-            <example correction="val la pena|s'ho val">No <marker>mereix la pena</marker>.</example>
-            <example correction="valdrà la pena|s'ho valdrà">No <marker>mereixerà la pena</marker>.</example>
-            <example>Van merèxier la pena de mort.</example>
-        </rule>
+                <token>de</token>
+                <token>mort</token>
+            </antipattern>
+            <rule>
+                <pattern>
+                    <token inflected="yes" postag="V.[SI].*" postag_regexp="yes">merèixer</token>
+                    <token>la</token>
+                    <token>pena</token>
+                </pattern>
+                <message>Expressió incorrecta.</message>
+                <suggestion><match no="1" postag="(V.+)" postag_regexp="yes" postag_replace="$1">valer</match> la pena</suggestion>
+                <suggestion>s'ho <match no="1" postag="(V.+)" postag_regexp="yes" postag_replace="$1">valer</match></suggestion>
+                <example correction="val la pena|s'ho val">No <marker>mereix la pena</marker>.</example>
+                <example correction="valdrà la pena|s'ho valdrà">No <marker>mereixerà la pena</marker>.</example>
+                <example>Van merèxier la pena de mort.</example>
+            </rule>
+            <rule>
+                <pattern>
+                    <marker>
+                        <token inflected="yes">merèixer</token>
+                    </marker>
+                    <token>la</token>
+                    <token>pena</token>
+                </pattern>
+                <message>Expressió incorrecta.</message>
+                <suggestion><match no="1" postag="(V.+)" postag_regexp="yes" postag_replace="$1">valer</match></suggestion>
+                <example correction="valgut">Haurà <marker>merescut</marker> la pena. </example>
+                <example>Van merèxier la pena de mort.</example>
+            </rule>
+        </rulegroup>
         <rule id="MENYS_MAL" name="menys mal">
             <antipattern>
                 <marker>
@@ -114908,7 +114988,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
         </rule>
         <rule id="QUAN_ABANS" name="quan abans -> com més aviat">
             <pattern>
-                <token postag="SENT_START|_PUNCT.*|CC" postag_regexp="yes"/>
+                <token postag="SENT_START|_PUNCT.*|C.*" postag_regexp="yes"/>
                 <marker>
                     <token regexp="yes">com|quan|quant</token>
                     <token>abans</token>
@@ -114923,6 +115003,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             <example correction="Com més aviat|Com més prompte"><marker>Quan abans</marker> hi anem, abans acabarem.</example>
             <example correction="Com més aviat|Com més prompte"><marker>Quan abans</marker> es derogui el nyap, millor per a tothom.</example>
             <example correction="com més aviat|com més prompte">I <marker>quan abans</marker> es derogui el nyap, millor per a tothom.</example>
+            <example correction="com més aviat|com més prompte">I això vol dir que <marker>quan abans</marker> entengui quin és el seu bàndol millor.</example>
         </rule>
         <rulegroup id="QUANT_ABANS" name="*quant abans">
             <rule>
@@ -119013,6 +119094,13 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
             </rule>
         </rulegroup>
         <rulegroup id="RARE_WORDS" name="paraules molt infreqüents">
+            <rule id="QUERA" name="quera -> que era" default="temp_off">
+                <pattern>
+                    <token case_sensitive="yes">quera</token>
+                </pattern>
+                <message>¿Volíeu dir <suggestion>que era</suggestion> (del verb 'ser'). "Quera" pot ser un substantiu amb el significat de "corc".</message>
+                <example correction="que era">Li vaig dir <marker>quera</marker> massa tard.</example>
+            </rule>
             <rule id="MAJORA" name="majora -> majoria">
                 <antipattern>
                     <token>senyora</token>
@@ -149309,6 +149397,11 @@ No t'ho explicaré, no cal que em burxis més-->
                 <token min="0" postag="DA..P." postag_regexp="yes"/>
                 <token regexp="yes">\d+(\.\d\d\d)*</token>
             </antipattern>
+            <antipattern>
+                <token>(</token>
+                <token regexp="yes" skip="3">\d+</token>
+                <token>)</token>
+            </antipattern>
             <rule>
                 <antipattern>
                     <token regexp="yes">\d+(\.\d\d\d)*<exception>1</exception></token>
@@ -149331,6 +149424,7 @@ No t'ho explicaré, no cal que em burxis més-->
                 <example>Ha de casar-se als 14 o 15 anys.</example>
                 <example>Dels 10 als 14 anys d'edat.</example>
                 <example>2009 Any internacional del llibre.</example>
+                <example>(70 anys)</example>
             </rule>
             <rule>
                 <antipattern>
