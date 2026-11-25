@@ -39,6 +39,27 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      - name: Add swap space
+        if: runner.os == 'Linux'
+        run: |
+          # the pytest-xdist workers keep the data of the languages they tested
+          # (the caches live as long as the process): with 4 workers the tests
+          # peak at about 17 GB RSS, more than the 16 GB of the runner. The
+          # Ubuntu 26.04 image has no (or too little) swap (Windows and macOS page
+          # out), and running out of memory kills the runner ("lost communication")
+          free -m
+          df -h / /mnt || true
+          # (the temporary disk /mnt if there is one with enough space)
+          swapfile=/langtool-swapfile
+          if [ -d /mnt ] && [ "$(df --output=avail -BG /mnt | tail -1 | tr -dc 0-9)" -gt 20 ]; then
+            swapfile=/mnt/langtool-swapfile
+          fi
+          sudo fallocate -l 12G "$swapfile"
+          sudo chmod 600 "$swapfile"
+          sudo mkswap "$swapfile"
+          sudo swapon "$swapfile"
+          free -m
+
       - name: Set up the cache directories
         run: |
           # the downloads (dictionaries) are kept between runs; the derived data
@@ -71,6 +92,10 @@ jobs:
         env:
           LANGTOOL_TEST_DIAGNOSTICS: '1'
         run: python -m pytest -q -o faulthandler_timeout=1200 --timeout=2700 --durations=30 tests
+
+      - name: Show the memory and swap use
+        if: always() && runner.os == 'Linux'
+        run: free -m
 
   pure-python:
     name: Pure Python smoke tests
