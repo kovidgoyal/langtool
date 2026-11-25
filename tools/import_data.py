@@ -22,7 +22,7 @@ import sys
 
 EXCLUDED_MODULES = {'all', 'sr'}  # sr is not built by LanguageTool
 
-EXCLUDE_DIRS = {'hunspell'}
+EXCLUDE_DIRS = {'hunspell', 'dev'}  # dev: build tooling (gradle, oxt/xpi packaging), e.g. crh
 EXCLUDE_PATTERNS = [
     '*.dict', '*.bin', '*.zip', '*.html', '*.pl', '*.py', '*.sh', '*.awk', '*.README', '*.profile',
     'common_words.txt', 'spelling.txt', 'spelling_*.txt', 'ignore.txt', 'prohibit.txt', 'prohibit_custom.txt',
