@@ -490,10 +490,31 @@ def _entry_path(kind, key):
     return os.path.join(directory(), '%s-%s.pkl' % (safe, h))
 
 
+def _retry_sharing(fn, *args):
+    """fn(*args), retried for a while on Windows when it fails with a
+    sharing violation (PermissionError): a file can't be replaced while
+    another thread or process has it open, nor opened while it is being
+    replaced (both are short)"""
+    if os.name != 'nt':
+        return fn(*args)
+    delay = 0.001
+    for _ in range(10):
+        try:
+            return fn(*args)
+        except PermissionError:
+            time.sleep(delay)
+            delay = min(delay * 2, 0.05)
+    return fn(*args)
+
+
+def _read_file(path):
+    with open(path, 'rb') as f:
+        return f.read()
+
+
 def _read(path, kind, key, resolve):
     """the cached value, or raises (any exception: the entry can't be used)"""
-    with open(path, 'rb') as f:
-        data = f.read()
+    data = _retry_sharing(_read_file, path)
     if len(data) < _HEADER.size:
         raise ValueError('truncated')
     magic, hlen, plen, crc = _HEADER.unpack_from(data)
@@ -790,7 +811,7 @@ def _write(path, kind, key, deps, value, persist):
             f.write(_HEADER.pack(_MAGIC, len(header), len(payload), zlib.crc32(payload)))
             f.write(header)
             f.write(payload)
-        os.replace(tmp, path)
+        _retry_sharing(os.replace, tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -1125,7 +1146,7 @@ def flush_regex_store():
                 f.write(raw_index)
                 for b in chunks:
                     f.write(b)
-            os.replace(tmp, path)
+            _retry_sharing(os.replace, tmp, path)
         except BaseException:
             try:
                 os.unlink(tmp)
